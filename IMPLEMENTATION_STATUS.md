@@ -16,20 +16,20 @@
 - Receiver partial-file persistence and safe resume offsets.
 - Sender pending-session persistence for process recreation.
 - Automatic socket reconnect with bounded backoff.
+- Best-effort Wi-Fi Direct group recreation using the captured receiver device address and refreshed group-owner IP.
 - Verified-file markers so already-completed files are skipped after reconnect.
 - SHA-256 verification before publishing received content.
 - Category-aware output under Download/OptiShare.
 - Incoming transfer approval notification with Accept / Decline actions.
 - Local transfer history baseline.
-- Privacy policy draft and Play Data Safety engineering draft.
+- Privacy policy draft, security model, Play Data Safety engineering draft and store-listing draft.
 
 ## Release blockers that require validation or additional implementation
 - GitHub Actions must be green after the latest source changes.
 - Physical Android 5 through Android 16 compatibility matrix is not yet executed.
-- Cross-OEM Wi-Fi Direct behavior must be verified on Samsung, Pixel, OnePlus, Xiaomi/Redmi, Oppo/Realme and other intended devices.
-- If the entire Wi-Fi Direct group is destroyed (not just the TCP socket), automatic radio-level rediscovery/reconnection still needs a dedicated persistent discovery controller and device-matrix testing.
+- Cross-OEM Wi-Fi Direct behavior and the new radio-level group recovery must be verified on Samsung, Pixel, OnePlus, Xiaomi/Redmi, Oppo/Realme and other intended devices.
 - In-app incoming request dialog should complement notification actions for the best foreground UX.
-- Six-digit security code is displayed by the protocol but user-confirmation / QR-authenticated peer trust must be enforced before claiming MITM-resistant authenticated pairing.
+- Six-digit security code is displayed by the protocol, but explicit human confirmation / QR-authenticated peer trust must be completed before claiming strong MITM-resistant peer authentication.
 - Installed-app browser/APK extraction is not part of the current Play-safe scope; current Apps flow is APK-file selection.
 - Same-LAN fallback, folder transfer, internal Music/Documents browser, full albums/search, cached thumbnail loader, ETA, pause, full Arabic UI resources and accessibility pass remain product enhancements.
 - Google Play privacy policy must be hosted at a public HTTPS URL and supplied with final developer contact details.
