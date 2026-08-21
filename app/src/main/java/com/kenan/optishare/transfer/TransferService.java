@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class TransferService extends Service {
     public static final String ACTION_START_RECEIVER = "com.kenan.optishare.action.START_RECEIVER";
     public static final String ACTION_SEND = "com.kenan.optishare.action.SEND";
+    public static final String ACTION_ACCEPT = "com.kenan.optishare.action.ACCEPT";
+    public static final String ACTION_DECLINE = "com.kenan.optishare.action.DECLINE";
     public static final String ACTION_STOP = "com.kenan.optishare.action.STOP";
     public static final String ACTION_EVENT = "com.kenan.optishare.TRANSFER_EVENT";
     public static final String EXTRA_HOST = "host";
@@ -50,6 +52,7 @@ public final class TransferService extends Service {
     private static final String CHANNEL = "optishare_transfers";
     private static final int NOTIFICATION_ID = 2200;
     private static final int MAX_SOCKET_RETRIES = 8;
+    private static final long APPROVAL_TIMEOUT_MS = 60_000L;
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -66,6 +69,14 @@ public final class TransferService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) return START_STICKY;
         String action = intent.getAction();
+        if (ACTION_ACCEPT.equals(action)) {
+            IncomingApproval.decide(true);
+            return START_STICKY;
+        }
+        if (ACTION_DECLINE.equals(action)) {
+            IncomingApproval.decide(false);
+            return START_STICKY;
+        }
         if (ACTION_STOP.equals(action)) {
             stopTransfer();
             return START_NOT_STICKY;
@@ -92,10 +103,10 @@ public final class TransferService extends Service {
                     try {
                         receiveOne(socket);
                     } catch (Exception transferError) {
-                        if (running.get()) {
+                        if (running.get() && !isDecline(transferError)) {
                             broadcast("reconnecting", "Connection interrupted — waiting for sender to reconnect", 0, 0,
                                     activeManifest == null ? null : activeManifest.getSessionId());
-                            updateNotification("Waiting to resume", "Keep OptiShare open; confirmed progress is preserved", 0, false);
+                            updateNotification("Waiting to resume", "Confirmed progress is preserved", 0, false);
                         }
                     } finally {
                         closeSocket();
@@ -118,28 +129,49 @@ public final class TransferService extends Service {
             @Override public void onSecurityCode(String code) {
                 broadcast("security", "Security code: " + formatCode(code), 0, 0, null);
             }
+
             @Override public void onIncomingBatch(BatchManifest manifest) {
                 activeManifest = manifest;
-                broadcast("incoming", manifest.getEntries().size() + " files • " + formatBytes(manifest.totalBytes()), 0, 0, manifest.getSessionId());
+                IncomingApproval.begin(manifest.getSessionId());
+                String detail = manifest.getEntries().size() + " files • " + formatBytes(manifest.totalBytes());
+                broadcast("incoming", detail, 0, 0, manifest.getSessionId());
+                updateNotification("Incoming files", detail + " — open OptiShare to accept", 0, false);
             }
+
             @Override public boolean acceptIncomingBatch(BatchManifest manifest) {
-                return running.get();
+                if (!running.get()) return false;
+                try {
+                    boolean accepted = IncomingApproval.await(manifest.getSessionId(), APPROVAL_TIMEOUT_MS);
+                    if (!accepted) {
+                        broadcast("declined", "Transfer declined or approval timed out", 0, 0, manifest.getSessionId());
+                    }
+                    return accepted;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
             }
+
             @Override public void onProgress(String sessionId, String fileId, String fileName, long done, long total, long batchDone, long batchTotal, double bytesPerSecond) {
                 int p = batchTotal <= 0 ? 0 : (int) Math.min(100, batchDone * 100L / batchTotal);
                 String message = "Receiving " + fileName + " • " + p + "% • " + formatSpeed(bytesPerSecond);
                 updateNotification("Receiving files", message, p, true);
                 broadcast("progress", message, p, bytesPerSecond, sessionId);
             }
+
             @Override public void onFileCompleted(String sessionId, String fileId, Uri publishedUri) {
-                broadcast("file_done", "Saved to Download/OptiShare", 0, 0, sessionId);
+                broadcast("file_done", "Verified and saved to Download/OptiShare", 0, 0, sessionId);
             }
+
             @Override public void onCompleted(String sessionId) {
                 updateNotification("Transfer complete", "Files saved to Download/OptiShare", 100, false);
                 broadcast("completed", "Transfer complete ✓", 100, 0, sessionId);
             }
+
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
-                broadcast(resumable ? "reconnecting" : "error", resumable ? "Connection interrupted — ready to resume" : safe(error), 0, 0, sessionId);
+                if (isDecline(error)) return;
+                broadcast(resumable ? "reconnecting" : "error",
+                        resumable ? "Connection interrupted — ready to resume" : safe(error), 0, 0, sessionId);
             }
         });
     }
@@ -176,6 +208,11 @@ public final class TransferService extends Service {
                         return;
                     } catch (Exception transferError) {
                         closeSocket();
+                        if (isDecline(transferError)) {
+                            broadcast("declined", "Receiver declined the transfer", 0, 0,
+                                    activeManifest == null ? null : activeManifest.getSessionId());
+                            return;
+                        }
                         if (attempt >= MAX_SOCKET_RETRIES) throw transferError;
                     }
                 }
@@ -209,7 +246,9 @@ public final class TransferService extends Service {
                 broadcast("completed", "All files sent ✓", 100, 0, sessionId);
             }
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
-                broadcast("reconnecting", "Connection interrupted — resuming automatically", 0, 0, sessionId);
+                if (!isDecline(error)) {
+                    broadcast("reconnecting", "Connection interrupted — resuming automatically", 0, 0, sessionId);
+                }
             }
         });
     }
@@ -294,6 +333,7 @@ public final class TransferService extends Service {
 
     private void stopTransfer() {
         running.set(false);
+        IncomingApproval.cancel();
         closeSocket();
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) { }
         serverSocket = null;
@@ -308,6 +348,7 @@ public final class TransferService extends Service {
 
     @Override public void onDestroy() {
         running.set(false);
+        IncomingApproval.cancel();
         closeSocket();
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) { }
         executor.shutdownNow();
@@ -315,6 +356,11 @@ public final class TransferService extends Service {
     }
 
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }
+
+    private static boolean isDecline(Throwable t) {
+        String message = safe(t).toLowerCase(Locale.US);
+        return message.contains("declined") || message.contains("approval timed out");
+    }
 
     private static String safe(Throwable t) {
         String message = t == null ? null : t.getMessage();
