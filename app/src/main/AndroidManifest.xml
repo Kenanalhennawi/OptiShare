@@ -47,6 +47,13 @@
             android:stopWithTask="false" />
 
         <activity
+            android:name=".ApprovalActivity"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="false" />
+
+        <activity
             android:name=".V2Activity"
             android:screenOrientation="portrait"
             android:exported="true">
