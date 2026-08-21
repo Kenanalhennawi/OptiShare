@@ -10,11 +10,35 @@ android {
         applicationId 'com.kenan.optishare'
         minSdk 23
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 3
+        versionName '0.3.0'
+    }
+
+    signingConfigs {
+        release {
+            if (project.hasProperty('OPTISHARE_STORE_FILE')) {
+                storeFile file(project.property('OPTISHARE_STORE_FILE'))
+                storePassword project.property('OPTISHARE_STORE_PASSWORD')
+                keyAlias project.property('OPTISHARE_KEY_ALIAS')
+                keyPassword project.property('OPTISHARE_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (project.hasProperty('OPTISHARE_STORE_FILE')) signingConfig signingConfigs.release
+        }
     }
 }
 
 dependencies {
+    implementation 'androidx.activity:activity:1.10.1'
+    implementation 'androidx.core:core:1.15.0'
+    implementation 'androidx.camera:camera-core:1.4.2'
+    implementation 'androidx.camera:camera-camera2:1.4.2'
+    implementation 'androidx.camera:camera-lifecycle:1.4.2'
+    implementation 'androidx.camera:camera-view:1.4.2'
     implementation 'com.google.zxing:core:3.5.3'
 }
