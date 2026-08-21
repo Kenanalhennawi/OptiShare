@@ -26,14 +26,21 @@ import java.util.Set;
 
 public final class GalleryAdapter extends RecyclerView.Adapter<GalleryAdapter.Holder> {
     public interface Listener { void onSelectionChanged(Set<Uri> selected); }
+    public interface PreviewListener { void onPreview(MediaRepository.MediaItem item); }
 
     private final List<MediaRepository.MediaItem> items = new ArrayList<>();
     private final Set<Uri> selected = new HashSet<>();
     private final Listener listener;
+    private final PreviewListener previewListener;
 
     public GalleryAdapter(Set<Uri> initialSelection, Listener listener) {
+        this(initialSelection, listener, null);
+    }
+
+    public GalleryAdapter(Set<Uri> initialSelection, Listener listener, PreviewListener previewListener) {
         if (initialSelection != null) selected.addAll(initialSelection);
         this.listener = listener;
+        this.previewListener = previewListener;
         setHasStableIds(true);
     }
 
@@ -64,6 +71,7 @@ public final class GalleryAdapter extends RecyclerView.Adapter<GalleryAdapter.Ho
         play.setTextColor(Color.WHITE);
         play.setTextSize(22);
         play.setGravity(Gravity.CENTER);
+        play.setContentDescription("Preview video");
         GradientDrawable playBg = new GradientDrawable();
         playBg.setColor(Color.argb(155, 0, 0, 0));
         playBg.setShape(GradientDrawable.OVAL);
@@ -99,6 +107,7 @@ public final class GalleryAdapter extends RecyclerView.Adapter<GalleryAdapter.Ho
         MediaRepository.MediaItem item = items.get(position);
         boolean video = item.durationMs > 0L;
         holder.label.setText(shortName(item.name));
+        holder.image.setContentDescription(item.name + (video ? " video" : " image"));
         holder.play.setVisibility(video ? View.VISIBLE : View.GONE);
         holder.duration.setVisibility(video ? View.VISIBLE : View.GONE);
         if (video) holder.duration.setText(formatDuration(item.durationMs));
@@ -115,6 +124,13 @@ public final class GalleryAdapter extends RecyclerView.Adapter<GalleryAdapter.Ho
             if (!selected.add(item.uri)) selected.remove(item.uri);
             updateBackground(holder.root, selected.contains(item.uri));
             if (listener != null) listener.onSelectionChanged(selection());
+        });
+        holder.root.setOnLongClickListener(v -> {
+            if (previewListener != null) previewListener.onPreview(item);
+            return previewListener != null;
+        });
+        holder.play.setOnClickListener(v -> {
+            if (previewListener != null) previewListener.onPreview(item);
         });
     }
 
