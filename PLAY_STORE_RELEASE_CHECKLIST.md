@@ -1,35 +1,45 @@
 # OptiShare 2 — Google Play Release Checklist
 
+This file is a release gate, not a feature wish list. A checked item means the implementation exists in the clean branch. Physical-device and Play Console items remain unchecked until they are actually completed.
+
 ## Build and signing
 - [x] `compileSdk 36`
 - [x] `targetSdk 36`
 - [x] `minSdk 21`
+- [x] Java 17 + core-library desugaring baseline
 - [x] Signed release APK from protected GitHub Actions secrets
 - [x] Release AAB generated for Google Play
 - [x] SHA-256 checksum artifact generated
+- [x] Unit tests run before package artifacts
+- [x] Android lint gate runs in CI
 - [ ] Enable Google Play App Signing and preserve the upload key securely
 - [ ] Increment `versionCode` for every Play upload
-- [ ] Enable R8/minification only after the final compatibility test matrix passes
+- [ ] Enable R8/minification only after final compatibility tests
 
-## Core functionality
-- [x] Multi-file selection
+## Core transfer functionality
+- [x] True multi-file selection
 - [x] In-app photo/video browser
 - [x] Wi-Fi Direct discovery and pairing path
 - [x] QR pairing accelerator
 - [x] Foreground transfer service
-- [x] Batch protocol
+- [x] Batch protocol: one logical session for multiple files
 - [x] Chunk acknowledgements
+- [x] 1 MiB durable resume checkpoints
 - [x] Persistent receiver resume offsets
+- [x] Persistent outgoing sender session metadata
 - [x] Automatic socket reconnect and resume
-- [x] SHA-256 file verification
-- [x] Category-aware Downloads publishing
+- [x] Wi-Fi Direct peer/group recovery baseline for sender reconnect
+- [x] SHA-256 file verification before publish
+- [x] Category-aware public Downloads publishing
+- [x] Incoming batch Accept / Decline approval
 - [x] Application-layer authenticated encryption
-- [ ] Full Wi-Fi Direct group recreation after the radio/group itself is destroyed
-- [ ] Sender process-death session reconstruction from persistent metadata
-- [ ] Explicit incoming batch Accept / Decline confirmation instead of receive-mode auto-consent
-- [ ] Installed-app browser and APK extraction, if shipped
+- [x] Mandatory six-digit security-code confirmation before transfer data
+- [ ] Foreground in-app approval sheet mirroring notification approval
+- [ ] Validate Wi-Fi Direct group recreation on all target OEMs
 - [ ] Same-LAN fallback transport
-- [ ] Folder transfer
+- [ ] Folder/directory transfer
+- [ ] In-app Music browser
+- [ ] Installed-app browser/APK extraction — only if Play policy scope is approved
 
 ## Compatibility gates
 - [ ] Physical-device test: Android 5 / API 21
@@ -43,32 +53,36 @@
 - [ ] Android 14 / API 34
 - [ ] Android 15 / API 35
 - [ ] Android 16 / API 36
-- [ ] OEM tests: Google Pixel
-- [ ] Samsung
-- [ ] OnePlus
-- [ ] Xiaomi/Redmi
-- [ ] Oppo/Realme
-- [ ] Honor/Huawei where Google Play distribution is applicable
+- [ ] OEM: Google Pixel
+- [ ] OEM: Samsung
+- [ ] OEM: OnePlus
+- [ ] OEM: Xiaomi/Redmi
+- [ ] OEM: Oppo/Realme
+- [ ] OEM: Honor/Huawei where Google Play distribution applies
 
-## Reliability tests
+## Reliability gates
 - [ ] 0-byte file
 - [ ] 1-byte file
-- [ ] 4 MB file target under 10 seconds on normal modern devices
+- [ ] 4 MB transfer target under 10 seconds on normal modern devices
 - [ ] 1 GB file
 - [ ] 10+ GB file
 - [ ] 1000-file batch
 - [ ] Arabic filenames
 - [ ] Emoji filenames
-- [ ] Long filenames
+- [ ] Very long filenames
 - [ ] Duplicate filenames
 - [ ] Extensionless files
 - [ ] Low-storage handling
 - [ ] Screen-off transfer
 - [ ] Activity recreation during transfer
 - [ ] Force-kill UI while foreground service continues
-- [ ] Disconnect/reconnect at 10%, 33%, and 79%
+- [ ] Sender process restart restores a persisted pending session
+- [ ] Disconnect/reconnect at 10%, 33% and 79%
+- [ ] Full Wi-Fi Direct group destruction/recreation during transfer
 - [ ] Corrupt partial file recovery
 - [ ] Receiver declines transfer
+- [ ] Security code declined/mismatch path
+- [ ] Approval timeout path
 - [ ] Sender cancellation
 
 ## Security gates
@@ -77,42 +91,76 @@
 - [x] AES-256-GCM authenticated frames
 - [x] SHA-256 file integrity verification
 - [x] Protocol length/count bounds
-- [ ] Require user confirmation of the matching six-digit security code, or authenticate the peer via QR fingerprint, before sending sensitive data
-- [ ] Threat-model review for MITM, replay, malicious filenames, oversized metadata, and resource exhaustion
-- [ ] Run Android lint and dependency review on every release
+- [x] Mandatory matching six-digit human verification gate
+- [x] Malformed offset/count/chunk unit-test coverage baseline
+- [ ] Bind future QR auto-trust to a cryptographic fingerprint
+- [ ] Broader malformed/fuzzed frame corpus
+- [ ] Resource-exhaustion stress testing
+- [ ] Dependency vulnerability review for release candidate
 - [ ] Independent security review before public launch
 
+## Performance gates
+- [x] 1 MiB transfer checkpoint size to reduce ACK/fsync overhead
+- [x] Buffered socket/file streams
+- [x] Requested larger TCP send/receive buffers where supported
+- [ ] Benchmark 4 MB, 100 MB, 1 GB and 10 GB on physical device pairs
+- [ ] Record median/95th percentile throughput, not only peak speed
+- [ ] Memory profile 1000-file selection and large galleries
+- [ ] ANR profile during hashing and manifest preparation
+- [ ] Move expensive manifest hashing to visible preparation state with cancellation if needed
+
 ## UX / accessibility
-- [x] Visible Search / Connecting / Connected / Reconnecting / Completed states
-- [x] Public save path shown to the user
+- [x] Search / Connecting / Connected / Reconnecting / Completed states
+- [x] Public save path shown to user
 - [x] Transfer history baseline
+- [x] Editable OptiShare device name
+- [x] RecyclerView photo/video gallery baseline
 - [ ] ETA display
-- [ ] Per-file + whole-batch progress simultaneously
-- [ ] Pause / Resume control
+- [ ] Per-file and whole-batch progress simultaneously
+- [ ] Pause / Resume button
 - [ ] Full received-files browser inside OptiShare
 - [ ] Albums and search in media picker
-- [ ] Cached/asynchronous thumbnails
+- [ ] Asynchronous thumbnail cache / memory profiling
 - [ ] TalkBack labels and content descriptions
 - [ ] Dynamic font-size testing
 - [ ] Tablet / foldable layouts
-- [ ] RTL and Arabic strings
-- [ ] English strings moved out of Java into resources
+- [x] Manifest RTL support enabled
+- [ ] Complete Arabic resource strings
+- [ ] Move remaining user-facing English strings from Java to resources
+
+## Storage / permissions
+- [x] Android 10+ scoped-storage/MediaStore publishing baseline
+- [x] Android 5–9 legacy public Downloads path where required
+- [x] Received category folders: Photos, Videos, Music, Apps, Documents, Archives, Other
+- [x] Legacy `requestLegacyExternalStorage` application flag removed
+- [x] Android 13+ image/video/audio media permissions declared by category
+- [ ] Validate Android 14+ partial media access behavior
+- [ ] Confirm Play Photos & Videos permission declaration with final shipped picker behavior
+- [ ] Avoid `MANAGE_EXTERNAL_STORAGE`
+- [ ] Avoid `QUERY_ALL_PACKAGES` unless installed-app sharing is explicitly shipped and approved
 
 ## Play Console / policy
-- [x] Privacy policy draft exists in repository
-- [ ] Host the privacy policy on a public HTTPS URL
-- [ ] Replace privacy-policy contact placeholder with production support email
-- [ ] Complete Data Safety form from the final binary behavior
-- [ ] Complete Photos and Videos permission declaration if broad media access remains in the release
-- [ ] If `QUERY_ALL_PACKAGES` is ever added, complete the package visibility declaration and verify eligibility
+- [x] Privacy-policy draft exists in repository
+- [x] Data Safety draft exists in repository
+- [x] Security model exists in repository
+- [x] Production README replaces obsolete optical-prototype documentation
+- [ ] Host privacy policy on a public HTTPS URL
+- [ ] Replace privacy/security contact placeholders with production support email
+- [ ] Complete Data Safety form from the **final binary behavior**
+- [ ] Complete Photos and Videos permission declaration if broad media access remains
 - [ ] Add support email and website
-- [ ] App icon, feature graphic, phone screenshots, tablet screenshots where required
-- [ ] Store listing: title, short description, full description
+- [ ] Final adaptive launcher icon and branding assets
+- [ ] Feature graphic
+- [ ] Phone screenshots
+- [ ] Tablet screenshots if tablet distribution is enabled
+- [ ] Store title / short description / full description
 - [ ] Content rating questionnaire
 - [ ] Target audience declaration
-- [ ] Ads declaration: No ads for the current build
-- [ ] Closed/internal testing track before production
-- [ ] Pre-launch report reviewed with no blocking crashes/ANRs
+- [ ] Ads declaration: No ads for current build
+- [ ] Internal test track
+- [ ] Closed test track
+- [ ] Google Play pre-launch report reviewed with no blocking crash/ANR
 
-## Release decision
-Do not promote to Production until every unchecked item that applies to the planned public feature set is either completed or explicitly removed from release scope.
+## Production decision
+
+Do **not** promote OptiShare to Google Play Production until all applicable physical-device, reliability, security, policy and pre-launch-report gates above are completed or deliberately removed from the public release scope.
