@@ -28,25 +28,26 @@ public class LauncherActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("Optical Modem v0.4.1\nCrash-safe launcher");
+        sub.setText("VLC Lab v0.5\nFirst prove optical decoding, then scale speed");
         sub.setTextSize(16);
         sub.setTextColor(Color.rgb(148, 208, 232));
         sub.setGravity(Gravity.CENTER);
         sub.setPadding(0, 16, 0, 24);
         root.addView(sub);
 
-        Button start = new Button(this);
-        start.setText("Open OptiShare");
-        start.setAllCaps(false);
-        start.setOnClickListener(v -> {
-            try {
-                startActivity(new Intent(this, MainActivity.class));
-            } catch (Throwable t) {
-                sub.setText("Could not open engine:\n" + t.getClass().getSimpleName() + ": " + t.getMessage());
-                sub.setTextColor(Color.rgb(255, 150, 150));
-            }
-        });
-        root.addView(start, new LinearLayout.LayoutParams(-1, -2));
+        Button vlc = new Button(this);
+        vlc.setText("Open VLC Lab v0.5");
+        vlc.setAllCaps(false);
+        vlc.setOnClickListener(v -> startActivity(new Intent(this, VlcActivity.class)));
+        root.addView(vlc, new LinearLayout.LayoutParams(-1, -2));
+
+        Button legacy = new Button(this);
+        legacy.setText("Open legacy v0.4 engine");
+        legacy.setAllCaps(false);
+        legacy.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 16, 0, 0);
+        root.addView(legacy, lp);
 
         TextView credit = new TextView(this);
         credit.setText("Designed & developed by Kenan Alhennawi");
