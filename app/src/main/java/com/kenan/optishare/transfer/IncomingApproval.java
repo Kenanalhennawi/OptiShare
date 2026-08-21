@@ -13,36 +13,49 @@ import com.kenan.optishare.OptiShareApp;
 import com.kenan.optishare.R;
 import com.kenan.optishare.V2Activity;
 
-/** Approval gate that works even when the Activity is backgrounded. */
+/**
+ * Process-local approval gate backed by a high-priority notification.
+ * It is used for both peer security-code verification and incoming batch consent.
+ */
 final class IncomingApproval {
     private static final Object LOCK = new Object();
-    private static final String CHANNEL = "optishare_incoming";
+    private static final String CHANNEL = "optishare_approvals";
     private static final int NOTIFICATION_ID = 2210;
-    private static String pendingSession;
+
+    private static String pendingKey;
     private static Boolean decision;
+    private static String pendingTitle;
+    private static String pendingText;
 
     private IncomingApproval() {}
 
-    static void begin(String sessionId) {
+    static void begin(String key) {
+        begin(key, "Incoming OptiShare transfer",
+                "Accept or decline the secured incoming batch");
+    }
+
+    static void begin(String key, String title, String text) {
         synchronized (LOCK) {
-            pendingSession = sessionId;
+            pendingKey = key;
             decision = null;
+            pendingTitle = title;
+            pendingText = text;
         }
         showNotification();
     }
 
-    static boolean await(String sessionId, long timeoutMillis) throws InterruptedException {
+    static boolean await(String key, long timeoutMillis) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeoutMillis;
         synchronized (LOCK) {
-            while (sessionId != null && sessionId.equals(pendingSession) && decision == null) {
+            while (key != null && key.equals(pendingKey) && decision == null) {
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) break;
                 LOCK.wait(remaining);
             }
-            boolean accepted = sessionId != null && sessionId.equals(pendingSession) && Boolean.TRUE.equals(decision);
-            if (sessionId != null && sessionId.equals(pendingSession)) {
-                pendingSession = null;
-                decision = null;
+            boolean accepted = key != null && key.equals(pendingKey)
+                    && Boolean.TRUE.equals(decision);
+            if (key != null && key.equals(pendingKey)) {
+                clearLocked();
             }
             cancelNotification();
             return accepted;
@@ -51,7 +64,7 @@ final class IncomingApproval {
 
     static void decide(boolean accepted) {
         synchronized (LOCK) {
-            if (pendingSession == null) return;
+            if (pendingKey == null) return;
             decision = accepted;
             LOCK.notifyAll();
         }
@@ -60,46 +73,91 @@ final class IncomingApproval {
 
     static void cancel() {
         synchronized (LOCK) {
-            pendingSession = null;
-            decision = Boolean.FALSE;
-            LOCK.notifyAll();
+            if (pendingKey != null) {
+                decision = Boolean.FALSE;
+                LOCK.notifyAll();
+            }
+            clearLocked();
         }
         cancelNotification();
     }
 
+    static boolean hasPending() {
+        synchronized (LOCK) {
+            return pendingKey != null && decision == null;
+        }
+    }
+
+    private static void clearLocked() {
+        pendingKey = null;
+        decision = null;
+        pendingTitle = null;
+        pendingText = null;
+    }
+
     private static void showNotification() {
         Context context;
-        try { context = OptiShareApp.context(); }
-        catch (Exception ignored) { return; }
-        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        try {
+            context = OptiShareApp.context();
+        } catch (Exception ignored) {
+            return;
+        }
+
+        NotificationManager manager =
+                (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL, "Incoming transfers", NotificationManager.IMPORTANCE_HIGH);
-            channel.setDescription("Approval requests for incoming OptiShare transfers");
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL, "Transfer approvals", NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription("Security verification and incoming transfer approvals");
             manager.createNotificationChannel(channel);
         }
+
+        String title;
+        String text;
+        synchronized (LOCK) {
+            title = pendingTitle == null ? "OptiShare approval required" : pendingTitle;
+            text = pendingText == null ? "Open OptiShare to continue" : pendingText;
+        }
+
         int immutable = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
         PendingIntent open = PendingIntent.getActivity(
-                context, 10, new Intent(context, V2Activity.class), PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+                context,
+                10,
+                new Intent(context, V2Activity.class),
+                PendingIntent.FLAG_UPDATE_CURRENT | immutable);
         PendingIntent accept = PendingIntent.getService(
-                context, 11, new Intent(context, TransferService.class).setAction(TransferService.ACTION_ACCEPT), PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+                context,
+                11,
+                new Intent(context, TransferService.class)
+                        .setAction(TransferService.ACTION_ACCEPT),
+                PendingIntent.FLAG_UPDATE_CURRENT | immutable);
         PendingIntent decline = PendingIntent.getService(
-                context, 12, new Intent(context, TransferService.class).setAction(TransferService.ACTION_DECLINE), PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+                context,
+                12,
+                new Intent(context, TransferService.class)
+                        .setAction(TransferService.ACTION_DECLINE),
+                PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_optishare)
-                .setContentTitle("Incoming OptiShare transfer")
-                .setContentText("Accept or decline the secured incoming batch")
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setContentIntent(open)
                 .setAutoCancel(false)
+                .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .addAction(0, "Decline", decline)
-                .addAction(0, "Accept", accept);
+                .addAction(0, "Confirm", accept);
         manager.notify(NOTIFICATION_ID, builder.build());
     }
 
     private static void cancelNotification() {
         try {
             Context context = OptiShareApp.context();
-            ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE)).cancel(NOTIFICATION_ID);
-        } catch (Exception ignored) { }
+            ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE))
+                    .cancel(NOTIFICATION_ID);
+        } catch (Exception ignored) {
+        }
     }
 }
