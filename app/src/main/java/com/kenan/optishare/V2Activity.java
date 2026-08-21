@@ -1,6 +1,5 @@
 package com.kenan.optishare;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -14,6 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.activity.ComponentActivity;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 
@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-public class V2Activity extends Activity {
+public class V2Activity extends ComponentActivity {
     private final List<Uri> selected = new ArrayList<>();
     private LinearLayout content;
     private TextView selectionSummary;
