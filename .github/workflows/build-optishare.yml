@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       OPTISHARE_KEYSTORE_B64: ${{ secrets.OPTISHARE_KEYSTORE_B64 }}
       OPTISHARE_STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
@@ -23,29 +23,58 @@ jobs:
       OPTISHARE_KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v5
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
       - name: Clean project
         run: gradle --no-daemon clean
 
-      - name: Run unit tests
+      - name: Run debug unit tests
         run: gradle --no-daemon testDebugUnitTest
 
-      - name: Run Android lint
+      - name: Run release unit tests
+        run: gradle --no-daemon testReleaseUnitTest
+
+      - name: Run debug Android lint
         run: gradle --no-daemon lintDebug
+
+      - name: Run release Android lint
+        run: gradle --no-daemon lintRelease
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
+
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.0-unit-test-reports
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.0-lint-reports
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-release.html
+            app/build/reports/lint-results-debug.xml
+            app/build/reports/lint-results-release.xml
+          if-no-files-found: ignore
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -75,8 +104,18 @@ jobs:
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         shell: bash
         run: |
+          set -euo pipefail
           cd app/build/outputs
           sha256sum apk/release/app-release.apk bundle/release/app-release.aab > SHA256SUMS.txt
+
+      - name: Verify release artifacts exist
+        if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app/build/outputs/apk/release/app-release.apk
+          test -s app/build/outputs/bundle/release/app-release.aab
+          test -s app/build/outputs/SHA256SUMS.txt
 
       - name: Upload signed release APK
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
