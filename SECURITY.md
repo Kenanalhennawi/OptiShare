@@ -1,50 +1,103 @@
 # OptiShare 2 Security Model
 
-## Security goals
-OptiShare is designed to transfer user-selected files directly between nearby devices without requiring a developer-operated cloud relay. The application protocol must protect file confidentiality and integrity even though the underlying local transport is not itself treated as trusted.
+## Scope
 
-## Implemented controls
-- Ephemeral per-session elliptic-curve Diffie-Hellman key exchange (`secp256r1`) for Android 5+ compatibility.
-- HKDF-SHA256 key derivation.
-- AES-256-GCM authenticated encryption for application protocol frames.
-- Fresh random 96-bit GCM IV for each encrypted frame.
-- Frame type included as authenticated additional data.
-- Bounded frame sizes, manifest entry counts, checksum lengths and offsets.
-- SHA-256 hash for every transferred file.
-- Receiver publishes a file to Downloads only after complete-size and SHA-256 verification.
-- Partial files stay in private app storage with `.optishare-part` semantics and are not exposed as completed downloads.
-- Durable chunk acknowledgement after receiver persistence.
-- Completed-file and completed-batch acknowledgements.
-- Resume negotiation uses confirmed offsets and verified-file markers.
-- Filenames are sanitized before local publication.
-- Application components are not exported unless required for the launcher.
-- Cleartext HTTP traffic is disabled; transfer sockets use the encrypted OptiShare application protocol.
+OptiShare transfers user-selected files directly between nearby devices. The security goal is to protect file confidentiality and integrity on the local link and to prevent a nearby third party from being silently accepted as the intended peer.
 
-## Pair authentication limitation before public release
-Encryption alone does not authenticate that the nearby peer is the intended person if an active attacker can interpose during the initial key exchange. OptiShare derives and displays a six-digit session security code, but the current build must not be marketed as fully MITM-resistant until one of these release gates is completed:
+Wi-Fi Direct security is treated as an additional layer, not as the only security boundary.
 
-1. Require both users to confirm that the displayed security codes match before the first encrypted file frame is accepted; or
-2. Bind the ephemeral session to a QR-authenticated long-term/device public-key fingerprint.
+## Trust assumptions
 
-This is a public-release blocker for strong peer-authentication claims.
+- The Android OS and the user's unlocked device are trusted.
+- A nearby network participant is **not** trusted.
+- Wi-Fi Direct discovery names and device addresses are **not** cryptographic identities.
+- A QR containing only a device address/name is a pairing accelerator, not sufficient authentication by itself.
+- Selected source URIs may reference untrusted content and metadata.
+- Received filenames, MIME types, sizes and manifests are attacker-controlled until authenticated and validated.
 
-## Threats considered
-- Passive local-network eavesdropping.
-- Active modification of file chunks or metadata.
-- Replay or malformed protocol frames.
-- Path traversal / malicious filenames.
-- Oversized counts and lengths intended to exhaust memory/storage.
-- Interrupted transfers and inconsistent partial files.
-- Connection loss after some files in a batch have already completed.
-- Duplicate output filenames.
+## Implemented protocol controls
 
-## Additional release testing required
-- Independent review of protocol framing and handshake.
-- Malformed/fuzzed manifest/chunk tests.
-- Very large file and very large batch resource-exhaustion tests.
-- Forced disconnects during encrypted transfers.
-- Security-code / peer-authentication UX completion.
-- Dependency vulnerability review before each release.
+### Ephemeral key agreement
+
+Every socket session creates a new ephemeral elliptic-curve key pair. Peers derive a shared secret using ECDH on `secp256r1`, selected for the Android 5+ compatibility target. Session key material is expanded with HKDF-SHA256.
+
+### Authenticated encryption
+
+Application frames after the handshake use AES-256-GCM. The frame type is authenticated as associated data and each encrypted frame uses a fresh nonce. Raw TCP is therefore not relied on for confidentiality.
+
+### Mandatory human peer verification
+
+The ephemeral handshake derives the same six-digit security code on both devices. **Both users must explicitly confirm that the codes match before the manifest or file data is accepted.** Declining or timing out terminates that attempt as a security/user-decision failure rather than silently retrying it like an ordinary network outage.
+
+A future QR-authenticated mode may bind a cryptographic fingerprint into the QR payload and remove manual code comparison only for deliberately scanned sessions.
+
+### File integrity
+
+Every file has a SHA-256 digest in the authenticated batch manifest. A receiver publishes the file to public Downloads only when:
+
+1. the complete declared byte count exists;
+2. the SHA-256 digest matches;
+3. the verified file is published through the storage layer.
+
+Failed integrity verification discards the corrupt partial state instead of exposing it as a completed download.
+
+## Resume security
+
+Resume is built on durable checkpoints, not on optimistic sender progress. A chunk ACK is issued only after the receiver has:
+
+1. appended the chunk;
+2. synchronized the file descriptor;
+3. persisted the confirmed offset;
+4. prepared the ACK.
+
+The current checkpoint size is 1 MiB. After reconnect, the safe offset is aligned to a checkpoint boundary and is never greater than durable receiver state. Any unconfirmed tail is retransmitted.
+
+Completed files are not retransmitted during a resumed batch. Session state is cleared only after verified batch completion or explicit cancellation.
+
+## Input validation
+
+The protocol rejects or bounds:
+
+- invalid magic/version values;
+- negative sizes or offsets;
+- oversized encrypted frames;
+- excessive manifest/resume entry counts;
+- invalid checksum lengths;
+- chunks larger than the configured checkpoint size;
+- chunks that exceed declared file size;
+- unknown file IDs;
+- unexpected frame types;
+- invalid acknowledgements;
+- mismatched SHA-256 digests.
+
+Filenames are sanitized before storage, and sender-provided paths are never used directly as filesystem destinations.
+
+## Resource-exhaustion controls
+
+Production requirements bound protocol frames, file counts, metadata lengths, socket timeouts, reconnect attempts and approval timeouts. Public-release testing must additionally cover low storage, 10+ GB files, 1000-file batches, malformed metadata and repeatedly interrupted sessions.
+
+## Android component exposure
+
+- `TransferService` is not exported.
+- The launcher activity is exported only for the launcher intent filter.
+- Transfer broadcasts are package-scoped.
+- Android backups are disabled.
+- Cleartext HTTP traffic is disabled.
+- No backend service is required to relay transfer content.
+
+## Privacy target
+
+The intended public build contains no advertising, analytics, account or cloud-relay SDK by design. File content is processed locally for selection, encrypted transfer, integrity verification and storage.
+
+## Remaining public-release security gates
+
+- Validate security-code confirmation in both foreground and background flows across API 21–36.
+- Bind future QR auto-trust to a cryptographic fingerprint, not a device address.
+- Add malformed/fuzzed manifest and frame tests.
+- Perform dependency review and Android lint for each release.
+- Run an independent security review before public production.
+- Add a production security-contact email before launch.
 
 ## Reporting security issues
-Before public release, replace this section with the official private security contact address. Do not request public disclosure of sensitive vulnerability details until a remediation process and release channel are established.
+
+Before public release, replace this section with the official private security contact. Sensitive vulnerability details should not be posted publicly before a remediation process and release channel are established.
