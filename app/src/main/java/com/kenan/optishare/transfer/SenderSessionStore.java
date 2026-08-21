@@ -17,15 +17,17 @@ import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Persists one active outbound session so START_STICKY process recreation can reuse the same IDs/hashes. */
+/** Persists one active outbound session so process recreation can reuse the same IDs/hashes and peer. */
 public final class SenderSessionStore {
     public static final class Pending {
         public final String host;
+        public final String peerAddress;
         public final List<TransferItem> items;
         public final BatchManifest manifest;
 
-        Pending(String host, List<TransferItem> items, BatchManifest manifest) {
+        Pending(String host, String peerAddress, List<TransferItem> items, BatchManifest manifest) {
             this.host = host;
+            this.peerAddress = peerAddress;
             this.items = items;
             this.manifest = manifest;
         }
@@ -39,12 +41,13 @@ public final class SenderSessionStore {
         file = new File(dir, "pending_sender.json");
     }
 
-    public synchronized void save(String host, List<TransferItem> items, BatchManifest manifest) throws Exception {
+    public synchronized void save(String host, String peerAddress, List<TransferItem> items, BatchManifest manifest) throws Exception {
         if (host == null || items == null || manifest == null || items.size() != manifest.getEntries().size()) {
             throw new IllegalArgumentException("Invalid sender session");
         }
         JSONObject root = new JSONObject();
         root.put("host", host);
+        root.put("peerAddress", peerAddress == null ? JSONObject.NULL : peerAddress);
         root.put("sessionId", manifest.getSessionId());
         root.put("createdAt", manifest.getCreatedAt());
         JSONArray array = new JSONArray();
@@ -81,6 +84,7 @@ public final class SenderSessionStore {
             }
             JSONObject root = new JSONObject(raw.toString());
             String host = root.getString("host");
+            String peerAddress = root.isNull("peerAddress") ? null : root.optString("peerAddress", null);
             String sessionId = root.getString("sessionId");
             long createdAt = root.getLong("createdAt");
             JSONArray array = root.getJSONArray("files");
@@ -100,7 +104,7 @@ public final class SenderSessionStore {
                 items.add(new TransferItem(id, uri, name, mime, size, category));
                 entries.add(new BatchManifest.Entry(id, name, mime, size, category, sha));
             }
-            return new Pending(host, items, new BatchManifest(sessionId, createdAt, entries));
+            return new Pending(host, peerAddress, items, new BatchManifest(sessionId, createdAt, entries));
         } catch (Exception corrupted) {
             clear();
             return null;
