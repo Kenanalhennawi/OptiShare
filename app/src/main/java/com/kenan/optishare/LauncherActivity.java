@@ -28,26 +28,26 @@ public class LauncherActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("VLC Lab v0.5\nFirst prove optical decoding, then scale speed");
+        sub.setText("Audio Modem Lab v0.6\nNo Wi-Fi • No Bluetooth • No cable");
         sub.setTextSize(16);
         sub.setTextColor(Color.rgb(148, 208, 232));
         sub.setGravity(Gravity.CENTER);
         sub.setPadding(0, 16, 0, 24);
         root.addView(sub);
 
-        Button vlc = new Button(this);
-        vlc.setText("Open VLC Lab v0.5");
-        vlc.setAllCaps(false);
-        vlc.setOnClickListener(v -> startActivity(new Intent(this, VlcActivity.class)));
-        root.addView(vlc, new LinearLayout.LayoutParams(-1, -2));
+        Button audio = new Button(this);
+        audio.setText("Open Audio Lab v0.6");
+        audio.setAllCaps(false);
+        audio.setOnClickListener(v -> startActivity(new Intent(this, AudioActivity.class)));
+        root.addView(audio, new LinearLayout.LayoutParams(-1, -2));
 
-        Button legacy = new Button(this);
-        legacy.setText("Open legacy v0.4 engine");
-        legacy.setAllCaps(false);
-        legacy.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 16, 0, 0);
-        root.addView(legacy, lp);
+        Button old = new Button(this);
+        old.setText("Open previous Optical prototype");
+        old.setAllCaps(false);
+        old.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(-1, -2);
+        op.setMargins(0, 16, 0, 0);
+        root.addView(old, op);
 
         TextView credit = new TextView(this);
         credit.setText("Designed & developed by Kenan Alhennawi");
