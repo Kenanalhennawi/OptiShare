@@ -9,6 +9,8 @@ import android.os.Environment;
 import android.os.StatFs;
 import android.provider.MediaStore;
 
+import androidx.annotation.RequiresApi;
+
 import com.kenan.optishare.model.TransferItem;
 
 import java.io.BufferedReader;
@@ -105,7 +107,7 @@ public final class DownloadStore {
         long verifiedSize = source.length();
         String safeName = TransferItem.safeName(name);
         String folder = categoryFolder(category);
-        Uri published = Build.VERSION.SDK_INT >= 29
+        Uri published = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                 ? publishMediaStore(source, safeName, mime, folder)
                 : publishLegacy(source, safeName, folder);
         writeVerifiedMarker(sessionId, fileId, verifiedSize);
@@ -141,6 +143,7 @@ public final class DownloadStore {
         deleteRecursive(dir);
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private Uri publishMediaStore(File source, String name, String mime, String folder)
             throws IOException {
         ContentResolver resolver = context.getContentResolver();
