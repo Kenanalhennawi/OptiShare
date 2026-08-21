@@ -10,14 +10,17 @@ import android.provider.MediaStore;
 
 import com.kenan.optishare.model.TransferItem;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-/** Stores partial data privately, then atomically publishes verified files into Download/OptiShare/<Category>. */
+/** Stores partial data privately, then publishes verified files into Download/OptiShare/<Category>. */
 public final class DownloadStore {
     private final Context context;
 
@@ -25,40 +28,79 @@ public final class DownloadStore {
         this.context = context.getApplicationContext();
     }
 
-    public File partialFile(String sessionId, String fileId) throws IOException {
+    private File sessionDir(String sessionId) throws IOException {
         File root = new File(context.getFilesDir(), "partial/" + sanitize(sessionId));
         if (!root.exists() && !root.mkdirs()) throw new IOException("Could not create partial directory");
-        return new File(root, sanitize(fileId) + ".optishare-part");
+        return root;
+    }
+
+    public File partialFile(String sessionId, String fileId) throws IOException {
+        return new File(sessionDir(sessionId), sanitize(fileId) + ".optishare-part");
+    }
+
+    private File verifiedMarker(String sessionId, String fileId) throws IOException {
+        return new File(sessionDir(sessionId), sanitize(fileId) + ".verified");
     }
 
     public long partialLength(String sessionId, String fileId) throws IOException {
+        long verified = verifiedLength(sessionId, fileId);
+        if (verified >= 0) return verified;
         File file = partialFile(sessionId, fileId);
         return file.exists() ? file.length() : 0L;
     }
 
+    public long verifiedLength(String sessionId, String fileId) throws IOException {
+        File marker = verifiedMarker(sessionId, fileId);
+        if (!marker.exists()) return -1L;
+        try (BufferedReader reader = new BufferedReader(new FileReader(marker))) {
+            String line = reader.readLine();
+            return line == null ? -1L : Long.parseLong(line.trim());
+        } catch (Exception corrupted) {
+            marker.delete();
+            return -1L;
+        }
+    }
+
+    public boolean isVerified(String sessionId, String fileId, long expectedSize) throws IOException {
+        return verifiedLength(sessionId, fileId) == expectedSize;
+    }
+
     public FileOutputStream openPartial(String sessionId, String fileId, boolean append) throws IOException {
+        if (verifiedLength(sessionId, fileId) >= 0) throw new IOException("File already verified");
         return new FileOutputStream(partialFile(sessionId, fileId), append);
     }
 
     public Uri publishVerified(String sessionId, String fileId, String name, String mime, TransferItem.Category category) throws IOException {
         File source = partialFile(sessionId, fileId);
         if (!source.exists()) throw new IOException("Partial file missing");
+        long verifiedSize = source.length();
         String safeName = TransferItem.safeName(name);
         String folder = categoryFolder(category);
-        Uri published;
-        if (Build.VERSION.SDK_INT >= 29) {
-            published = publishMediaStore(source, safeName, mime, folder);
-        } else {
-            published = publishLegacy(source, safeName, folder);
-        }
+        Uri published = Build.VERSION.SDK_INT >= 29
+                ? publishMediaStore(source, safeName, mime, folder)
+                : publishLegacy(source, safeName, folder);
+        writeVerifiedMarker(sessionId, fileId, verifiedSize);
         if (!source.delete()) source.deleteOnExit();
         return published;
     }
 
+    private void writeVerifiedMarker(String sessionId, String fileId, long size) throws IOException {
+        File marker = verifiedMarker(sessionId, fileId);
+        File temp = new File(marker.getParentFile(), marker.getName() + ".tmp");
+        try (FileWriter writer = new FileWriter(temp, false)) {
+            writer.write(Long.toString(size));
+            writer.flush();
+        }
+        if (marker.exists() && !marker.delete()) throw new IOException("Could not replace verified marker");
+        if (!temp.renameTo(marker)) throw new IOException("Could not commit verified marker");
+    }
+
     public void discard(String sessionId, String fileId) {
         try {
-            File f = partialFile(sessionId, fileId);
-            if (f.exists()) f.delete();
+            File partial = partialFile(sessionId, fileId);
+            if (partial.exists()) partial.delete();
+            File marker = verifiedMarker(sessionId, fileId);
+            if (marker.exists()) marker.delete();
         } catch (IOException ignored) { }
     }
 
