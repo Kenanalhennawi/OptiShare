@@ -8,9 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: optishare-2-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       OPTISHARE_KEYSTORE_B64: ${{ secrets.OPTISHARE_KEYSTORE_B64 }}
       OPTISHARE_STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
@@ -24,16 +29,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.11.1'
 
       - name: Clean project
         run: gradle --no-daemon clean
 
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
+
+      - name: Run Android lint
+        run: gradle --no-daemon lintDebug
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
@@ -48,16 +57,26 @@ jobs:
       - name: Restore release keystore
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         shell: bash
-        run: echo "$OPTISHARE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks"
+        run: |
+          set -euo pipefail
+          echo "$OPTISHARE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks"
+          test -s "$RUNNER_TEMP/optishare-release.jks"
 
-      - name: Build signed release APK
+      - name: Build signed release APK and Play AAB
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         env:
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_FILE: ${{ runner.temp }}/optishare-release.jks
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_PASSWORD: ${{ env.OPTISHARE_STORE_PASSWORD }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_ALIAS: ${{ env.OPTISHARE_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_PASSWORD: ${{ env.OPTISHARE_KEY_PASSWORD }}
-        run: gradle --no-daemon assembleRelease
+        run: gradle --no-daemon assembleRelease bundleRelease
+
+      - name: Create release checksums
+        if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
+        shell: bash
+        run: |
+          cd app/build/outputs
+          sha256sum apk/release/app-release.apk bundle/release/app-release.aab > SHA256SUMS.txt
 
       - name: Upload signed release APK
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
@@ -65,4 +84,20 @@ jobs:
         with:
           name: OptiShare-2.0-signed-release-apk
           path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload Google Play AAB
+        if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.0-google-play-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - name: Upload release checksums
+        if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.0-checksums
+          path: app/build/outputs/SHA256SUMS.txt
           if-no-files-found: error
