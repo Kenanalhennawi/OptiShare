@@ -1,0 +1,35 @@
+name: Build OptiShare v0.2
+
+on:
+  push:
+    branches: ['update/v0.2']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Expand v0.2 source
+        run: |
+          mkdir "$RUNNER_TEMP/v02"
+          unzip -q OptiShare-v0.2-source.zip -d "$RUNNER_TEMP/v02"
+      - name: Build v0.2 debug APK
+        working-directory: ${{ runner.temp }}/v02
+        run: gradle --no-daemon assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-v0.2-debug-apk
+          path: ${{ runner.temp }}/v02/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
