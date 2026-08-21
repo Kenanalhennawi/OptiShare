@@ -10,20 +10,20 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
-    <uses-feature android:name="android.hardware.wifi.direct" android:required="true" />
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:allowBackup="false"
-        android:label="OptiShare"
+        android:label="OptiShare 2"
         android:icon="@drawable/ic_optishare"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
 
-        <activity android:name=".LauncherActivity" android:screenOrientation="portrait" android:exported="false" />
-        <activity android:name=".DirectActivity" android:screenOrientation="portrait" android:exported="false" />
-        <activity android:name=".ShareActivity" android:screenOrientation="portrait" android:exported="false" />
-        <activity android:name=".V1Activity" android:screenOrientation="portrait" android:exported="true">
+        <activity
+            android:name=".V2Activity"
+            android:screenOrientation="portrait"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
