@@ -20,6 +20,7 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
+        android:name=".OptiShareApp"
         android:allowBackup="false"
         android:label="OptiShare 2"
         android:icon="@drawable/ic_optishare"
