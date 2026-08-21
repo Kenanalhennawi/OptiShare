@@ -13,6 +13,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.kenan.optishare.device.DeviceIdentity;
+import com.kenan.optishare.history.TransferHistoryStore;
+
+import java.text.DateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
 
 public final class V3Activity extends Activity {
     private DeviceIdentity identity;
@@ -56,10 +62,10 @@ public final class V3Activity extends Activity {
         nameBox.addView(text("OptiShare", 28, Color.WHITE, true));
         nameBox.addView(text(identity.name(), 12, Color.rgb(151, 193, 222), false));
         header.addView(nameBox, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView badge = text("3.0", 12, Color.rgb(119, 217, 255), true);
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(round(Color.rgb(17, 48, 72), 14));
-        header.addView(badge, new LinearLayout.LayoutParams(dp(56), dp(36)));
+        Button settings = smallButton("⚙");
+        settings.setTextSize(19);
+        settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        header.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(44)));
         root.addView(header);
 
         TextView headline = text("Share without friction.", 30, Color.WHITE, true);
@@ -81,27 +87,17 @@ public final class V3Activity extends Activity {
         hero.addView(receive, rlp);
         root.addView(hero);
 
-        LinearLayout received = card();
-        LinearLayout receivedRow = new LinearLayout(this);
-        receivedRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView receivedIcon = text("↓", 24, Color.WHITE, true);
-        receivedIcon.setGravity(Gravity.CENTER);
-        receivedIcon.setBackground(round(Color.rgb(24, 108, 167), 16));
-        receivedRow.addView(receivedIcon, new LinearLayout.LayoutParams(dp(52), dp(52)));
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        labels.setPadding(dp(12), 0, 0, 0);
-        labels.addView(text("Received library", 16, Color.WHITE, true));
-        labels.addView(text("Photos, videos, apps and files received with OptiShare", 12,
-                Color.rgb(147, 177, 200), false));
-        receivedRow.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView arrow = text("›", 28, Color.rgb(109, 205, 255), false);
-        receivedRow.addView(arrow);
-        received.addView(receivedRow);
+        LinearLayout shortcuts = new LinearLayout(this);
+        shortcuts.setOrientation(LinearLayout.HORIZONTAL);
+        Button received = shortcut("↓", "Received", "Browse saved files");
         received.setOnClickListener(v -> startActivity(new Intent(this, ReceivedActivity.class)));
-        LinearLayout.LayoutParams receivedLp = new LinearLayout.LayoutParams(-1, -2);
-        receivedLp.setMargins(0, dp(18), 0, 0);
-        root.addView(received, receivedLp);
+        Button history = shortcut("↕", "History", "Recent sessions");
+        history.setOnClickListener(v -> startActivity(new Intent(this, HistoryActivity.class)));
+        shortcuts.addView(received,new LinearLayout.LayoutParams(0,dp(104),1));
+        LinearLayout.LayoutParams hlp=new LinearLayout.LayoutParams(0,dp(104),1);hlp.setMargins(dp(10),0,0,0);shortcuts.addView(history,hlp);
+        LinearLayout.LayoutParams slp=new LinearLayout.LayoutParams(-1,-2);slp.setMargins(0,dp(14),0,0);root.addView(shortcuts,slp);
+
+        addLastTransfer(root);
 
         TextView features = text("Why OptiShare", 17, Color.WHITE, true);
         features.setPadding(0, dp(24), 0, dp(10));
@@ -113,11 +109,26 @@ public final class V3Activity extends Activity {
         featureCard.addView(feature("◎", "Smart nearby recovery", "Discovery and connection retry automatically when Android is busy"));
         root.addView(featureCard);
 
-        TextView credit = text("Designed & developed by Kenan Alhennawi", 11, Color.rgb(106, 150, 184), false);
+        TextView credit = text("OptiShare 3.0 • Designed & developed by Kenan Alhennawi", 11, Color.rgb(106, 150, 184), false);
         credit.setGravity(Gravity.CENTER);
         credit.setPadding(dp(8), dp(22), dp(8), 0);
         root.addView(credit);
         setContentView(scroll);
+    }
+
+    private void addLastTransfer(LinearLayout root) {
+        List<TransferHistoryStore.Entry> entries = new TransferHistoryStore(this).load();
+        if (entries.isEmpty()) return;
+        TransferHistoryStore.Entry e = entries.get(0);
+        TextView section = text("Last transfer", 16, Color.WHITE, true);
+        section.setPadding(0,dp(22),0,dp(8)); root.addView(section);
+        LinearLayout card = card();
+        boolean received = "received".equalsIgnoreCase(e.direction);
+        card.addView(text((received?"Received from ":"Sent to ")+e.peer,14,Color.WHITE,true));
+        card.addView(text(e.fileCount+" file"+(e.fileCount==1?"":"s")+" • "+formatBytes(e.totalBytes)+(e.success?" • Completed":" • Interrupted"),11,e.success?Color.rgb(80,215,156):Color.rgb(255,128,140),false));
+        card.addView(text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(new Date(e.time)),10,Color.rgb(135,166,190),false));
+        card.setOnClickListener(v->startActivity(new Intent(this,HistoryActivity.class)));
+        root.addView(card);
     }
 
     private void openTransfer(String mode) {
@@ -156,33 +167,11 @@ public final class V3Activity extends Activity {
         return b;
     }
 
-    private LinearLayout card() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(dp(16), dp(15), dp(16), dp(15));
-        GradientDrawable bg = round(Color.rgb(13, 31, 50), 20);
-        bg.setStroke(dp(1), Color.rgb(29, 57, 82));
-        l.setBackground(bg);
-        return l;
-    }
-
-    private GradientDrawable round(int color, int radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(dp(radius));
-        return g;
-    }
-
-    private TextView text(String value, int sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(value);
-        t.setTextSize(sp);
-        t.setTextColor(color);
-        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
-        return t;
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
+    private Button shortcut(String icon,String title,String subtitle){Button b=new Button(this);b.setAllCaps(false);b.setGravity(Gravity.CENTER);b.setText(icon+"\n"+title+"\n"+subtitle);b.setTextSize(13);b.setTextColor(Color.WHITE);b.setTypeface(Typeface.DEFAULT_BOLD);GradientDrawable g=round(Color.rgb(13,31,50),20);g.setStroke(dp(1),Color.rgb(29,57,82));b.setBackground(g);return b;}
+    private Button smallButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(Color.WHITE);b.setBackground(round(Color.rgb(20,45,68),14));return b;}
+    private LinearLayout card() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(dp(16), dp(15), dp(16), dp(15)); GradientDrawable bg = round(Color.rgb(13, 31, 50), 20); bg.setStroke(dp(1), Color.rgb(29, 57, 82)); l.setBackground(bg); return l; }
+    private GradientDrawable round(int color, int radius) { GradientDrawable g = new GradientDrawable(); g.setColor(color); g.setCornerRadius(dp(radius)); return g; }
+    private TextView text(String value, int sp, int color, boolean bold) { TextView t = new TextView(this); t.setText(value); t.setTextSize(sp); t.setTextColor(color); if (bold) t.setTypeface(Typeface.DEFAULT_BOLD); return t; }
+    private static String formatBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024.0*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.2f MB",b/(1024.0*1024));if(b>=1024)return String.format(Locale.US,"%.1f KB",b/1024.0);return b+" B";}
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 }
