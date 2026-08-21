@@ -48,7 +48,7 @@ public final class TransferEngine {
         void onError(String sessionId, Throwable error, boolean resumable);
     }
 
-    private static final int CHUNK = ResumableProtocol.DEFAULT_CHUNK_BYTES; // 1 MiB
+    private static final int CHUNK = ResumableProtocol.DEFAULT_CHUNK_BYTES;
     private static final int STREAM_BUFFER = 2 * 1024 * 1024;
     private final Context context;
     private final ResumeStore resumeStore;
@@ -177,15 +177,13 @@ public final class TransferEngine {
             }
             BatchManifest manifest = SessionWire.decodeManifest(manifestFrame.payload);
             sessionId = manifest.getSessionId();
-            listener.onIncomingBatch(manifest);
-            if (!listener.acceptIncomingBatch(manifest)) {
-                SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ERROR,
-                        SessionWire.encodeText("DECLINED"));
-                return;
-            }
 
+            // Work out the safe existing state before asking the user to accept. This lets a resumed
+            // 20 GB transfer ask only for the storage still needed instead of treating it as new.
             ResumeState saved = resumeStore.load(sessionId);
             Map<String, Long> offsets = new LinkedHashMap<>();
+            long remainingToReceive = 0L;
+            long largestUnverifiedFile = 0L;
             for (BatchManifest.Entry e : manifest.getEntries()) {
                 long verified = downloadStore.verifiedLength(sessionId, e.id);
                 long safe;
@@ -197,9 +195,22 @@ public final class TransferEngine {
                     safe = ResumableProtocol.alignToChunkBoundary(Math.min(disk, persisted), CHUNK);
                     File partial = downloadStore.partialFile(sessionId, e.id);
                     if (partial.exists() && partial.length() != safe) truncate(partial, safe);
+                    remainingToReceive = saturatingAdd(remainingToReceive, e.size - safe);
+                    largestUnverifiedFile = Math.max(largestUnverifiedFile, e.size);
                 }
                 offsets.put(e.id, safe);
             }
+            // Publishing uses a verified copy into public Downloads. Reserve space for remaining
+            // incoming bytes plus the largest one-file copy peak and a platform safety margin.
+            downloadStore.ensureCapacity(saturatingAdd(remainingToReceive, largestUnverifiedFile));
+
+            listener.onIncomingBatch(manifest);
+            if (!listener.acceptIncomingBatch(manifest)) {
+                SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ERROR,
+                        SessionWire.encodeText("DECLINED"));
+                return;
+            }
+
             SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_RESUME,
                     SessionWire.encodeOffsets(offsets));
 
@@ -211,7 +222,7 @@ public final class TransferEngine {
             long baseAlreadyConfirmed = 0;
             for (BatchManifest.Entry e : manifest.getEntries()) {
                 byId.put(e.id, e);
-                baseAlreadyConfirmed += offsets.get(e.id);
+                baseAlreadyConfirmed = saturatingAdd(baseAlreadyConfirmed, offsets.get(e.id));
             }
 
             while (true) {
@@ -232,14 +243,15 @@ public final class TransferEngine {
                         throw new IOException("Chunk exceeds file size");
                     }
 
-                    // Durable-before-ACK invariant: append -> fsync -> persist checkpoint -> ACK.
-                    try (FileOutputStream target = downloadStore.openPartial(sessionId, entry.id, true)) {
+                    try (FileOutputStream target =
+                                 downloadStore.openPartial(sessionId, entry.id, true)) {
                         target.write(chunk.data);
                         target.getFD().sync();
                     }
                     long next = chunk.offset + chunk.data.length;
                     confirmed.put(entry.id, next);
-                    resumeStore.save(new ResumeState(sessionId, System.currentTimeMillis(), confirmed));
+                    resumeStore.save(new ResumeState(sessionId,
+                            System.currentTimeMillis(), confirmed));
                     SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
                             SessionWire.encodeAck(entry.id, next));
 
@@ -249,11 +261,11 @@ public final class TransferEngine {
                             (System.nanoTime() - timers.get(entry.id)) / 1_000_000_000.0);
                     long newlyTransferred = 0;
                     for (Map.Entry<String, Long> c : confirmed.entrySet()) {
-                        newlyTransferred += Math.max(0,
-                                c.getValue() - value(starts, c.getKey()));
+                        newlyTransferred = saturatingAdd(newlyTransferred,
+                                Math.max(0, c.getValue() - value(starts, c.getKey())));
                     }
                     listener.onProgress(sessionId, entry.id, entry.name, next, entry.size,
-                            baseAlreadyConfirmed + newlyTransferred, batchTotal,
+                            saturatingAdd(baseAlreadyConfirmed, newlyTransferred), batchTotal,
                             (next - startOffset) / seconds);
                 } else if (frame.type == SessionWire.TYPE_FILE_DONE) {
                     String fileId = new String(frame.payload,
@@ -310,7 +322,9 @@ public final class TransferEngine {
 
     public BatchManifest buildManifest(List<TransferItem> items) throws Exception {
         if (items == null || items.isEmpty()) throw new IllegalArgumentException("No transfer items");
-        if (items.size() > 10_000) throw new IllegalArgumentException("Too many transfer items");
+        if (items.size() > BatchManifest.MAX_ENTRIES) {
+            throw new IllegalArgumentException("Too many transfer items");
+        }
 
         List<BatchManifest.Entry> entries = new ArrayList<>();
         ContentResolver resolver = context.getContentResolver();
@@ -327,7 +341,8 @@ public final class TransferEngine {
                 }
             }
             if (read != item.getSize()) {
-                throw new IOException("File size changed while preparing transfer: " + item.getName());
+                throw new IOException("File size changed while preparing transfer: "
+                        + item.getName());
             }
             entries.add(new BatchManifest.Entry(item.getId(), item.getName(),
                     item.getMimeType(), item.getSize(), item.getCategory(), digest.digest()));
@@ -351,12 +366,18 @@ public final class TransferEngine {
         return !lower.contains("declined")
                 && !lower.contains("invalid optishare")
                 && !lower.contains("unsupported optishare")
-                && !lower.contains("sha-256 verification failed");
+                && !lower.contains("sha-256 verification failed")
+                && !lower.contains("not enough storage space");
     }
 
     private static long value(Map<String, Long> map, String key) {
         Long v = map.get(key);
         return v == null ? 0L : v;
+    }
+
+    private static long saturatingAdd(long a, long b) {
+        if (a < 0 || b < 0) return Long.MAX_VALUE;
+        return Long.MAX_VALUE - a < b ? Long.MAX_VALUE : a + b;
     }
 
     private static byte[] sha256(File file) throws Exception {
