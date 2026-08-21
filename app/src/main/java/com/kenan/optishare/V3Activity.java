@@ -65,16 +65,16 @@ public final class V3Activity extends Activity {
         TextView headline = text("Share without friction.", 30, Color.WHITE, true);
         headline.setPadding(0, dp(30), 0, dp(6));
         root.addView(headline);
-        root.addView(text("Private device-to-device transfer with verified resume when the link drops.", 14,
+        root.addView(text("Private, encrypted and resumable nearby transfers — without Internet or a cloud account.", 14,
                 Color.rgb(177, 207, 229), false));
 
         LinearLayout hero = new LinearLayout(this);
         hero.setOrientation(LinearLayout.HORIZONTAL);
         hero.setPadding(0, dp(24), 0, 0);
         Button send = bigAction("↑", "Send", "Choose content", Color.rgb(40, 154, 255), Color.rgb(67, 77, 229));
-        send.setOnClickListener(v -> openTransfer());
+        send.setOnClickListener(v -> openTransfer(V3TransferActivity.MODE_SEND));
         Button receive = bigAction("↓", "Receive", "Become visible", Color.rgb(52, 211, 153), Color.rgb(16, 120, 91));
-        receive.setOnClickListener(v -> openTransfer());
+        receive.setOnClickListener(v -> openTransfer(V3TransferActivity.MODE_RECEIVE));
         hero.addView(send, new LinearLayout.LayoutParams(0, dp(164), 1));
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, dp(164), 1);
         rlp.setMargins(dp(10), 0, 0, 0);
@@ -92,7 +92,7 @@ public final class V3Activity extends Activity {
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.setPadding(dp(12), 0, 0, 0);
         labels.addView(text("Received library", 16, Color.WHITE, true));
-        labels.addView(text("Open photos, videos, apps and files you received", 12,
+        labels.addView(text("Photos, videos, apps and files received with OptiShare", 12,
                 Color.rgb(147, 177, 200), false));
         receivedRow.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
         TextView arrow = text("›", 28, Color.rgb(109, 205, 255), false);
@@ -103,25 +103,27 @@ public final class V3Activity extends Activity {
         receivedLp.setMargins(0, dp(18), 0, 0);
         root.addView(received, receivedLp);
 
-        TextView features = text("Built for real transfers", 17, Color.WHITE, true);
+        TextView features = text("Why OptiShare", 17, Color.WHITE, true);
         features.setPadding(0, dp(24), 0, dp(10));
         root.addView(features);
         LinearLayout featureCard = card();
-        featureCard.addView(feature("↻", "Resume automatically", "Continue from the last verified chunk"));
-        featureCard.addView(feature("⌁", "Encrypted locally", "No cloud account required"));
-        featureCard.addView(feature("✓", "Verified files", "SHA-256 integrity before publishing"));
+        featureCard.addView(feature("↻", "Resume automatically", "Continue from the last verified chunk after a drop"));
+        featureCard.addView(feature("⌁", "Encrypted locally", "Authenticated device-to-device session — no cloud relay"));
+        featureCard.addView(feature("✓", "Verified before publishing", "Received files are checked before appearing as complete"));
+        featureCard.addView(feature("◎", "Smart nearby recovery", "Discovery and connection retry automatically when Android is busy"));
         root.addView(featureCard);
 
-        TextView note = text("Transfer screens are being rebuilt in this v3 branch while the proven v2 transport core remains unchanged.",
-                11, Color.rgb(106, 150, 184), false);
-        note.setGravity(Gravity.CENTER);
-        note.setPadding(dp(8), dp(22), dp(8), 0);
-        root.addView(note);
+        TextView credit = text("Designed & developed by Kenan Alhennawi", 11, Color.rgb(106, 150, 184), false);
+        credit.setGravity(Gravity.CENTER);
+        credit.setPadding(dp(8), dp(22), dp(8), 0);
+        root.addView(credit);
         setContentView(scroll);
     }
 
-    private void openTransfer() {
-        startActivity(new Intent(this, V2Activity.class));
+    private void openTransfer(String mode) {
+        Intent intent = new Intent(this, V3TransferActivity.class);
+        intent.putExtra(V3TransferActivity.EXTRA_MODE, mode);
+        startActivity(intent);
     }
 
     private LinearLayout feature(String icon, String title, String subtitle) {
