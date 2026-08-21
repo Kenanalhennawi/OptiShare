@@ -41,6 +41,10 @@ public final class SenderSessionStore {
         file = new File(dir, "pending_sender.json");
     }
 
+    public synchronized void save(String host, List<TransferItem> items, BatchManifest manifest) throws Exception {
+        save(host, null, items, manifest);
+    }
+
     public synchronized void save(String host, String peerAddress, List<TransferItem> items, BatchManifest manifest) throws Exception {
         if (host == null || items == null || manifest == null || items.size() != manifest.getEntries().size()) {
             throw new IllegalArgumentException("Invalid sender session");
