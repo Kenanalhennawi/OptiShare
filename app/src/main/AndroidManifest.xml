@@ -62,6 +62,7 @@
         <activity android:name=".HistoryActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity android:name=".SettingsActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity android:name=".MediaPickerActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".MediaPreviewActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity android:name=".AppPickerActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity android:name=".V3TransferActivity" android:screenOrientation="portrait" android:exported="false" />
 
