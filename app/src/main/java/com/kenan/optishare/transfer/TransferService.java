@@ -32,12 +32,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Foreground service so large transfers survive screen-off and Activity recreation. */
+/** Foreground service for encrypted, resumable, multi-file transfers. */
 public final class TransferService extends Service {
     public static final String ACTION_START_RECEIVER = "com.kenan.optishare.action.START_RECEIVER";
     public static final String ACTION_SEND = "com.kenan.optishare.action.SEND";
     public static final String ACTION_ACCEPT = "com.kenan.optishare.action.ACCEPT";
     public static final String ACTION_DECLINE = "com.kenan.optishare.action.DECLINE";
+    public static final String ACTION_RESUME_PENDING = "com.kenan.optishare.action.RESUME_PENDING";
     public static final String ACTION_STOP = "com.kenan.optishare.action.STOP";
     public static final String ACTION_EVENT = "com.kenan.optishare.TRANSFER_EVENT";
     public static final String EXTRA_HOST = "host";
@@ -60,30 +61,35 @@ public final class TransferService extends Service {
     private volatile Socket activeSocket;
     private volatile BatchManifest activeManifest;
     private volatile List<TransferItem> activeItems;
+    private SenderSessionStore senderStore;
 
     @Override public void onCreate() {
         super.onCreate();
+        senderStore = new SenderSessionStore(this);
         createChannel();
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) return START_STICKY;
+        if (intent == null) {
+            SenderSessionStore.Pending pending = senderStore.load();
+            if (pending != null) {
+                startForeground(NOTIFICATION_ID, notification("OptiShare", "Restoring interrupted transfer…", 0, false));
+                startPendingSender(pending);
+            }
+            return START_STICKY;
+        }
         String action = intent.getAction();
-        if (ACTION_ACCEPT.equals(action)) {
-            IncomingApproval.decide(true);
-            return START_STICKY;
-        }
-        if (ACTION_DECLINE.equals(action)) {
-            IncomingApproval.decide(false);
-            return START_STICKY;
-        }
-        if (ACTION_STOP.equals(action)) {
-            stopTransfer();
-            return START_NOT_STICKY;
-        }
+        if (ACTION_ACCEPT.equals(action)) { IncomingApproval.decide(true); return START_STICKY; }
+        if (ACTION_DECLINE.equals(action)) { IncomingApproval.decide(false); return START_STICKY; }
+        if (ACTION_STOP.equals(action)) { stopTransfer(true); return START_NOT_STICKY; }
         startForeground(NOTIFICATION_ID, notification("OptiShare", "Preparing secure transfer…", 0, false));
         if (ACTION_START_RECEIVER.equals(action)) startReceiver();
         else if (ACTION_SEND.equals(action)) startSender(intent);
+        else if (ACTION_RESUME_PENDING.equals(action)) {
+            SenderSessionStore.Pending pending = senderStore.load();
+            if (pending != null) startPendingSender(pending);
+            else broadcast("error", "No resumable outgoing session was found", 0, 0, null);
+        }
         return START_STICKY;
     }
 
@@ -99,13 +105,13 @@ public final class TransferService extends Service {
                 while (running.get()) {
                     Socket socket = server.accept();
                     activeSocket = socket;
-                    broadcast("connected", "Sender connected securely", 0, 0, null);
                     try {
+                        broadcast("connected", "Sender connected securely", 0, 0, null);
                         receiveOne(socket);
                     } catch (Exception transferError) {
                         if (running.get() && !isDecline(transferError)) {
-                            broadcast("reconnecting", "Connection interrupted — waiting for sender to reconnect", 0, 0,
-                                    activeManifest == null ? null : activeManifest.getSessionId());
+                            String session = activeManifest == null ? null : activeManifest.getSessionId();
+                            broadcast("reconnecting", "Connection interrupted — waiting for sender to reconnect", 0, 0, session);
                             updateNotification("Waiting to resume", "Confirmed progress is preserved", 0, false);
                         }
                     } finally {
@@ -124,54 +130,43 @@ public final class TransferService extends Service {
     }
 
     private void receiveOne(Socket socket) throws Exception {
-        TransferEngine engine = new TransferEngine(this);
-        engine.receive(socket, new TransferEngine.Listener() {
+        new TransferEngine(this).receive(socket, new TransferEngine.Listener() {
             @Override public void onSecurityCode(String code) {
                 broadcast("security", "Security code: " + formatCode(code), 0, 0, null);
             }
-
             @Override public void onIncomingBatch(BatchManifest manifest) {
                 activeManifest = manifest;
                 IncomingApproval.begin(manifest.getSessionId());
                 String detail = manifest.getEntries().size() + " files • " + formatBytes(manifest.totalBytes());
                 broadcast("incoming", detail, 0, 0, manifest.getSessionId());
-                updateNotification("Incoming files", detail + " — open OptiShare to accept", 0, false);
+                updateNotification("Incoming files", detail + " — accept or decline", 0, false);
             }
-
             @Override public boolean acceptIncomingBatch(BatchManifest manifest) {
                 if (!running.get()) return false;
                 try {
                     boolean accepted = IncomingApproval.await(manifest.getSessionId(), APPROVAL_TIMEOUT_MS);
-                    if (!accepted) {
-                        broadcast("declined", "Transfer declined or approval timed out", 0, 0, manifest.getSessionId());
-                    }
+                    if (!accepted) broadcast("declined", "Transfer declined or approval timed out", 0, 0, manifest.getSessionId());
                     return accepted;
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return false;
                 }
             }
-
             @Override public void onProgress(String sessionId, String fileId, String fileName, long done, long total, long batchDone, long batchTotal, double bytesPerSecond) {
-                int p = batchTotal <= 0 ? 0 : (int) Math.min(100, batchDone * 100L / batchTotal);
+                int p = percent(batchDone, batchTotal);
                 String message = "Receiving " + fileName + " • " + p + "% • " + formatSpeed(bytesPerSecond);
                 updateNotification("Receiving files", message, p, true);
                 broadcast("progress", message, p, bytesPerSecond, sessionId);
             }
-
             @Override public void onFileCompleted(String sessionId, String fileId, Uri publishedUri) {
                 broadcast("file_done", "Verified and saved to Download/OptiShare", 0, 0, sessionId);
             }
-
             @Override public void onCompleted(String sessionId) {
                 updateNotification("Transfer complete", "Files saved to Download/OptiShare", 100, false);
                 broadcast("completed", "Transfer complete ✓", 100, 0, sessionId);
             }
-
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
-                if (isDecline(error)) return;
-                broadcast(resumable ? "reconnecting" : "error",
-                        resumable ? "Connection interrupted — ready to resume" : safe(error), 0, 0, sessionId);
+                if (!isDecline(error)) broadcast(resumable ? "reconnecting" : "error", resumable ? "Connection interrupted — ready to resume" : safe(error), 0, 0, sessionId);
             }
         });
     }
@@ -190,41 +185,71 @@ public final class TransferService extends Service {
                 activeItems = resolveItems(rawUris);
                 TransferEngine engine = new TransferEngine(this);
                 activeManifest = engine.buildManifest(activeItems);
-                int attempt = 0;
-                while (running.get() && attempt < MAX_SOCKET_RETRIES) {
-                    attempt++;
-                    try {
-                        if (attempt > 1) {
-                            broadcast("reconnecting", "Reconnecting… attempt " + attempt, 0, 0, activeManifest.getSessionId());
-                            Thread.sleep(Math.min(5000, 700L * attempt));
-                        }
-                        Socket socket = new Socket();
-                        activeSocket = socket;
-                        socket.connect(new InetSocketAddress(host, PORT), 8000);
-                        sendOne(engine, socket);
-                        running.set(false);
-                        stopForeground(false);
-                        stopSelf();
-                        return;
-                    } catch (Exception transferError) {
-                        closeSocket();
-                        if (isDecline(transferError)) {
-                            broadcast("declined", "Receiver declined the transfer", 0, 0,
-                                    activeManifest == null ? null : activeManifest.getSessionId());
-                            return;
-                        }
-                        if (attempt >= MAX_SOCKET_RETRIES) throw transferError;
-                    }
-                }
-            } catch (Exception t) {
-                broadcast("error", safe(t), 0, 0, activeManifest == null ? null : activeManifest.getSessionId());
-                updateNotification("Transfer failed", safe(t), 0, false);
-            } finally {
-                running.set(false);
-                closeSocket();
-                stopSelf();
+                senderStore.save(host, activeItems, activeManifest);
+                runSenderLoop(host, engine);
+            } catch (Exception error) {
+                failSender(error);
             }
         });
+    }
+
+    private void startPendingSender(SenderSessionStore.Pending pending) {
+        if (!running.compareAndSet(false, true)) return;
+        executor.execute(() -> {
+            try {
+                activeItems = pending.items;
+                activeManifest = pending.manifest;
+                broadcast("reconnecting", "Restoring interrupted session…", 0, 0, activeManifest.getSessionId());
+                runSenderLoop(pending.host, new TransferEngine(this));
+            } catch (Exception error) {
+                failSender(error);
+            }
+        });
+    }
+
+    private void runSenderLoop(String host, TransferEngine engine) throws Exception {
+        int attempt = 0;
+        try {
+            while (running.get() && attempt < MAX_SOCKET_RETRIES) {
+                attempt++;
+                try {
+                    if (attempt > 1) {
+                        broadcast("reconnecting", "Reconnecting… attempt " + attempt, 0, 0, activeManifest.getSessionId());
+                        Thread.sleep(Math.min(5000, 700L * attempt));
+                    }
+                    Socket socket = new Socket();
+                    activeSocket = socket;
+                    socket.connect(new InetSocketAddress(host, PORT), 8000);
+                    sendOne(engine, socket);
+                    senderStore.clear();
+                    running.set(false);
+                    stopForeground(false);
+                    stopSelf();
+                    return;
+                } catch (Exception transferError) {
+                    closeSocket();
+                    if (isDecline(transferError)) {
+                        senderStore.clear();
+                        broadcast("declined", "Receiver declined the transfer", 0, 0, activeManifest.getSessionId());
+                        return;
+                    }
+                    if (attempt >= MAX_SOCKET_RETRIES) throw transferError;
+                }
+            }
+        } finally {
+            running.set(false);
+            closeSocket();
+            stopSelf();
+        }
+    }
+
+    private void failSender(Exception error) {
+        String session = activeManifest == null ? null : activeManifest.getSessionId();
+        broadcast("error", safe(error) + " — session kept for resume", 0, 0, session);
+        updateNotification("Transfer paused", "Open OptiShare to resume the pending session", 0, false);
+        running.set(false);
+        closeSocket();
+        stopSelf();
     }
 
     private void sendOne(TransferEngine engine, Socket socket) throws Exception {
@@ -235,7 +260,7 @@ public final class TransferService extends Service {
             @Override public void onIncomingBatch(BatchManifest manifest) { }
             @Override public boolean acceptIncomingBatch(BatchManifest manifest) { return true; }
             @Override public void onProgress(String sessionId, String fileId, String fileName, long done, long total, long batchDone, long batchTotal, double bytesPerSecond) {
-                int p = batchTotal <= 0 ? 0 : (int) Math.min(100, batchDone * 100L / batchTotal);
+                int p = percent(batchDone, batchTotal);
                 String message = "Sending " + fileName + " • " + p + "% • " + formatSpeed(bytesPerSecond);
                 updateNotification("Sending files", message, p, true);
                 broadcast("progress", message, p, bytesPerSecond, sessionId);
@@ -246,9 +271,7 @@ public final class TransferService extends Service {
                 broadcast("completed", "All files sent ✓", 100, 0, sessionId);
             }
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
-                if (!isDecline(error)) {
-                    broadcast("reconnecting", "Connection interrupted — resuming automatically", 0, 0, sessionId);
-                }
+                if (!isDecline(error)) broadcast("reconnecting", "Connection interrupted — resuming automatically", 0, 0, sessionId);
             }
         });
     }
@@ -331,9 +354,10 @@ public final class TransferService extends Service {
         sendBroadcast(intent);
     }
 
-    private void stopTransfer() {
+    private void stopTransfer(boolean userCancelled) {
         running.set(false);
         IncomingApproval.cancel();
+        if (userCancelled && senderStore != null) senderStore.clear();
         closeSocket();
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) { }
         serverSocket = null;
@@ -356,6 +380,10 @@ public final class TransferService extends Service {
     }
 
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }
+
+    private static int percent(long done, long total) {
+        return total <= 0 ? 0 : (int) Math.max(0, Math.min(100, done * 100L / total));
+    }
 
     private static boolean isDecline(Throwable t) {
         String message = safe(t).toLowerCase(Locale.US);
