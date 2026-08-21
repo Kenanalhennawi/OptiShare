@@ -50,27 +50,12 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
-        <activity
-            android:name=".ApprovalActivity"
-            android:screenOrientation="portrait"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:exported="false" />
-
-        <activity
-            android:name=".ReceivedActivity"
-            android:screenOrientation="portrait"
-            android:exported="false" />
-
-        <activity
-            android:name=".MediaPickerActivity"
-            android:screenOrientation="portrait"
-            android:exported="false" />
-
-        <activity
-            android:name=".V3TransferActivity"
-            android:screenOrientation="portrait"
-            android:exported="false" />
+        <activity android:name=".ApprovalActivity" android:screenOrientation="portrait" android:excludeFromRecents="true" android:noHistory="true" android:exported="false" />
+        <activity android:name=".ReceivedActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".HistoryActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".SettingsActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".MediaPickerActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".V3TransferActivity" android:screenOrientation="portrait" android:exported="false" />
 
         <activity
             android:name=".V3Activity"
