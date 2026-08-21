@@ -79,8 +79,9 @@ public final class TransferEngine {
                 long sent = offset;
                 long started = System.nanoTime();
                 long batchBase = completedBefore - requested + offset;
-                try (InputStream raw = context.getContentResolver().openInputStream(item.getUri());
-                     BufferedInputStream source = new BufferedInputStream(raw, 512 * 1024)) {
+                InputStream raw = context.getContentResolver().openInputStream(item.getUri());
+                if (raw == null) throw new IOException("Cannot open source file: " + entry.name);
+                try (BufferedInputStream source = new BufferedInputStream(raw, 512 * 1024)) {
                     skipFully(source, offset);
                     byte[] buffer = new byte[CHUNK];
                     while (sent < entry.size) {
@@ -102,9 +103,9 @@ public final class TransferEngine {
             }
             SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_BATCH_DONE, SessionWire.encodeText(manifest.getSessionId()));
             listener.onCompleted(manifest.getSessionId());
-        } catch (Throwable t) {
-            listener.onError(manifest.getSessionId(), t, true);
-            throw t;
+        } catch (Exception e) {
+            listener.onError(manifest.getSessionId(), e, true);
+            throw e;
         }
     }
 
@@ -200,9 +201,9 @@ public final class TransferEngine {
                     throw new IOException("Unexpected frame type: " + frame.type);
                 }
             }
-        } catch (Throwable t) {
-            listener.onError(sessionId, t, true);
-            throw t;
+        } catch (Exception e) {
+            listener.onError(sessionId, e, true);
+            throw e;
         }
     }
 
