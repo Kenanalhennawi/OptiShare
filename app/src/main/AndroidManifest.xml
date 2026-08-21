@@ -53,7 +53,12 @@
             android:exported="false" />
 
         <activity
-            android:name=".V2Activity"
+            android:name=".MediaPickerActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".V3TransferActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
 
