@@ -15,7 +15,6 @@ import android.provider.OpenableColumns;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
-import androidx.core.content.ContextCompat;
 
 import com.kenan.optishare.R;
 import com.kenan.optishare.V2Activity;
@@ -90,13 +89,24 @@ public final class TransferService extends Service {
                     Socket socket = server.accept();
                     activeSocket = socket;
                     broadcast("connected", "Sender connected securely", 0, 0, null);
-                    receiveOne(socket);
-                    activeSocket = null;
+                    try {
+                        receiveOne(socket);
+                    } catch (Exception transferError) {
+                        if (running.get()) {
+                            broadcast("reconnecting", "Connection interrupted — waiting for sender to reconnect", 0, 0,
+                                    activeManifest == null ? null : activeManifest.getSessionId());
+                            updateNotification("Waiting to resume", "Keep OptiShare open; confirmed progress is preserved", 0, false);
+                        }
+                    } finally {
+                        closeSocket();
+                    }
                 }
-            } catch (Throwable t) {
-                if (running.get()) broadcast("error", safe(t), 0, 0, null);
+            } catch (Exception serverError) {
+                if (running.get()) broadcast("error", safe(serverError), 0, 0, null);
             } finally {
                 running.set(false);
+                serverSocket = null;
+                stopForeground(true);
                 stopSelf();
             }
         });
@@ -113,7 +123,6 @@ public final class TransferService extends Service {
                 broadcast("incoming", manifest.getEntries().size() + " files • " + formatBytes(manifest.totalBytes()), 0, 0, manifest.getSessionId());
             }
             @Override public boolean acceptIncomingBatch(BatchManifest manifest) {
-                // Receiver mode is explicitly user-initiated; accepting the next secured batch is the expected action.
                 return running.get();
             }
             @Override public void onProgress(String sessionId, String fileId, String fileName, long done, long total, long batchDone, long batchTotal, double bytesPerSecond) {
@@ -162,14 +171,15 @@ public final class TransferService extends Service {
                         socket.connect(new InetSocketAddress(host, PORT), 8000);
                         sendOne(engine, socket);
                         running.set(false);
+                        stopForeground(false);
                         stopSelf();
                         return;
-                    } catch (Throwable transferError) {
+                    } catch (Exception transferError) {
                         closeSocket();
                         if (attempt >= MAX_SOCKET_RETRIES) throw transferError;
                     }
                 }
-            } catch (Throwable t) {
+            } catch (Exception t) {
                 broadcast("error", safe(t), 0, 0, activeManifest == null ? null : activeManifest.getSessionId());
                 updateNotification("Transfer failed", safe(t), 0, false);
             } finally {
@@ -251,9 +261,10 @@ public final class TransferService extends Service {
 
     private Notification notification(String title, String text, int progress, boolean ongoingProgress) {
         Intent open = new Intent(this, V2Activity.class);
-        PendingIntent pending = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
+        int immutable = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
+        PendingIntent pending = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | immutable);
         Intent stop = new Intent(this, TransferService.class).setAction(ACTION_STOP);
-        PendingIntent stopPending = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
+        PendingIntent stopPending = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_UPDATE_CURRENT | immutable);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_optishare)
                 .setContentTitle(title)
@@ -285,6 +296,7 @@ public final class TransferService extends Service {
         running.set(false);
         closeSocket();
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) { }
+        serverSocket = null;
         stopForeground(true);
         stopSelf();
     }
@@ -295,7 +307,9 @@ public final class TransferService extends Service {
     }
 
     @Override public void onDestroy() {
-        stopTransfer();
+        running.set(false);
+        closeSocket();
+        try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) { }
         executor.shutdownNow();
         super.onDestroy();
     }
