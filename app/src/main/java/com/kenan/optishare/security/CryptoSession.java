@@ -18,10 +18,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-/**
- * Per-transfer ephemeral ECDH + HKDF-SHA256 + AES-256-GCM.
- * Uses secp256r1 so it works on Android 5+ without external crypto providers.
- */
+/** Per-transfer ephemeral ECDH + HKDF-SHA256 + AES-256-GCM, compatible with Android 5+. */
 public final class CryptoSession {
     private static final SecureRandom RNG = new SecureRandom();
     private static final byte[] HKDF_INFO = "OptiShare-2.0-session".getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -30,9 +27,7 @@ public final class CryptoSession {
     private SecretKeySpec aesKey;
     private byte[] fingerprint;
 
-    private CryptoSession(KeyPair keyPair) {
-        this.keyPair = keyPair;
-    }
+    private CryptoSession(KeyPair keyPair) { this.keyPair = keyPair; }
 
     public static CryptoSession create() throws Exception {
         KeyPairGenerator gen = KeyPairGenerator.getInstance("EC");
@@ -40,9 +35,7 @@ public final class CryptoSession {
         return new CryptoSession(gen.generateKeyPair());
     }
 
-    public byte[] publicKeyEncoded() {
-        return keyPair.getPublic().getEncoded();
-    }
+    public byte[] publicKeyEncoded() { return keyPair.getPublic().getEncoded(); }
 
     public void establish(byte[] peerPublicKey, byte[] salt) throws Exception {
         KeyFactory factory = KeyFactory.getInstance("EC");
@@ -53,11 +46,17 @@ public final class CryptoSession {
         byte[] shared = agreement.generateSecret();
         byte[] okm = hkdfSha256(shared, salt == null ? new byte[32] : salt, HKDF_INFO, 32);
         this.aesKey = new SecretKeySpec(okm, "AES");
+
+        byte[] own = publicKeyEncoded();
+        byte[] first = compareLexicographically(own, peerPublicKey) <= 0 ? own : peerPublicKey;
+        byte[] second = first == own ? peerPublicKey : own;
         MessageDigest sha = MessageDigest.getInstance("SHA-256");
-        sha.update(okm);
-        sha.update(publicKeyEncoded());
-        sha.update(peerPublicKey);
+        sha.update("OptiShare-security-code".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        sha.update(first);
+        sha.update(second);
+        sha.update(salt == null ? new byte[0] : salt);
         this.fingerprint = sha.digest();
+
         java.util.Arrays.fill(shared, (byte) 0);
         java.util.Arrays.fill(okm, (byte) 0);
     }
@@ -98,6 +97,16 @@ public final class CryptoSession {
 
     private void ensureReady() {
         if (aesKey == null) throw new IllegalStateException("Crypto session not established");
+    }
+
+    private static int compareLexicographically(byte[] a, byte[] b) {
+        int min = Math.min(a.length, b.length);
+        for (int i = 0; i < min; i++) {
+            int av = a[i] & 0xff;
+            int bv = b[i] & 0xff;
+            if (av != bv) return av < bv ? -1 : 1;
+        }
+        return Integer.compare(a.length, b.length);
     }
 
     private static byte[] hkdfSha256(byte[] ikm, byte[] salt, byte[] info, int length) throws Exception {
