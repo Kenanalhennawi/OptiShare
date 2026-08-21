@@ -11,6 +11,11 @@
         android:usesCleartextTraffic="false">
 
         <activity
+            android:name=".VlcActivity"
+            android:screenOrientation="landscape"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:screenOrientation="landscape"
             android:exported="false" />
