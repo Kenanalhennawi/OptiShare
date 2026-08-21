@@ -22,7 +22,8 @@
 
         <activity android:name=".LauncherActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity android:name=".DirectActivity" android:screenOrientation="portrait" android:exported="false" />
-        <activity android:name=".ShareActivity" android:screenOrientation="portrait" android:exported="true">
+        <activity android:name=".ShareActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".V1Activity" android:screenOrientation="portrait" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
