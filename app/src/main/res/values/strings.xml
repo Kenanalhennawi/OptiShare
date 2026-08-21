@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">OptiShare</string>
+    <string name="transfer_channel_name">File transfers</string>
+    <string name="incoming_channel_name">Incoming transfers</string>
+    <string name="received_path">Download/OptiShare</string>
+</resources>
