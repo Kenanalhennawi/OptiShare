@@ -4,14 +4,16 @@ plugins {
 
 android {
     namespace 'com.kenan.optishare'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.kenan.optishare'
         minSdk 21
-        targetSdk 35
-        versionCode 20
+        targetSdk 36
+        versionCode 200
         versionName '2.0.0'
+
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
     compileOptions {
@@ -32,18 +34,37 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
         release {
             minifyEnabled false
+            shrinkResources false
             if (findProperty('OPTISHARE_STORE_FILE')) signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+        warningsAsErrors false
+    }
+
+    packaging {
+        resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
     }
 }
 
 dependencies {
     implementation 'androidx.activity:activity:1.10.1'
-    implementation 'androidx.core:core:1.15.0'
+    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.recyclerview:recyclerview:1.4.0'
     implementation 'com.google.zxing:core:3.5.3'
     implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
 
     testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
 }
