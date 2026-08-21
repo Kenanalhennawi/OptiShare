@@ -83,10 +83,12 @@ public final class P2pConnectionCoordinator {
                 NetworkInfo info = intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO);
                 if (info != null && info.isConnected()) {
                     handler.removeCallbacks(connectTimeout);
-                    emit(State.NEGOTIATING, "Direct link created. Securing transfer channel…", connectAttempt);
+                    emit(State.NEGOTIATING, "Peer connected. Securing transfer channel…", connectAttempt);
                     requestConnectionInfo();
-                } else if (!stopped && connectingDevice != null) {
+                } else if (!stopped && !receiverMode && connectingDevice != null) {
                     emit(State.RETRYING, "Direct link dropped. Restoring connection…", connectAttempt);
+                } else if (!stopped && receiverMode) {
+                    emit(State.ADVERTISING, "Ready to receive. Waiting for a sender…", connectAttempt);
                 }
             }
         }
@@ -159,7 +161,11 @@ public final class P2pConnectionCoordinator {
         emit(State.ADVERTISING, "Making this phone visible to nearby senders…", connectAttempt);
         try {
             manager.createGroup(channel, new WifiP2pManager.ActionListener() {
-                @Override public void onSuccess() { emit(State.ADVERTISING, "Ready to receive. Keep OptiShare open on the sender.", connectAttempt); requestConnectionInfo(); }
+                @Override public void onSuccess() {
+                    // Group ownership means the receiver is READY, not CONNECTED. Wait for
+                    // WIFI_P2P_CONNECTION_CHANGED_ACTION before reporting a peer connection.
+                    emit(State.ADVERTISING, "Ready to receive. Waiting for a sender…", connectAttempt);
+                }
                 @Override public void onFailure(int reason) {
                     if (reason == WifiP2pManager.BUSY && connectAttempt < MAX_CONNECT_ATTEMPTS) {
                         connectAttempt++; emit(State.RETRYING, "Android Wi-Fi Direct is busy. Retrying receiver setup…", connectAttempt);
@@ -202,7 +208,7 @@ public final class P2pConnectionCoordinator {
         try {
             manager.requestConnectionInfo(channel, info -> {
                 if (info == null || !info.groupFormed || info.groupOwnerAddress == null) return;
-                handler.removeCallbacks(connectTimeout); emit(State.CONNECTED, "Connected securely to nearby device", connectAttempt);
+                handler.removeCallbacks(connectTimeout); emit(State.CONNECTED, "Peer connection established", connectAttempt);
                 String peer = requestedName == null ? "Nearby device" : requestedName;
                 if (listener != null) listener.onConnected(info, peer);
             });
