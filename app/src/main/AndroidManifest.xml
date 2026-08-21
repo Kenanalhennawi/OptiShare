@@ -6,11 +6,12 @@
     <application
         android:allowBackup="false"
         android:label="OptiShare"
+        android:icon="@drawable/ic_optishare"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
-            android:screenOrientation="portrait"
+            android:screenOrientation="landscape"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
