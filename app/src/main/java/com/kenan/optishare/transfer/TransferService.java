@@ -62,10 +62,12 @@ public final class TransferService extends Service {
     private volatile BatchManifest activeManifest;
     private volatile List<TransferItem> activeItems;
     private SenderSessionStore senderStore;
+    private WifiDirectRecovery wifiRecovery;
 
     @Override public void onCreate() {
         super.onCreate();
         senderStore = new SenderSessionStore(this);
+        wifiRecovery = new WifiDirectRecovery(this);
         createChannel();
     }
 
@@ -172,9 +174,9 @@ public final class TransferService extends Service {
     }
 
     private void startSender(Intent intent) {
-        String host = intent.getStringExtra(EXTRA_HOST);
-        ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);
-        if (host == null || rawUris == null || rawUris.isEmpty()) {
+        final String initialHost = intent.getStringExtra(EXTRA_HOST);
+        final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);
+        if (initialHost == null || rawUris == null || rawUris.isEmpty()) {
             broadcast("error", "Missing receiver or files", 0, 0, null);
             stopSelf();
             return;
@@ -185,8 +187,11 @@ public final class TransferService extends Service {
                 activeItems = resolveItems(rawUris);
                 TransferEngine engine = new TransferEngine(this);
                 activeManifest = engine.buildManifest(activeItems);
-                senderStore.save(host, activeItems, activeManifest);
-                runSenderLoop(host, engine);
+                WifiDirectRecovery.Peer peer = wifiRecovery.capture(2500);
+                String host = peer != null && peer.host != null ? peer.host : initialHost;
+                String peerAddress = peer == null ? null : peer.deviceAddress;
+                senderStore.save(host, peerAddress, activeItems, activeManifest);
+                runSenderLoop(host, peerAddress, engine);
             } catch (Exception error) {
                 failSender(error);
             }
@@ -200,15 +205,16 @@ public final class TransferService extends Service {
                 activeItems = pending.items;
                 activeManifest = pending.manifest;
                 broadcast("reconnecting", "Restoring interrupted session…", 0, 0, activeManifest.getSessionId());
-                runSenderLoop(pending.host, new TransferEngine(this));
+                runSenderLoop(pending.host, pending.peerAddress, new TransferEngine(this));
             } catch (Exception error) {
                 failSender(error);
             }
         });
     }
 
-    private void runSenderLoop(String host, TransferEngine engine) throws Exception {
+    private void runSenderLoop(String initialHost, String peerAddress, TransferEngine engine) throws Exception {
         int attempt = 0;
+        String host = initialHost;
         try {
             while (running.get() && attempt < MAX_SOCKET_RETRIES) {
                 attempt++;
@@ -232,6 +238,14 @@ public final class TransferService extends Service {
                         senderStore.clear();
                         broadcast("declined", "Receiver declined the transfer", 0, 0, activeManifest.getSessionId());
                         return;
+                    }
+                    if (peerAddress != null && wifiRecovery.available()) {
+                        String recoveredHost = wifiRecovery.recover(peerAddress, 12_000);
+                        if (recoveredHost != null) {
+                            host = recoveredHost;
+                            senderStore.save(host, peerAddress, activeItems, activeManifest);
+                            broadcast("reconnecting", "Direct link restored — resuming encrypted session", 0, 0, activeManifest.getSessionId());
+                        }
                     }
                     if (attempt >= MAX_SOCKET_RETRIES) throw transferError;
                 }
