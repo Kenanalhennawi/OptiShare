@@ -1,0 +1,149 @@
+package com.kenan.optishare.storage;
+
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Context;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
+
+import com.kenan.optishare.model.TransferItem;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+/** Stores partial data privately, then atomically publishes verified files into Download/OptiShare/<Category>. */
+public final class DownloadStore {
+    private final Context context;
+
+    public DownloadStore(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public File partialFile(String sessionId, String fileId) throws IOException {
+        File root = new File(context.getFilesDir(), "partial/" + sanitize(sessionId));
+        if (!root.exists() && !root.mkdirs()) throw new IOException("Could not create partial directory");
+        return new File(root, sanitize(fileId) + ".optishare-part");
+    }
+
+    public long partialLength(String sessionId, String fileId) throws IOException {
+        File file = partialFile(sessionId, fileId);
+        return file.exists() ? file.length() : 0L;
+    }
+
+    public FileOutputStream openPartial(String sessionId, String fileId, boolean append) throws IOException {
+        return new FileOutputStream(partialFile(sessionId, fileId), append);
+    }
+
+    public Uri publishVerified(String sessionId, String fileId, String name, String mime, TransferItem.Category category) throws IOException {
+        File source = partialFile(sessionId, fileId);
+        if (!source.exists()) throw new IOException("Partial file missing");
+        String safeName = TransferItem.safeName(name);
+        String folder = categoryFolder(category);
+        Uri published;
+        if (Build.VERSION.SDK_INT >= 29) {
+            published = publishMediaStore(source, safeName, mime, folder);
+        } else {
+            published = publishLegacy(source, safeName, folder);
+        }
+        if (!source.delete()) source.deleteOnExit();
+        return published;
+    }
+
+    public void discard(String sessionId, String fileId) {
+        try {
+            File f = partialFile(sessionId, fileId);
+            if (f.exists()) f.delete();
+        } catch (IOException ignored) { }
+    }
+
+    public void clearSession(String sessionId) {
+        File dir = new File(context.getFilesDir(), "partial/" + sanitize(sessionId));
+        deleteRecursive(dir);
+    }
+
+    private Uri publishMediaStore(File source, String name, String mime, String folder) throws IOException {
+        ContentResolver resolver = context.getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Downloads.DISPLAY_NAME, name);
+        values.put(MediaStore.Downloads.MIME_TYPE, mime == null ? "application/octet-stream" : mime);
+        values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/OptiShare/" + folder);
+        values.put(MediaStore.Downloads.IS_PENDING, 1);
+        Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+        if (uri == null) throw new IOException("Could not create download entry");
+        boolean success = false;
+        try (InputStream in = new FileInputStream(source); OutputStream out = resolver.openOutputStream(uri, "w")) {
+            if (out == null) throw new IOException("Could not open destination");
+            copy(in, out);
+            success = true;
+        } finally {
+            if (!success) resolver.delete(uri, null, null);
+        }
+        ContentValues done = new ContentValues();
+        done.put(MediaStore.Downloads.IS_PENDING, 0);
+        resolver.update(uri, done, null, null);
+        return uri;
+    }
+
+    @SuppressWarnings("deprecation")
+    private Uri publishLegacy(File source, String name, String folder) throws IOException {
+        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "OptiShare/" + folder);
+        if (!dir.exists() && !dir.mkdirs()) throw new IOException("Could not create Download/OptiShare directory");
+        File target = uniqueFile(dir, name);
+        try (InputStream in = new FileInputStream(source); OutputStream out = new FileOutputStream(target)) {
+            copy(in, out);
+        }
+        return Uri.fromFile(target);
+    }
+
+    private static File uniqueFile(File dir, String name) {
+        File first = new File(dir, name);
+        if (!first.exists()) return first;
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String ext = dot > 0 ? name.substring(dot) : "";
+        for (int i = 1; i < 10000; i++) {
+            File candidate = new File(dir, base + " (" + i + ")" + ext);
+            if (!candidate.exists()) return candidate;
+        }
+        return new File(dir, System.currentTimeMillis() + "-" + name);
+    }
+
+    private static String categoryFolder(TransferItem.Category category) {
+        if (category == null) return "Other";
+        switch (category) {
+            case PHOTO: return "Photos";
+            case VIDEO: return "Videos";
+            case MUSIC: return "Music";
+            case APP: return "Apps";
+            case DOCUMENT: return "Documents";
+            case ARCHIVE: return "Archives";
+            default: return "Other";
+        }
+    }
+
+    private static void copy(InputStream in, OutputStream out) throws IOException {
+        byte[] buffer = new byte[256 * 1024];
+        int n;
+        while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+        out.flush();
+    }
+
+    private static String sanitize(String value) {
+        return value == null ? "unknown" : value.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private static void deleteRecursive(File file) {
+        if (file == null || !file.exists()) return;
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) for (File child : children) deleteRecursive(child);
+        }
+        file.delete();
+    }
+}
