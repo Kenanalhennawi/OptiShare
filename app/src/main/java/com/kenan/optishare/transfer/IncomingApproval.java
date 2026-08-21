@@ -9,12 +9,12 @@ import android.os.Build;
 
 import androidx.core.app.NotificationCompat;
 
+import com.kenan.optishare.ApprovalActivity;
 import com.kenan.optishare.OptiShareApp;
 import com.kenan.optishare.R;
-import com.kenan.optishare.V2Activity;
 
 /**
- * Process-local approval gate backed by a high-priority notification.
+ * Process-local approval gate backed by a high-priority notification and a focused approval screen.
  * It is used for both peer security-code verification and incoming batch consent.
  */
 final class IncomingApproval {
@@ -54,9 +54,7 @@ final class IncomingApproval {
             }
             boolean accepted = key != null && key.equals(pendingKey)
                     && Boolean.TRUE.equals(decision);
-            if (key != null && key.equals(pendingKey)) {
-                clearLocked();
-            }
+            if (key != null && key.equals(pendingKey)) clearLocked();
             cancelNotification();
             return accepted;
         }
@@ -120,11 +118,16 @@ final class IncomingApproval {
         }
 
         int immutable = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
+        Intent approvalScreen = new Intent(context, ApprovalActivity.class)
+                .putExtra(ApprovalActivity.EXTRA_TITLE, title)
+                .putExtra(ApprovalActivity.EXTRA_TEXT, text)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent open = PendingIntent.getActivity(
                 context,
                 10,
-                new Intent(context, V2Activity.class),
+                approvalScreen,
                 PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+
         PendingIntent accept = PendingIntent.getService(
                 context,
                 11,
