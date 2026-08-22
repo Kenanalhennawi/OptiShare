@@ -98,3 +98,5 @@ jobs:
           path: release-output/OptiShare-V5-FINAL-SIGNED.apk
           if-no-files-found: error
           retention-days: 30
+
+# trigger: 2026-08-22T15:08+04:00
