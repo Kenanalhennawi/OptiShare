@@ -55,21 +55,40 @@ jobs:
         env:
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
           base64 --decode .github/signing/optishare-release.jks.enc.b64 > "$RUNNER_TEMP/optishare-release.jks.enc"
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+
+          SELECTED_PASSWORD=""
+          if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
             -in "$RUNNER_TEMP/optishare-release.jks.enc" \
             -out "$RUNNER_TEMP/optishare-release.jks" \
-            -pass env:STORE_PASSWORD
+            -pass env:STORE_PASSWORD 2>/dev/null; then
+            SELECTED_PASSWORD="$STORE_PASSWORD"
+          else
+            rm -f "$RUNNER_TEMP/optishare-release.jks"
+            if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -in "$RUNNER_TEMP/optishare-release.jks.enc" \
+              -out "$RUNNER_TEMP/optishare-release.jks" \
+              -pass env:KEY_PASSWORD 2>/dev/null; then
+              SELECTED_PASSWORD="$KEY_PASSWORD"
+            else
+              echo '::error::Neither signing password can decrypt the release keystore payload'
+              exit 1
+            fi
+          fi
+
+          echo "::add-mask::$SELECTED_PASSWORD"
+          echo "OPTISHARE_EFFECTIVE_STORE_PASSWORD=$SELECTED_PASSWORD" >> "$GITHUB_ENV"
           chmod 600 "$RUNNER_TEMP/optishare-release.jks"
           keytool -list \
             -keystore "$RUNNER_TEMP/optishare-release.jks" \
-            -storepass "$STORE_PASSWORD" \
+            -storepass "$SELECTED_PASSWORD" \
             -alias "$KEY_ALIAS" >/dev/null
 
       - name: Build true signed Release APK
         env:
-          STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
+          STORE_PASSWORD: ${{ env.OPTISHARE_EFFECTIVE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
