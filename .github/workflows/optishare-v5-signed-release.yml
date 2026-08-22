@@ -1,0 +1,91 @@
+name: OptiShare V5 SIGNED RELEASE
+
+on:
+  push:
+    branches:
+      - rebuild/v5-worldclass
+    paths:
+      - '.github/workflows/optishare-v5-signed-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-release:
+    name: Build V5 Signed Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Validate release signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.OPTISHARE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is missing. Add the corresponding OPTISHARE_* repository secret."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.OPTISHARE_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks"
+          chmod 600 "$RUNNER_TEMP/optishare-release.jks"
+          keytool -list -keystore "$RUNNER_TEMP/optishare-release.jks" -storepass "${{ secrets.OPTISHARE_STORE_PASSWORD }}" -alias "${{ secrets.OPTISHARE_KEY_ALIAS }}" >/dev/null
+
+      - name: Build signed release APK
+        env:
+          STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
+        run: |
+          gradle --no-daemon --stacktrace \
+            -POPTISHARE_STORE_FILE="$RUNNER_TEMP/optishare-release.jks" \
+            -POPTISHARE_STORE_PASSWORD="$STORE_PASSWORD" \
+            -POPTISHARE_KEY_ALIAS="$KEY_ALIAS" \
+            -POPTISHARE_KEY_PASSWORD="$KEY_PASSWORD" \
+            clean testReleaseUnitTest lintRelease assembleRelease
+
+      - name: Verify APK signature
+        run: |
+          APK=$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)
+          test -n "$APK" || { echo '::error::Release APK not found'; exit 1; }
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          cp "$APK" app/build/outputs/apk/release/OptiShare-V5-release-signed.apk
+
+      - name: Upload signed release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-V5-SIGNED-RELEASE
+          path: app/build/outputs/apk/release/OptiShare-V5-release-signed.apk
+          if-no-files-found: error
+          retention-days: 30
