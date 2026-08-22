@@ -4,17 +4,69 @@ plugins {
 
 android {
     namespace 'com.kenan.optishare'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.kenan.optishare'
-        minSdk 23
-        targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        minSdk 21
+        targetSdk 36
+        versionCode 300
+        versionName '3.0.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    signingConfigs {
+        release {
+            def storeFilePath = findProperty('OPTISHARE_STORE_FILE')
+            if (storeFilePath) {
+                storeFile file(storeFilePath)
+                storePassword findProperty('OPTISHARE_STORE_PASSWORD')
+                keyAlias findProperty('OPTISHARE_KEY_ALIAS')
+                keyPassword findProperty('OPTISHARE_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (findProperty('OPTISHARE_STORE_FILE')) signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+        warningsAsErrors false
+    }
+
+    packaging {
+        resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
     }
 }
 
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+    implementation 'androidx.activity:activity:1.10.1'
+    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.recyclerview:recyclerview:1.4.0'
     implementation 'com.google.zxing:core:3.5.3'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
 }

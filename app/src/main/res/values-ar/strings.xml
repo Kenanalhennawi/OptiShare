@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">OptiShare</string>
+    <string name="transfer_channel_name">نقل الملفات</string>
+    <string name="incoming_channel_name">عمليات نقل واردة</string>
+    <string name="received_path">Download/OptiShare</string>
+</resources>
