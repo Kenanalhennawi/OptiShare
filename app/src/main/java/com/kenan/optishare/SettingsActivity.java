@@ -3,6 +3,7 @@ package com.kenan.optishare;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -37,8 +38,17 @@ public final class SettingsActivity extends Activity {
         LinearLayout privacy=card();privacy.addView(text("No account. No cloud relay.",15,Color.rgb(92,213,164),true));privacy.addView(text("Transfer content stays between the participating devices. Pairing uses an authenticated encrypted session and received files are verified before publishing.",12,Color.rgb(150,181,204),false));privacy.addView(text("Security codes must match on both phones before a transfer is approved.",12,Color.rgb(150,181,204),false));root.addView(privacy);
 
         TextView aboutLabel=text("About",16,Color.WHITE,true);aboutLabel.setPadding(0,dp(20),0,dp(8));root.addView(aboutLabel);
-        LinearLayout about=card();about.addView(text("OptiShare "+BuildConfig.VERSION_NAME,14,Color.WHITE,true));about.addView(text("Designed & developed by Kenan Alhennawi",12,Color.rgb(111,199,244),false));about.addView(text("Android 5.0+ • Local device-to-device transfer",11,Color.rgb(139,169,193),false));root.addView(about);
+        LinearLayout about=card();about.addView(text("OptiShare "+versionName(),14,Color.WHITE,true));about.addView(text("Designed & developed by Kenan Alhennawi",12,Color.rgb(111,199,244),false));about.addView(text("Android 5.0+ • Local device-to-device transfer",11,Color.rgb(139,169,193),false));root.addView(about);
         setContentView(scroll);
+    }
+
+    private String versionName(){
+        try {
+            PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
+            return info.versionName==null?"3.0.0":info.versionName;
+        } catch(Exception ignored){
+            return "3.0.0";
+        }
     }
 
     private void rename(){final EditText input=new EditText(this);input.setText(identity.name());input.setSelectAllOnFocus(true);new AlertDialog.Builder(this).setTitle("Device name").setMessage("Use a name you will recognize on your other phone.").setView(input).setPositiveButton("Save",(d,w)->{try{identity.setName(input.getText().toString());render();}catch(Exception e){}}).setNegativeButton("Cancel",null).show();}
