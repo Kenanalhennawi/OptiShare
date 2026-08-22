@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.kenan.optishare.v4"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 36
         versionCode = 400
         versionName = "4.0.0-alpha01"
