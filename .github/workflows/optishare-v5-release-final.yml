@@ -40,32 +40,32 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Validate signing values
+      - name: Validate signing secrets
         env:
-          KEYSTORE_BASE64_SECRET: ${{ secrets.OPTISHARE_KEYSTORE_BASE64 }}
-          KEYSTORE_BASE64_VAR: ${{ vars.OPTISHARE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
-          KEYSTORE_BASE64="$KEYSTORE_BASE64_SECRET"
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            KEYSTORE_BASE64="$KEYSTORE_BASE64_VAR"
-          fi
-          test -n "$KEYSTORE_BASE64" || { echo '::error::Missing OPTISHARE_KEYSTORE_BASE64 in both Actions Secrets and Variables'; exit 1; }
           test -n "$STORE_PASSWORD" || { echo '::error::Missing OPTISHARE_STORE_PASSWORD'; exit 1; }
           test -n "$KEY_ALIAS" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
           test -n "$KEY_PASSWORD" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
-          printf '%s' "$KEYSTORE_BASE64" > "$RUNNER_TEMP/optishare-keystore.b64"
+          test -s .github/signing/optishare-release.jks.enc.b64 || { echo '::error::Encrypted release keystore payload missing'; exit 1; }
 
-      - name: Restore signing keystore
+      - name: Restore encrypted signing keystore
         env:
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
         run: |
-          base64 --decode "$RUNNER_TEMP/optishare-keystore.b64" > "$RUNNER_TEMP/optishare-release.jks"
+          base64 --decode .github/signing/optishare-release.jks.enc.b64 > "$RUNNER_TEMP/optishare-release.jks.enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in "$RUNNER_TEMP/optishare-release.jks.enc" \
+            -out "$RUNNER_TEMP/optishare-release.jks" \
+            -pass env:STORE_PASSWORD
           chmod 600 "$RUNNER_TEMP/optishare-release.jks"
-          keytool -list -keystore "$RUNNER_TEMP/optishare-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          keytool -list \
+            -keystore "$RUNNER_TEMP/optishare-release.jks" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" >/dev/null
 
       - name: Build true signed Release APK
         env:
