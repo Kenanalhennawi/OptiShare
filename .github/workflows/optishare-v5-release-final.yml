@@ -42,10 +42,12 @@ jobs:
 
       - name: Validate signing secrets
         env:
+          ENCRYPTION_PASSWORD: ${{ secrets.OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
+          test -n "$ENCRYPTION_PASSWORD" || { echo '::error::Missing OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD'; exit 1; }
           test -n "$STORE_PASSWORD" || { echo '::error::Missing OPTISHARE_STORE_PASSWORD'; exit 1; }
           test -n "$KEY_ALIAS" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
           test -n "$KEY_PASSWORD" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
@@ -53,42 +55,24 @@ jobs:
 
       - name: Restore encrypted signing keystore
         env:
+          ENCRYPTION_PASSWORD: ${{ secrets.OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
           base64 --decode .github/signing/optishare-release.jks.enc.b64 > "$RUNNER_TEMP/optishare-release.jks.enc"
-
-          SELECTED_PASSWORD=""
-          if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
             -in "$RUNNER_TEMP/optishare-release.jks.enc" \
             -out "$RUNNER_TEMP/optishare-release.jks" \
-            -pass env:STORE_PASSWORD 2>/dev/null; then
-            SELECTED_PASSWORD="$STORE_PASSWORD"
-          else
-            rm -f "$RUNNER_TEMP/optishare-release.jks"
-            if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-              -in "$RUNNER_TEMP/optishare-release.jks.enc" \
-              -out "$RUNNER_TEMP/optishare-release.jks" \
-              -pass env:KEY_PASSWORD 2>/dev/null; then
-              SELECTED_PASSWORD="$KEY_PASSWORD"
-            else
-              echo '::error::Neither signing password can decrypt the release keystore payload'
-              exit 1
-            fi
-          fi
-
-          echo "::add-mask::$SELECTED_PASSWORD"
-          echo "OPTISHARE_EFFECTIVE_STORE_PASSWORD=$SELECTED_PASSWORD" >> "$GITHUB_ENV"
+            -pass env:ENCRYPTION_PASSWORD
           chmod 600 "$RUNNER_TEMP/optishare-release.jks"
           keytool -list \
             -keystore "$RUNNER_TEMP/optishare-release.jks" \
-            -storepass "$SELECTED_PASSWORD" \
+            -storepass "$STORE_PASSWORD" \
             -alias "$KEY_ALIAS" >/dev/null
 
       - name: Build true signed Release APK
         env:
-          STORE_PASSWORD: ${{ env.OPTISHARE_EFFECTIVE_STORE_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
