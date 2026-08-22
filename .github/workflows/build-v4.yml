@@ -50,20 +50,17 @@ jobs:
       - name: Clean
         run: gradle --no-daemon clean
 
-      - name: Debug unit tests
-        run: gradle --no-daemon testDebugUnitTest
-
-      - name: Release unit tests
-        run: gradle --no-daemon testReleaseUnitTest
+      - name: Run unit tests
+        run: gradle --no-daemon :app:test
 
       - name: Debug lint
-        run: gradle --no-daemon lintDebug
+        run: gradle --no-daemon :app:lintDebug
 
       - name: Release lint
-        run: gradle --no-daemon lintRelease
+        run: gradle --no-daemon :app:lintRelease
 
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon :app:assembleDebug
 
       - name: Upload test reports
         if: always()
@@ -108,7 +105,7 @@ jobs:
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_PASSWORD: ${{ env.OPTISHARE_STORE_PASSWORD }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_ALIAS: ${{ env.OPTISHARE_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_PASSWORD: ${{ env.OPTISHARE_KEY_PASSWORD }}
-        run: gradle --no-daemon assembleRelease bundleRelease
+        run: gradle --no-daemon :app:assembleRelease :app:bundleRelease
 
       - name: Create checksums
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
