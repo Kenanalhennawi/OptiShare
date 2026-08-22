@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.kenan.optishare.v4"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.kenan.optishare.v4"
         minSdk = 21
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 400
         versionName = "4.0.0-alpha01"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
