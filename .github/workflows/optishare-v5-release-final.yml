@@ -59,7 +59,8 @@ jobs:
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
         run: |
-          base64 --decode .github/signing/optishare-release.jks.enc.b64 > "$RUNNER_TEMP/optishare-release.jks.enc"
+          tr -cd 'A-Za-z0-9+/=' < .github/signing/optishare-release.jks.enc.b64 \
+            | base64 --decode > "$RUNNER_TEMP/optishare-release.jks.enc"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
             -in "$RUNNER_TEMP/optishare-release.jks.enc" \
             -out "$RUNNER_TEMP/optishare-release.jks" \
@@ -98,5 +99,3 @@ jobs:
           path: release-output/OptiShare-V5-FINAL-SIGNED.apk
           if-no-files-found: error
           retention-days: 30
-
-# trigger: 2026-08-22T15:08+04:00
