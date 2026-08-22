@@ -40,25 +40,30 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Validate signing secrets
+      - name: Validate signing values
         env:
-          KEYSTORE_BASE64: ${{ secrets.OPTISHARE_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64_SECRET: ${{ secrets.OPTISHARE_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64_VAR: ${{ vars.OPTISHARE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
-          test -n "$KEYSTORE_BASE64" || { echo '::error::Missing OPTISHARE_KEYSTORE_BASE64'; exit 1; }
+          KEYSTORE_BASE64="$KEYSTORE_BASE64_SECRET"
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            KEYSTORE_BASE64="$KEYSTORE_BASE64_VAR"
+          fi
+          test -n "$KEYSTORE_BASE64" || { echo '::error::Missing OPTISHARE_KEYSTORE_BASE64 in both Actions Secrets and Variables'; exit 1; }
           test -n "$STORE_PASSWORD" || { echo '::error::Missing OPTISHARE_STORE_PASSWORD'; exit 1; }
           test -n "$KEY_ALIAS" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
           test -n "$KEY_PASSWORD" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" > "$RUNNER_TEMP/optishare-keystore.b64"
 
       - name: Restore signing keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.OPTISHARE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
         run: |
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks"
+          base64 --decode "$RUNNER_TEMP/optishare-keystore.b64" > "$RUNNER_TEMP/optishare-release.jks"
           chmod 600 "$RUNNER_TEMP/optishare-release.jks"
           keytool -list -keystore "$RUNNER_TEMP/optishare-release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
 
