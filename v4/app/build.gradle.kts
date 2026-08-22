@@ -31,6 +31,21 @@ android {
         jvmTarget = "17"
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = providers.gradleProperty("OPTISHARE_STORE_FILE").orNull
+            val storePasswordValue = providers.gradleProperty("OPTISHARE_STORE_PASSWORD").orNull
+            val keyAliasValue = providers.gradleProperty("OPTISHARE_KEY_ALIAS").orNull
+            val keyPasswordValue = providers.gradleProperty("OPTISHARE_KEY_PASSWORD").orNull
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -39,6 +54,8 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            val storePath = providers.gradleProperty("OPTISHARE_STORE_FILE").orNull
+            if (!storePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -64,8 +81,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.navigation:navigation-compose:2.9.8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
