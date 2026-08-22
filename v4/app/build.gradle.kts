@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.kenan.optishare.v4"
+    namespace = "com.kenan.optishare"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.kenan.optishare.v4"
+        applicationId = "com.kenan.optishare"
         minSdk = 24
         targetSdk = 36
         versionCode = 400
