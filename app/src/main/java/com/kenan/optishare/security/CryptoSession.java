@@ -61,6 +61,11 @@ public final class CryptoSession {
         java.util.Arrays.fill(okm, (byte) 0);
     }
 
+    public byte[] sessionFingerprint() {
+        ensureReady();
+        return java.util.Arrays.copyOf(fingerprint, fingerprint.length);
+    }
+
     public byte[] encrypt(byte[] plaintext, byte[] aad) throws Exception {
         ensureReady();
         byte[] iv = new byte[12];
