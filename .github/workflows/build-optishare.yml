@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 35
     env:
       EXPECTED_CERT_SHA256: c408ec09bdfa5b6186591a1beafa333323f8fc5f205b418116129bd3f90f60e3
-      EXPECTED_JKS_SHA256: 714155b7dd73326504178197761fb8f3a1da0efa7e8a123eb963a6907a654323
+      EXPECTED_JKS_SHA256: edc91c288d98396d9c8bbb1540f90e536ce6758ae0355f1d724fbf2df0f52531
 
     steps:
       - name: Checkout
