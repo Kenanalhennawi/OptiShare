@@ -49,40 +49,38 @@ jobs:
           testDebugUnitTest testReleaseUnitTest
           lintDebug lintRelease assembleDebug
 
-      - name: Validate signing secrets
+      - name: Validate signing inputs
         env:
-          ENCRYPTION_PASSWORD: ${{ secrets.OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$ENCRYPTION_PASSWORD" || { echo '::error::Missing OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD'; exit 1; }
           test -n "$STORE_PASSWORD" || { echo '::error::Missing OPTISHARE_STORE_PASSWORD'; exit 1; }
           test -n "$KEY_ALIAS" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
           test -n "$KEY_PASSWORD" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
-          test -s .github/signing/optishare-release.jks.enc.hex || { echo '::error::Encrypted keystore payload missing'; exit 1; }
-          test "$(head -c 8 .github/signing/optishare-release.jks.enc.hex)" = "Salted__" || {
+          test -s .github/signing/optishare-release.jks.enc || { echo '::error::Encrypted keystore payload missing'; exit 1; }
+          test "$(head -c 8 .github/signing/optishare-release.jks.enc)" = "Salted__" || {
             echo '::error::Encrypted keystore payload has invalid OpenSSL header';
             exit 1;
           }
 
       - name: Restore and validate release keystore
         env:
-          ENCRYPTION_PASSWORD: ${{ secrets.OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-            -in .github/signing/optishare-release.jks.enc.hex \
+            -in .github/signing/optishare-release.jks.enc \
             -out "$RUNNER_TEMP/optishare-release.jks" \
-            -pass env:ENCRYPTION_PASSWORD
+            -pass env:STORE_PASSWORD
           chmod 600 "$RUNNER_TEMP/optishare-release.jks"
           keytool -list \
             -keystore "$RUNNER_TEMP/optishare-release.jks" \
             -storepass "$STORE_PASSWORD" \
             -alias "$KEY_ALIAS" >/dev/null
+          echo 'Release keystore restored and validated.'
 
       - name: Build signed release APK and Play AAB
         env:
