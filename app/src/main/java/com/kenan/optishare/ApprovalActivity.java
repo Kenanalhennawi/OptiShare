@@ -1,5 +1,6 @@
 package com.kenan.optishare;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
@@ -14,8 +15,8 @@ import android.widget.TextView;
 import com.kenan.optishare.transfer.TransferService;
 
 /**
- * Focused approval UI opened from the high-priority transfer approval notification.
- * It intentionally contains no discovery or navigation state: a decision is the only action.
+ * Focused approval UI opened for security-code verification and incoming-transfer consent.
+ * A back gesture is deliberately treated as a decline so no approval can be bypassed implicitly.
  */
 public final class ApprovalActivity extends Activity {
     public static final String EXTRA_TITLE = "approval_title";
@@ -50,22 +51,25 @@ public final class ApprovalActivity extends Activity {
         detail.setPadding(dp(8), dp(16), dp(8), dp(20));
         root.addView(detail, new LinearLayout.LayoutParams(-1, -2));
 
+        boolean security = title.toLowerCase(java.util.Locale.US).contains("security");
         LinearLayout note = card();
         TextView noteText = text(
-                title.toLowerCase(java.util.Locale.US).contains("security")
-                        ? "Compare the code shown on both phones. Confirm only when every digit matches. A mismatch can indicate the wrong peer or an intercepted pairing attempt."
-                        : "Review the incoming transfer before accepting. OptiShare will not publish received files until integrity verification succeeds.",
+                security
+                        ? "Compare every digit on both phones. Confirm only when the six-digit code matches exactly. A mismatch can mean you connected to the wrong peer or the pairing was intercepted."
+                        : "Review the incoming transfer before accepting. Received files are published only after their SHA-256 integrity check succeeds.",
                 13, Color.rgb(158, 187, 211), false);
         note.addView(noteText);
         root.addView(note, new LinearLayout.LayoutParams(-1, -2));
 
-        Button confirm = button("Confirm", Color.rgb(43, 201, 139), Color.rgb(16, 126, 92));
+        Button confirm = button(security ? "Codes match — confirm" : "Accept transfer",
+                Color.rgb(43, 201, 139), Color.rgb(16, 126, 92));
         confirm.setOnClickListener(v -> decide(true));
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(56));
         cp.setMargins(0, dp(22), 0, 0);
         root.addView(confirm, cp);
 
-        Button decline = button("Decline", Color.rgb(107, 50, 66), Color.rgb(74, 31, 45));
+        Button decline = button(security ? "Codes do not match" : "Decline transfer",
+                Color.rgb(107, 50, 66), Color.rgb(74, 31, 45));
         decline.setOnClickListener(v -> decide(false));
         LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(-1, this.dp(52));
         dp.setMargins(0, this.dp(10), 0, 0);
@@ -87,6 +91,7 @@ public final class ApprovalActivity extends Activity {
         finish();
     }
 
+    @SuppressLint("MissingSuperCall")
     @Override public void onBackPressed() {
         decide(false);
     }
