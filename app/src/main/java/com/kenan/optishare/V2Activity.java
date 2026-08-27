@@ -202,6 +202,12 @@ public class V2Activity extends ComponentActivity implements
             long done = intent.getLongExtra(TransferService.EXTRA_DONE, 0L);
             long total = intent.getLongExtra(TransferService.EXTRA_TOTAL, 0L);
             long etaSeconds = intent.getLongExtra(TransferService.EXTRA_ETA_SECONDS, 0L);
+            double averageSpeed = intent.getDoubleExtra(TransferService.EXTRA_AVG_SPEED, 0d);
+            long durationMs = intent.getLongExtra(TransferService.EXTRA_DURATION_MS, 0L);
+            int reconnects = intent.getIntExtra(TransferService.EXTRA_RECONNECTS, 0);
+            int completedFileCount = intent.getIntExtra(TransferService.EXTRA_FILE_COUNT, 0);
+            long completedTotalBytes = intent.getLongExtra(TransferService.EXTRA_TOTAL_BYTES, 0L);
+            String completedRoute = intent.getStringExtra(TransferService.EXTRA_ROUTE);
             if (event == null) return;
             if (!transferStarted && ("incoming".equals(event) || "progress".equals(event) || "security".equals(event))) {
                 transferStarted = true;
@@ -241,7 +247,9 @@ public class V2Activity extends ComponentActivity implements
                 setTransferUi("Transfer complete ✓", message, 100);
                 historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
-                        connectedPeerName, selected.size(), selectedTotalBytes(), true));
+                        connectedPeerName, completedFileCount > 0 ? completedFileCount : selected.size(),
+                        completedTotalBytes > 0 ? completedTotalBytes : selectedTotalBytes(), true,
+                        durationMs, averageSpeed, completedRoute, reconnects));
                 transferStarted = false;
                 transferPaused=false;
                 updatePauseButton(false);
@@ -362,7 +370,14 @@ public class V2Activity extends ComponentActivity implements
                 TransferHistoryStore.Entry e = entries.get(i);
                 String line = ("sent".equals(e.direction) ? "↑ Sent" : "↓ Received") + " • " + e.peer + " • " + (e.success ? "✓" : "Failed");
                 card.addView(text(line,13,Color.WHITE,true));
-                card.addView(text(DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(e.time)),11,Color.rgb(133,162,187),false));
+                StringBuilder meta=new StringBuilder();
+                meta.append(DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(e.time)));
+                if(e.totalBytes>0)meta.append(" • ").append(formatBytes(e.totalBytes));
+                if(e.averageBytesPerSecond>0)meta.append(" • avg ").append(formatTransferSpeed(e.averageBytesPerSecond));
+                if(e.durationMs>0)meta.append(" • ").append(formatHistoryDuration(e.durationMs));
+                if(!"unknown".equals(e.route))meta.append(" • ").append(historyRouteLabel(e.route));
+                if(e.reconnects>0)meta.append(" • ").append(e.reconnects).append(e.reconnects==1?" reconnect":" reconnects");
+                card.addView(text(meta.toString(),11,Color.rgb(133,162,187),false));
             }
         }
         root.addView(card);
@@ -618,6 +633,19 @@ public class V2Activity extends ComponentActivity implements
     private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(title);if(transferDetail!=null)transferDetail.setText(detail);if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);if(progress>=0){TextView percent=findViewByTag("transfer_percent");if(percent!=null)percent.setText(progress+"%");}});}
 
     private void setTransferMetrics(int progress,long done,long total,double speed,long etaSeconds){runOnUiThread(()->{TextView percent=findViewByTag("transfer_percent");TextView bytes=findViewByTag("transfer_bytes");TextView speedView=findViewByTag("transfer_speed");TextView eta=findViewByTag("transfer_eta");if(percent!=null)percent.setText(Math.max(0,Math.min(100,progress))+"%");if(bytes!=null)bytes.setText(formatBytes(Math.max(0L,done))+" / "+(total>0?formatBytes(total):"—"));if(speedView!=null)speedView.setText(formatTransferSpeed(speed));if(eta!=null)eta.setText(formatEta(etaSeconds));});}
+
+    private String formatHistoryDuration(long ms){
+        if(ms<1000)return ms+" ms";
+        long seconds=Math.max(1,Math.round(ms/1000.0));
+        if(seconds<60)return seconds+"s";
+        return (seconds/60)+"m "+(seconds%60)+"s";
+    }
+    private String historyRouteLabel(String route){
+        if(RoutePerformanceStore.ROUTE_DIRECT.equals(route))return "Wi-Fi Direct";
+        if(RoutePerformanceStore.ROUTE_LAN.equals(route))return "same Wi-Fi";
+        if("incoming".equals(route))return "received";
+        return route;
+    }
 
     private String formatTransferSpeed(double bytesPerSecond){if(bytesPerSecond>=1024d*1024d)return String.format(Locale.US,"%.1f MB/s",bytesPerSecond/(1024d*1024d));if(bytesPerSecond>=1024d)return String.format(Locale.US,"%.0f KB/s",bytesPerSecond/1024d);return bytesPerSecond>0?String.format(Locale.US,"%.0f B/s",bytesPerSecond):"— MB/s";}
     private String formatEta(long seconds){if(seconds<=0)return"ETA —";if(seconds<60)return"ETA "+seconds+"s";long minutes=seconds/60;long remain=seconds%60;return"ETA "+minutes+"m "+remain+"s";}

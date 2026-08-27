@@ -57,6 +57,11 @@ public final class TransferService extends Service {
     public static final String EXTRA_DONE = "done";
     public static final String EXTRA_TOTAL = "total";
     public static final String EXTRA_ETA_SECONDS = "eta_seconds";
+    public static final String EXTRA_AVG_SPEED = "avg_speed";
+    public static final String EXTRA_DURATION_MS = "duration_ms";
+    public static final String EXTRA_RECONNECTS = "reconnects";
+    public static final String EXTRA_FILE_COUNT = "file_count";
+    public static final String EXTRA_TOTAL_BYTES = "total_bytes";
     public static final int PORT = 49888;
 
     private static final String CHANNEL = "optishare_transfers";
@@ -275,7 +280,7 @@ public final class TransferService extends Service {
             @Override public void onCompleted(String sessionId) {
                 String summary = benchmarkSummary("Received");
                 updateNotification("Transfer complete", summary, 100, false);
-                broadcast("completed", summary, 100, 0, sessionId);
+                broadcastCompleted(summary, sessionId, "incoming");
             }
 
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
@@ -438,7 +443,7 @@ public final class TransferService extends Service {
                 routeStore.recordSuccess(currentRoute, averageBytesPerSecond());
                 String summary = benchmarkSummary("Sent") + " • " + routeLabel(currentRoute);
                 updateNotification("Transfer complete", summary, 100, false);
-                broadcast("completed", summary, 100, 0, sessionId);
+                broadcastCompleted(summary, sessionId, currentRoute);
             }
 
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
@@ -572,6 +577,27 @@ public final class TransferService extends Service {
         intent.putExtra(EXTRA_PROGRESS, progress);
         intent.putExtra(EXTRA_SPEED, speed);
         intent.putExtra(EXTRA_SESSION, session);
+        sendBroadcast(intent);
+    }
+
+    private void broadcastCompleted(String message, String session, String route) {
+        long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
+        int fileCount = activeManifest == null ? 0 : activeManifest.getEntries().size();
+        double average = averageBytesPerSecond();
+        long durationMs = activeTransferStartedNanos == 0L ? 0L
+                : Math.max(0L, Math.round((System.nanoTime() - activeTransferStartedNanos) / 1_000_000.0));
+        Intent intent = new Intent(ACTION_EVENT);
+        intent.setPackage(getPackageName());
+        intent.putExtra(EXTRA_EVENT, "completed");
+        intent.putExtra(EXTRA_MESSAGE, message);
+        intent.putExtra(EXTRA_PROGRESS, 100);
+        intent.putExtra(EXTRA_SESSION, session);
+        intent.putExtra(EXTRA_ROUTE, route == null ? "unknown" : route);
+        intent.putExtra(EXTRA_AVG_SPEED, average);
+        intent.putExtra(EXTRA_DURATION_MS, durationMs);
+        intent.putExtra(EXTRA_RECONNECTS, reconnectCount);
+        intent.putExtra(EXTRA_FILE_COUNT, fileCount);
+        intent.putExtra(EXTRA_TOTAL_BYTES, total);
         sendBroadcast(intent);
     }
 

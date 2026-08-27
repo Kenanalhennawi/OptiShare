@@ -18,14 +18,27 @@ public final class TransferHistoryStore {
         public final int fileCount;
         public final long totalBytes;
         public final boolean success;
+        public final long durationMs;
+        public final double averageBytesPerSecond;
+        public final String route;
+        public final int reconnects;
 
         public Entry(long time, String direction, String peer, int fileCount, long totalBytes, boolean success) {
+            this(time, direction, peer, fileCount, totalBytes, success, 0L, 0d, "unknown", 0);
+        }
+
+        public Entry(long time, String direction, String peer, int fileCount, long totalBytes, boolean success,
+                     long durationMs, double averageBytesPerSecond, String route, int reconnects) {
             this.time = time;
             this.direction = direction;
             this.peer = peer;
             this.fileCount = fileCount;
             this.totalBytes = totalBytes;
             this.success = success;
+            this.durationMs = Math.max(0L, durationMs);
+            this.averageBytesPerSecond = Math.max(0d, averageBytesPerSecond);
+            this.route = route == null || route.trim().isEmpty() ? "unknown" : route;
+            this.reconnects = Math.max(0, reconnects);
         }
     }
 
@@ -52,6 +65,10 @@ public final class TransferHistoryStore {
                 o.put("fileCount", e.fileCount);
                 o.put("totalBytes", e.totalBytes);
                 o.put("success", e.success);
+                o.put("durationMs", e.durationMs);
+                o.put("averageBytesPerSecond", e.averageBytesPerSecond);
+                o.put("route", e.route);
+                o.put("reconnects", e.reconnects);
                 array.put(o);
             }
         } catch (Exception ignored) { }
@@ -71,7 +88,11 @@ public final class TransferHistoryStore {
                         o.optString("peer", "Unknown device"),
                         o.optInt("fileCount", 0),
                         o.optLong("totalBytes", 0),
-                        o.optBoolean("success", false)));
+                        o.optBoolean("success", false),
+                        o.optLong("durationMs", 0),
+                        o.optDouble("averageBytesPerSecond", 0d),
+                        o.optString("route", "unknown"),
+                        o.optInt("reconnects", 0)));
             }
         } catch (Exception ignored) { }
         return Collections.unmodifiableList(result);
