@@ -21,11 +21,13 @@ import com.kenan.optishare.transfer.TransferService;
 public final class ApprovalActivity extends Activity {
     public static final String EXTRA_TITLE = "approval_title";
     public static final String EXTRA_TEXT = "approval_text";
+    public static final String EXTRA_PEER_FINGERPRINT = "peer_fingerprint";
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         String title = getIntent().getStringExtra(EXTRA_TITLE);
         String text = getIntent().getStringExtra(EXTRA_TEXT);
+        String peerFingerprint = getIntent().getStringExtra(EXTRA_PEER_FINGERPRINT);
         if (title == null || title.trim().isEmpty()) title = "OptiShare approval";
         if (text == null || text.trim().isEmpty()) text = "Confirm only if you expect this action.";
 
@@ -63,14 +65,23 @@ public final class ApprovalActivity extends Activity {
 
         Button confirm = button(security ? "Codes match — confirm" : "Accept transfer",
                 Color.rgb(43, 201, 139), Color.rgb(16, 126, 92));
-        confirm.setOnClickListener(v -> decide(true));
+        confirm.setOnClickListener(v -> decide(true, false));
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(56));
         cp.setMargins(0, dp(22), 0, 0);
         root.addView(confirm, cp);
 
+        if (security && peerFingerprint != null && !peerFingerprint.trim().isEmpty()) {
+            Button trust = button("Trust this device & confirm",
+                    Color.rgb(48, 126, 218), Color.rgb(35, 72, 164));
+            trust.setOnClickListener(v -> decide(true, true));
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, dp(54));
+            tp.setMargins(0, dp(10), 0, 0);
+            root.addView(trust, tp);
+        }
+
         Button decline = button(security ? "Codes do not match" : "Decline transfer",
                 Color.rgb(107, 50, 66), Color.rgb(74, 31, 45));
-        decline.setOnClickListener(v -> decide(false));
+        decline.setOnClickListener(v -> decide(false, false));
         LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(-1, this.dp(52));
         dp.setMargins(0, this.dp(10), 0, 0);
         root.addView(decline, dp);
@@ -84,16 +95,16 @@ public final class ApprovalActivity extends Activity {
         setContentView(root);
     }
 
-    private void decide(boolean accept) {
-        Intent decision = new Intent(this, TransferService.class)
-                .setAction(accept ? TransferService.ACTION_ACCEPT : TransferService.ACTION_DECLINE);
-        startService(decision);
+    private void decide(boolean accept, boolean trust) {
+        String action = !accept ? TransferService.ACTION_DECLINE
+                : trust ? TransferService.ACTION_TRUST_ACCEPT : TransferService.ACTION_ACCEPT;
+        startService(new Intent(this, TransferService.class).setAction(action));
         finish();
     }
 
     @SuppressLint("MissingSuperCall")
     @Override public void onBackPressed() {
-        decide(false);
+        decide(false, false);
     }
 
     private LinearLayout card() {

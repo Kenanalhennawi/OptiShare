@@ -18,7 +18,7 @@ import java.util.Map;
 /** Framing for OptiShare protocol v2. Every post-handshake application frame is AES-GCM authenticated. */
 public final class SessionWire {
     public static final int MAGIC = 0x4F533250; // OS2P
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
     public static final int TYPE_MANIFEST = 1;
     public static final int TYPE_RESUME = 2;
     public static final int TYPE_CHUNK = 3;
@@ -26,6 +26,7 @@ public final class SessionWire {
     public static final int TYPE_FILE_DONE = 5;
     public static final int TYPE_BATCH_DONE = 6;
     public static final int TYPE_ERROR = 7;
+    public static final int TYPE_IDENTITY = 8;
     public static final int MAX_FRAME = 2 * 1024 * 1024;
     private static final int SHA256_BYTES = 32;
     private static final int MAX_KEY_BYTES = 4096;
@@ -128,6 +129,43 @@ public final class SessionWire {
         in.readFully(encrypted);
         byte[] payload = crypto.decrypt(encrypted, new byte[]{(byte) type});
         return new Frame(type, payload);
+    }
+
+    public static byte[] encodeIdentity(boolean supported, byte[] publicKey, byte[] signature) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeBoolean(supported);
+        if (supported) {
+            if (publicKey == null || publicKey.length <= 0 || publicKey.length > MAX_KEY_BYTES) {
+                throw new IOException("Invalid identity public key");
+            }
+            if (signature == null || signature.length <= 0 || signature.length > 2048) {
+                throw new IOException("Invalid identity signature");
+            }
+            out.writeInt(publicKey.length);
+            out.write(publicKey);
+            out.writeInt(signature.length);
+            out.write(signature);
+        }
+        out.flush();
+        return bytes.toByteArray();
+    }
+
+    public static Identity decodeIdentity(byte[] payload) throws IOException {
+        DataInputStream in = payloadInput(payload);
+        boolean supported = in.readBoolean();
+        if (!supported) {
+            ensureConsumed(in);
+            return new Identity(false, null, null);
+        }
+        int keyLength = positiveLength(in.readInt(), MAX_KEY_BYTES, "identity public key");
+        byte[] publicKey = new byte[keyLength];
+        in.readFully(publicKey);
+        int signatureLength = positiveLength(in.readInt(), 2048, "identity signature");
+        byte[] signature = new byte[signatureLength];
+        in.readFully(signature);
+        ensureConsumed(in);
+        return new Identity(true, publicKey, signature);
     }
 
     public static byte[] encodeManifest(BatchManifest manifest) throws IOException {
@@ -306,8 +344,19 @@ public final class SessionWire {
     }
 
     private static void validateFrameType(int type) throws IOException {
-        if (type < TYPE_MANIFEST || type > TYPE_ERROR) {
+        if (type < TYPE_MANIFEST || type > TYPE_IDENTITY) {
             throw new IOException("Invalid frame type: " + type);
+        }
+    }
+
+    public static final class Identity {
+        public final boolean supported;
+        public final byte[] publicKey;
+        public final byte[] signature;
+        Identity(boolean supported, byte[] publicKey, byte[] signature) {
+            this.supported = supported;
+            this.publicKey = publicKey;
+            this.signature = signature;
         }
     }
 

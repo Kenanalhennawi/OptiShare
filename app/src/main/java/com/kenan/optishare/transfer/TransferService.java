@@ -19,6 +19,8 @@ import androidx.core.app.NotificationCompat;
 import com.kenan.optishare.R;
 import com.kenan.optishare.V2Activity;
 import com.kenan.optishare.device.DeviceIdentity;
+import com.kenan.optishare.device.DeviceIdentityKey;
+import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
 import com.kenan.optishare.storage.FileClassifier;
@@ -39,6 +41,7 @@ public final class TransferService extends Service {
     public static final String ACTION_SEND = "com.kenan.optishare.action.SEND";
     public static final String ACTION_ACCEPT = "com.kenan.optishare.action.ACCEPT";
     public static final String ACTION_DECLINE = "com.kenan.optishare.action.DECLINE";
+    public static final String ACTION_TRUST_ACCEPT = "com.kenan.optishare.action.TRUST_ACCEPT";
     public static final String ACTION_RESUME_PENDING = "com.kenan.optishare.action.RESUME_PENDING";
     public static final String ACTION_STOP = "com.kenan.optishare.action.STOP";
     public static final String ACTION_EVENT = "com.kenan.optishare.TRANSFER_EVENT";
@@ -68,6 +71,8 @@ public final class TransferService extends Service {
     private SenderSessionStore senderStore;
     private WifiDirectRecovery wifiRecovery;
     private LanDiscovery lanDiscovery;
+    private TrustedDeviceStore trustedStore;
+    private volatile String activePeerFingerprint;
     private volatile long activeTransferStartedNanos;
     private volatile int reconnectCount;
     private volatile long latestBatchDone;
@@ -78,6 +83,7 @@ public final class TransferService extends Service {
         senderStore = new SenderSessionStore(this);
         wifiRecovery = new WifiDirectRecovery(this);
         lanDiscovery = new LanDiscovery(this);
+        trustedStore = new TrustedDeviceStore(this);
         createChannel();
     }
 
@@ -98,6 +104,15 @@ public final class TransferService extends Service {
         }
         if (ACTION_DECLINE.equals(action)) {
             IncomingApproval.decide(false);
+            return START_STICKY;
+        }
+        if (ACTION_TRUST_ACCEPT.equals(action)) {
+            if (activePeerFingerprint != null) {
+                trustedStore.trust(activePeerFingerprint,
+                        "Device " + DeviceIdentityKey.shortFingerprint(activePeerFingerprint));
+                broadcast("trusted_peer", "Device trusted securely ✓", 0, 0, null);
+            }
+            IncomingApproval.decide(true);
             return START_STICKY;
         }
         if (ACTION_STOP.equals(action)) {
@@ -132,6 +147,7 @@ public final class TransferService extends Service {
         reconnectCount = 0;
         latestBatchDone = 0L;
         latestSpeed = 0d;
+        activePeerFingerprint = null;
         lanDiscovery.advertise(new DeviceIdentity(this).name(), PORT, new LanDiscovery.Listener() {
             @Override public void onPeer(String name, String host) { }
             @Override public void onStatus(String message) {
@@ -180,6 +196,13 @@ public final class TransferService extends Service {
 
     private void receiveOne(Socket socket) throws Exception {
         new TransferEngine(this).receive(socket, new TransferEngine.Listener() {
+            @Override public boolean onPeerIdentity(String fingerprint) {
+                activePeerFingerprint = fingerprint;
+                boolean trusted = trustedStore.isTrusted(fingerprint);
+                if (trusted) broadcast("trusted_peer", "Trusted device verified ✓", 0, 0, null);
+                return trusted;
+            }
+
             @Override public void onSecurityCode(String code) {
                 requireSecurityConfirmation(code, null);
             }
@@ -190,16 +213,22 @@ public final class TransferService extends Service {
                 String approvalKey = "batch:" + manifest.getSessionId();
                 String detail = manifest.getEntries().size() + " files • "
                         + formatBytes(manifest.totalBytes());
-                IncomingApproval.begin(
-                        approvalKey,
-                        "Incoming OptiShare transfer",
-                        detail + "\nConfirm only if you expect this transfer.");
+                if (!trustedStore.autoAccept(activePeerFingerprint)) {
+                    IncomingApproval.begin(
+                            approvalKey,
+                            "Incoming OptiShare transfer",
+                            detail + "\nConfirm only if you expect this transfer.");
+                } else {
+                    broadcast("trusted_peer", "Trusted device • auto-accept enabled",
+                            0, 0, manifest.getSessionId());
+                }
                 broadcast("incoming", detail, 0, 0, manifest.getSessionId());
                 updateNotification("Incoming files", detail + " — accept or decline", 0, false);
             }
 
             @Override public boolean acceptIncomingBatch(BatchManifest manifest) {
                 if (!running.get()) return false;
+                if (trustedStore.autoAccept(activePeerFingerprint)) return true;
                 try {
                     boolean accepted = IncomingApproval.await(
                             "batch:" + manifest.getSessionId(), APPROVAL_TIMEOUT_MS);
@@ -359,6 +388,14 @@ public final class TransferService extends Service {
 
     private void sendOne(TransferEngine engine, Socket socket) throws Exception {
         engine.send(socket, activeManifest, activeItems, new TransferEngine.Listener() {
+            @Override public boolean onPeerIdentity(String fingerprint) {
+                activePeerFingerprint = fingerprint;
+                boolean trusted = trustedStore.isTrusted(fingerprint);
+                if (trusted) broadcast("trusted_peer", "Trusted device verified ✓",
+                        0, 0, activeManifest.getSessionId());
+                return trusted;
+            }
+
             @Override public void onSecurityCode(String code) {
                 requireSecurityConfirmation(code, activeManifest.getSessionId());
             }
@@ -409,7 +446,8 @@ public final class TransferService extends Service {
                 key,
                 "Verify OptiShare security code",
                 "Compare both phones. The code must be " + formatted
-                        + ". Confirm only if both screens match exactly.");
+                        + ". Confirm only if both screens match exactly.",
+                activePeerFingerprint);
         broadcast("security_confirm", "Security code: " + formatted,
                 0, 0, sessionId);
         updateNotification("Verify secure connection",

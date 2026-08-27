@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 
+import com.kenan.optishare.device.DeviceIdentityKey;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
 import com.kenan.optishare.protocol.ResumeState;
@@ -41,6 +42,7 @@ import java.util.Map;
 public final class TransferEngine {
     public interface Listener {
         void onSecurityCode(String code);
+        boolean onPeerIdentity(String fingerprint);
         void onIncomingBatch(BatchManifest manifest);
         boolean acceptIncomingBatch(BatchManifest manifest);
         void onProgress(String sessionId, String fileId, String fileName, long done, long total,
@@ -74,7 +76,9 @@ public final class TransferEngine {
              DataOutputStream out = new DataOutputStream(
                      new BufferedOutputStream(socket.getOutputStream(), STREAM_BUFFER))) {
             SessionWire.Handshake handshake = SessionWire.clientHandshake(in, out);
-            listener.onSecurityCode(handshake.securityCode);
+            String peerFingerprint = exchangeClientIdentity(in, out, handshake);
+            boolean trusted = peerFingerprint != null && listener.onPeerIdentity(peerFingerprint);
+            if (!trusted) listener.onSecurityCode(handshake.securityCode);
             SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_MANIFEST,
                     SessionWire.encodeManifest(manifest));
             SessionWire.Frame resumeFrame = SessionWire.readFrame(in, handshake.crypto);
@@ -184,7 +188,9 @@ public final class TransferEngine {
              DataOutputStream out = new DataOutputStream(
                      new BufferedOutputStream(socket.getOutputStream(), STREAM_BUFFER))) {
             SessionWire.Handshake handshake = SessionWire.serverHandshake(in, out);
-            listener.onSecurityCode(handshake.securityCode);
+            String peerFingerprint = exchangeServerIdentity(in, out, handshake);
+            boolean trusted = peerFingerprint != null && listener.onPeerIdentity(peerFingerprint);
+            if (!trusted) listener.onSecurityCode(handshake.securityCode);
             SessionWire.Frame manifestFrame = SessionWire.readFrame(in, handshake.crypto);
             if (manifestFrame.type != SessionWire.TYPE_MANIFEST) {
                 throw new IOException("Expected transfer manifest");
@@ -372,6 +378,46 @@ public final class TransferEngine {
             listener.onError(sessionId, e, isResumable(e));
             throw e;
         }
+    }
+
+    private String exchangeClientIdentity(DataInputStream in, DataOutputStream out,
+                                          SessionWire.Handshake handshake) throws Exception {
+        byte[] challenge = handshake.crypto.sessionFingerprint();
+        writeLocalIdentity(out, handshake, challenge);
+        SessionWire.Frame frame = SessionWire.readFrame(in, handshake.crypto);
+        if (frame.type != SessionWire.TYPE_IDENTITY) throw new IOException("Expected peer identity");
+        return verifyPeerIdentity(SessionWire.decodeIdentity(frame.payload), challenge);
+    }
+
+    private String exchangeServerIdentity(DataInputStream in, DataOutputStream out,
+                                          SessionWire.Handshake handshake) throws Exception {
+        byte[] challenge = handshake.crypto.sessionFingerprint();
+        SessionWire.Frame frame = SessionWire.readFrame(in, handshake.crypto);
+        if (frame.type != SessionWire.TYPE_IDENTITY) throw new IOException("Expected peer identity");
+        String peer = verifyPeerIdentity(SessionWire.decodeIdentity(frame.payload), challenge);
+        writeLocalIdentity(out, handshake, challenge);
+        return peer;
+    }
+
+    private static void writeLocalIdentity(DataOutputStream out, SessionWire.Handshake handshake,
+                                           byte[] challenge) throws Exception {
+        if (!DeviceIdentityKey.supported()) {
+            SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_IDENTITY,
+                    SessionWire.encodeIdentity(false, null, null));
+            return;
+        }
+        DeviceIdentityKey local = new DeviceIdentityKey();
+        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_IDENTITY,
+                SessionWire.encodeIdentity(true, local.publicKeyEncoded(), local.sign(challenge)));
+    }
+
+    private static String verifyPeerIdentity(SessionWire.Identity identity, byte[] challenge)
+            throws Exception {
+        if (!identity.supported) return null;
+        if (!DeviceIdentityKey.verify(identity.publicKey, challenge, identity.signature)) {
+            throw new SecurityException("Peer device identity signature is invalid");
+        }
+        return DeviceIdentityKey.fingerprint(identity.publicKey);
     }
 
     public BatchManifest buildManifest(List<TransferItem> items) throws Exception {

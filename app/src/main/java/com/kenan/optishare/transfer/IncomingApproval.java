@@ -26,6 +26,7 @@ final class IncomingApproval {
     private static Boolean decision;
     private static String pendingTitle;
     private static String pendingText;
+    private static String pendingPeerFingerprint;
 
     private IncomingApproval() {}
 
@@ -35,11 +36,16 @@ final class IncomingApproval {
     }
 
     static void begin(String key, String title, String text) {
+        begin(key, title, text, null);
+    }
+
+    static void begin(String key, String title, String text, String peerFingerprint) {
         synchronized (LOCK) {
             pendingKey = key;
             decision = null;
             pendingTitle = title;
             pendingText = text;
+            pendingPeerFingerprint = peerFingerprint;
         }
         showApprovalSurface();
     }
@@ -91,6 +97,7 @@ final class IncomingApproval {
         decision = null;
         pendingTitle = null;
         pendingText = null;
+        pendingPeerFingerprint = null;
     }
 
     private static void showApprovalSurface() {
@@ -103,17 +110,20 @@ final class IncomingApproval {
 
         String title;
         String text;
+        String peerFingerprint;
         synchronized (LOCK) {
             title = pendingTitle == null ? "OptiShare approval required" : pendingTitle;
             text = pendingText == null ? "Open OptiShare to continue" : pendingText;
+            peerFingerprint = pendingPeerFingerprint;
         }
 
-        showNotification(context, title, text);
+        showNotification(context, title, text, peerFingerprint);
         if (OptiShareApp.isForeground()) {
             try {
                 Intent approvalScreen = new Intent(context, ApprovalActivity.class)
                         .putExtra(ApprovalActivity.EXTRA_TITLE, title)
                         .putExtra(ApprovalActivity.EXTRA_TEXT, text)
+                        .putExtra(ApprovalActivity.EXTRA_PEER_FINGERPRINT, peerFingerprint)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
                                 | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -124,7 +134,7 @@ final class IncomingApproval {
         }
     }
 
-    private static void showNotification(Context context, String title, String text) {
+    private static void showNotification(Context context, String title, String text, String peerFingerprint) {
         NotificationManager manager =
                 (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
@@ -138,6 +148,7 @@ final class IncomingApproval {
         Intent approvalScreen = new Intent(context, ApprovalActivity.class)
                 .putExtra(ApprovalActivity.EXTRA_TITLE, title)
                 .putExtra(ApprovalActivity.EXTRA_TEXT, text)
+                .putExtra(ApprovalActivity.EXTRA_PEER_FINGERPRINT, peerFingerprint)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent open = PendingIntent.getActivity(
                 context,

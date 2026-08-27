@@ -200,6 +200,10 @@ public class V2Activity extends ComponentActivity implements
             }
             if ("security".equals(event)) {
                 setTransferUi("Secure connection established", message, -1);
+            } else if ("trusted_peer".equals(event)) {
+                setConnectionUi("TRUSTED DEVICE ✓", Color.rgb(65, 225, 151));
+                if (currentScreen == SCREEN_TRANSFER)
+                    setTransferUi("Trusted device verified ✓", message, -1);
             } else if ("receiver_ready".equals(event)) {
                 setDiscoveryText(message);
                 setConnectionUi("READY • DIRECT + WI-FI", Color.rgb(65, 222, 151));
