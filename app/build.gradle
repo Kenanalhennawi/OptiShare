@@ -8,11 +8,12 @@ android {
 
     defaultConfig {
         applicationId 'com.kenan.optishare'
-        minSdk 21
+        minSdk 23
         targetSdk 36
-        versionCode 200
-        versionName '2.0.0'
+        versionCode 500
+        versionName '5.0.0-alpha01'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        vectorDrawables.useSupportLibrary = true
     }
 
     compileOptions {
@@ -39,8 +40,8 @@ android {
             versionNameSuffix '-debug'
         }
         release {
-            minifyEnabled false
-            shrinkResources false
+            minifyEnabled true
+            shrinkResources true
             if (findProperty('OPTISHARE_STORE_FILE')) signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -62,8 +63,10 @@ dependencies {
     implementation 'androidx.activity:activity:1.10.1'
     implementation 'androidx.core:core:1.16.0'
     implementation 'androidx.recyclerview:recyclerview:1.4.0'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
     implementation 'com.google.zxing:core:3.5.3'
     implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
