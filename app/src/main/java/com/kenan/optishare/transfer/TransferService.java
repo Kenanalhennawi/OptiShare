@@ -48,6 +48,9 @@ public final class TransferService extends Service {
     public static final String EXTRA_PROGRESS = "progress";
     public static final String EXTRA_SPEED = "speed";
     public static final String EXTRA_SESSION = "session";
+    public static final String EXTRA_DONE = "done";
+    public static final String EXTRA_TOTAL = "total";
+    public static final String EXTRA_ETA_SECONDS = "eta_seconds";
     public static final int PORT = 49888;
 
     private static final String CHANNEL = "optishare_transfers";
@@ -63,6 +66,10 @@ public final class TransferService extends Service {
     private volatile List<TransferItem> activeItems;
     private SenderSessionStore senderStore;
     private WifiDirectRecovery wifiRecovery;
+    private volatile long activeTransferStartedNanos;
+    private volatile int reconnectCount;
+    private volatile long latestBatchDone;
+    private volatile double latestSpeed;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -109,8 +116,19 @@ public final class TransferService extends Service {
         return START_STICKY;
     }
 
+    private void resetMetrics() {
+        activeTransferStartedNanos = System.nanoTime();
+        reconnectCount = 0;
+        latestBatchDone = 0L;
+        latestSpeed = 0d;
+    }
+
     private void startReceiver() {
         if (!running.compareAndSet(false, true)) return;
+        activeTransferStartedNanos = 0L;
+        reconnectCount = 0;
+        latestBatchDone = 0L;
+        latestSpeed = 0d;
         updateNotification("Ready to receive", "Waiting for a nearby OptiShare sender", 0, false);
         broadcast("receiver_ready", "Waiting for sender…", 0, 0, null);
         executor.execute(() -> {
@@ -126,6 +144,7 @@ public final class TransferService extends Service {
                         receiveOne(socket);
                     } catch (Exception transferError) {
                         if (running.get() && !isTerminalUserDecision(transferError)) {
+                            reconnectCount++;
                             String session = activeManifest == null
                                     ? null : activeManifest.getSessionId();
                             broadcast("reconnecting",
@@ -157,6 +176,7 @@ public final class TransferService extends Service {
 
             @Override public void onIncomingBatch(BatchManifest manifest) {
                 activeManifest = manifest;
+                if (activeTransferStartedNanos == 0L) resetMetrics();
                 String approvalKey = "batch:" + manifest.getSessionId();
                 String detail = manifest.getEntries().size() + " files • "
                         + formatBytes(manifest.totalBytes());
@@ -187,23 +207,27 @@ public final class TransferService extends Service {
             @Override public void onProgress(String sessionId, String fileId, String fileName,
                                              long done, long total, long batchDone,
                                              long batchTotal, double bytesPerSecond) {
+                latestBatchDone = batchDone;
+                latestSpeed = bytesPerSecond;
                 int p = percent(batchDone, batchTotal);
-                String message = "Receiving " + fileName + " • " + p + "% • "
-                        + formatSpeed(bytesPerSecond);
+                long eta = etaSeconds(batchDone, batchTotal, bytesPerSecond);
+                String message = "Receiving " + fileName + " • "
+                        + formatProgress(batchDone, batchTotal, bytesPerSecond, eta);
                 updateNotification("Receiving files", message, p, true);
-                broadcast("progress", message, p, bytesPerSecond, sessionId);
+                broadcastProgress(message, p, bytesPerSecond, sessionId,
+                        batchDone, batchTotal, eta);
             }
 
             @Override public void onFileCompleted(String sessionId, String fileId,
                                                   Uri publishedUri) {
-                broadcast("file_done", "Verified and saved to Download/OptiShare",
+                broadcast("file_done", "Verified ✓ • saved to Download/OptiShare",
                         0, 0, sessionId);
             }
 
             @Override public void onCompleted(String sessionId) {
-                updateNotification("Transfer complete",
-                        "Files saved to Download/OptiShare", 100, false);
-                broadcast("completed", "Transfer complete ✓", 100, 0, sessionId);
+                String summary = benchmarkSummary("Received");
+                updateNotification("Transfer complete", summary, 100, false);
+                broadcast("completed", summary, 100, 0, sessionId);
             }
 
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
@@ -224,6 +248,7 @@ public final class TransferService extends Service {
             return;
         }
         if (!running.compareAndSet(false, true)) return;
+        resetMetrics();
         executor.execute(() -> {
             try {
                 activeItems = resolveItems(rawUris);
@@ -242,6 +267,7 @@ public final class TransferService extends Service {
 
     private void startPendingSender(SenderSessionStore.Pending pending) {
         if (!running.compareAndSet(false, true)) return;
+        resetMetrics();
         executor.execute(() -> {
             try {
                 activeItems = pending.items;
@@ -264,6 +290,7 @@ public final class TransferService extends Service {
                 attempt++;
                 try {
                     if (attempt > 1) {
+                        reconnectCount++;
                         broadcast("reconnecting", "Reconnecting… attempt " + attempt,
                                 0, 0, activeManifest.getSessionId());
                         Thread.sleep(Math.min(5000, 700L * attempt));
@@ -332,19 +359,24 @@ public final class TransferService extends Service {
             @Override public void onProgress(String sessionId, String fileId, String fileName,
                                              long done, long total, long batchDone,
                                              long batchTotal, double bytesPerSecond) {
+                latestBatchDone = batchDone;
+                latestSpeed = bytesPerSecond;
                 int p = percent(batchDone, batchTotal);
-                String message = "Sending " + fileName + " • " + p + "% • "
-                        + formatSpeed(bytesPerSecond);
+                long eta = etaSeconds(batchDone, batchTotal, bytesPerSecond);
+                String message = "Sending " + fileName + " • "
+                        + formatProgress(batchDone, batchTotal, bytesPerSecond, eta);
                 updateNotification("Sending files", message, p, true);
-                broadcast("progress", message, p, bytesPerSecond, sessionId);
+                broadcastProgress(message, p, bytesPerSecond, sessionId,
+                        batchDone, batchTotal, eta);
             }
 
             @Override public void onFileCompleted(String sessionId, String fileId,
                                                   Uri publishedUri) { }
 
             @Override public void onCompleted(String sessionId) {
-                updateNotification("Transfer complete", "All files sent successfully", 100, false);
-                broadcast("completed", "All files sent ✓", 100, 0, sessionId);
+                String summary = benchmarkSummary("Sent");
+                updateNotification("Transfer complete", summary, 100, false);
+                broadcast("completed", summary, 100, 0, sessionId);
             }
 
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
@@ -480,6 +512,21 @@ public final class TransferService extends Service {
         sendBroadcast(intent);
     }
 
+    private void broadcastProgress(String message, int progress, double speed, String session,
+                                   long done, long total, long etaSeconds) {
+        Intent intent = new Intent(ACTION_EVENT);
+        intent.setPackage(getPackageName());
+        intent.putExtra(EXTRA_EVENT, "progress");
+        intent.putExtra(EXTRA_MESSAGE, message);
+        intent.putExtra(EXTRA_PROGRESS, progress);
+        intent.putExtra(EXTRA_SPEED, speed);
+        intent.putExtra(EXTRA_SESSION, session);
+        intent.putExtra(EXTRA_DONE, done);
+        intent.putExtra(EXTRA_TOTAL, total);
+        intent.putExtra(EXTRA_ETA_SECONDS, etaSeconds);
+        sendBroadcast(intent);
+    }
+
     private void stopTransfer(boolean userCancelled) {
         running.set(false);
         IncomingApproval.cancel();
@@ -518,6 +565,37 @@ public final class TransferService extends Service {
                 : (int) Math.max(0, Math.min(100, done * 100L / total));
     }
 
+    private static long etaSeconds(long done, long total, double bytesPerSecond) {
+        if (bytesPerSecond <= 1 || total <= done) return 0L;
+        return Math.max(1L, Math.round((total - done) / bytesPerSecond));
+    }
+
+    private static String formatProgress(long done, long total,
+                                         double bytesPerSecond, long etaSeconds) {
+        StringBuilder value = new StringBuilder();
+        value.append(percent(done, total)).append("% • ")
+                .append(formatBytes(done)).append(" / ").append(formatBytes(total))
+                .append(" • ").append(formatSpeed(bytesPerSecond));
+        if (etaSeconds > 0) value.append(" • ").append(formatDuration(etaSeconds)).append(" left");
+        return value.toString();
+    }
+
+    private String benchmarkSummary(String verb) {
+        long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
+        double seconds = activeTransferStartedNanos == 0L ? 0d
+                : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);
+        double average = total <= 0 ? latestSpeed : total / seconds;
+        StringBuilder value = new StringBuilder();
+        value.append(verb).append(" ").append(formatBytes(total))
+                .append(" in ").append(formatElapsed(seconds))
+                .append(" • avg ").append(formatSpeed(average));
+        if (reconnectCount > 0) {
+            value.append(" • ").append(reconnectCount).append(reconnectCount == 1
+                    ? " reconnect" : " reconnects");
+        }
+        return value.toString();
+    }
+
     private static boolean isTerminalUserDecision(Throwable t) {
         String message = safe(t).toLowerCase(Locale.US);
         return message.contains("declined")
@@ -542,7 +620,7 @@ public final class TransferService extends Service {
             return String.format(Locale.US, "%.1f MB/s",
                     bytesPerSecond / (1024 * 1024));
         }
-        return String.format(Locale.US, "%.0f KB/s", bytesPerSecond / 1024);
+        return String.format(Locale.US, "%.0f KB/s", Math.max(0d, bytesPerSecond) / 1024);
     }
 
     private static String formatBytes(long bytes) {
@@ -557,5 +635,19 @@ public final class TransferService extends Service {
             return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
         }
         return bytes + " B";
+    }
+
+    private static String formatDuration(long seconds) {
+        if (seconds < 60) return seconds + "s";
+        long minutes = seconds / 60;
+        long remain = seconds % 60;
+        if (minutes < 60) return minutes + "m " + remain + "s";
+        long hours = minutes / 60;
+        return hours + "h " + (minutes % 60) + "m";
+    }
+
+    private static String formatElapsed(double seconds) {
+        if (seconds < 10) return String.format(Locale.US, "%.1fs", seconds);
+        return formatDuration(Math.max(1L, Math.round(seconds)));
     }
 }

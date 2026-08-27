@@ -15,7 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Framing for OptiShare 2. Every post-handshake application frame is AES-GCM authenticated. */
+/** Framing for OptiShare protocol v2. Every post-handshake application frame is AES-GCM authenticated. */
 public final class SessionWire {
     public static final int MAGIC = 0x4F533250; // OS2P
     public static final int VERSION = 2;
@@ -96,6 +96,17 @@ public final class SessionWire {
 
     public static void writeFrame(DataOutputStream out, CryptoSession crypto, int type,
                                   byte[] payload) throws Exception {
+        writeFrameInternal(out, crypto, type, payload, true);
+    }
+
+    /** Writes an authenticated frame without flushing the outer stream. Used for transfer chunks. */
+    public static void writeFrameBuffered(DataOutputStream out, CryptoSession crypto, int type,
+                                          byte[] payload) throws Exception {
+        writeFrameInternal(out, crypto, type, payload, false);
+    }
+
+    private static void writeFrameInternal(DataOutputStream out, CryptoSession crypto, int type,
+                                           byte[] payload, boolean flush) throws Exception {
         validateFrameType(type);
         byte[] body = payload == null ? new byte[0] : payload;
         byte[] aad = new byte[]{(byte) type};
@@ -106,7 +117,7 @@ public final class SessionWire {
         out.writeByte(type);
         out.writeInt(encrypted.length);
         out.write(encrypted);
-        out.flush();
+        if (flush) out.flush();
     }
 
     public static Frame readFrame(DataInputStream in, CryptoSession crypto) throws Exception {
