@@ -10,7 +10,16 @@ import java.util.Map;
 public final class ResumableProtocol {
     public static final int MAGIC = 0x4F533230; // OS20
     public static final int VERSION = 2;
-    public static final int DEFAULT_CHUNK_BYTES = 1024 * 1024;
+
+    /**
+     * v2.2 fast-transfer chunk size.
+     *
+     * 1536 KiB keeps each encrypted SessionWire frame comfortably below the existing 2 MiB frame
+     * ceiling while reducing per-frame AES-GCM, allocation and socket overhead by roughly one third
+     * compared with the previous 1 MiB chunks. Four-chunk durable checkpoints now cover up to
+     * 6 MiB, which also reduces fsync/ACK stalls without making resume granularity too coarse.
+     */
+    public static final int DEFAULT_CHUNK_BYTES = 1536 * 1024;
 
     private ResumableProtocol() {}
 
