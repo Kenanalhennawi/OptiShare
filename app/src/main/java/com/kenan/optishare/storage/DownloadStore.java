@@ -101,12 +101,21 @@ public final class DownloadStore {
     }
 
     public Uri publishVerified(String sessionId, String fileId, String name, String mime,
-                               TransferItem.Category category) throws IOException {
+                               TransferItem.Category category, String relativePath) throws IOException {
         File source = partialFile(sessionId, fileId);
         if (!source.exists()) throw new IOException("Partial file missing");
         long verifiedSize = source.length();
         String safeName = TransferItem.safeName(name);
         String folder = categoryFolder(category);
+        String safeRelative;
+        try { safeRelative = TransferItem.safeRelativePath(relativePath); }
+        catch (IllegalArgumentException invalid) { throw new IOException("Unsafe relative path", invalid); }
+        if (safeRelative != null) {
+            int slash = safeRelative.lastIndexOf('/');
+            safeName = slash >= 0 ? safeRelative.substring(slash + 1) : safeRelative;
+            String parent = slash >= 0 ? safeRelative.substring(0, slash) : "";
+            folder = parent.isEmpty() ? "Folders" : "Folders/" + parent;
+        }
         Uri published = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                 ? publishMediaStore(source, safeName, mime, folder)
                 : publishLegacy(source, safeName, folder);

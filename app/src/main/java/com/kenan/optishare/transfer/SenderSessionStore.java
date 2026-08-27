@@ -86,6 +86,7 @@ public final class SenderSessionStore {
             o.put("mime", entry.mime);
             o.put("size", entry.size);
             o.put("category", entry.category.name());
+            o.put("relativePath", entry.relativePath == null ? JSONObject.NULL : entry.relativePath);
             o.put("sha256", Base64.encodeToString(entry.sha256, Base64.NO_WRAP));
             array.put(o);
         }
@@ -140,10 +141,13 @@ public final class SenderSessionStore {
                 } catch (Exception ignored) {
                     category = TransferItem.Category.OTHER;
                 }
+                String relativePath = o.isNull("relativePath")
+                        ? null : o.optString("relativePath", null);
                 byte[] sha = Base64.decode(o.getString("sha256"), Base64.NO_WRAP);
                 if (sha.length != 32) throw new IllegalStateException("Invalid saved SHA-256");
-                items.add(new TransferItem(id, uri, name, mime, size, category));
-                entries.add(new BatchManifest.Entry(id, name, mime, size, category, sha));
+                items.add(new TransferItem(id, uri, name, mime, size, category, relativePath));
+                entries.add(new BatchManifest.Entry(id, name, mime, size, category,
+                        relativePath, sha));
             }
             return new Pending(host, peerAddress, route, items,
                     new BatchManifest(sessionId, createdAt, entries));

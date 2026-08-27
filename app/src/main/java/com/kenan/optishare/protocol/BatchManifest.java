@@ -19,10 +19,16 @@ public final class BatchManifest {
         public final String mime;
         public final long size;
         public final TransferItem.Category category;
+        public final String relativePath;
         public final byte[] sha256;
 
         public Entry(String id, String name, String mime, long size,
                      TransferItem.Category category, byte[] sha256) {
+            this(id, name, mime, size, category, null, sha256);
+        }
+
+        public Entry(String id, String name, String mime, long size,
+                     TransferItem.Category category, String relativePath, byte[] sha256) {
             if (id == null || id.trim().isEmpty()) throw new IllegalArgumentException("file id required");
             if (id.length() > 512) throw new IllegalArgumentException("file id too long");
             if (size < 0) throw new IllegalArgumentException("file size must be >= 0");
@@ -42,6 +48,7 @@ public final class BatchManifest {
             this.mime = safeMime;
             this.size = size;
             this.category = category == null ? TransferItem.Category.OTHER : category;
+            this.relativePath = TransferItem.safeRelativePath(relativePath);
             this.sha256 = sha256.clone();
         }
     }

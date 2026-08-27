@@ -53,6 +53,8 @@ import com.kenan.optishare.device.DeviceIdentityKey;
 import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.history.TransferHistoryStore;
 import com.kenan.optishare.storage.MediaRepository;
+import com.kenan.optishare.storage.FolderSelection;
+import com.kenan.optishare.storage.FolderTransferQueue;
 import com.kenan.optishare.transfer.LanDiscovery;
 import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
@@ -149,6 +151,29 @@ public class V2Activity extends ComponentActivity implements
                     if (!selected.contains(uri)) selected.add(uri);
                 }
                 showSendSelection();
+            });
+
+    private final ActivityResultLauncher<Intent> folderPicker =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() != RESULT_OK || result.getData() == null
+                        || result.getData().getData() == null) return;
+                Uri tree = result.getData().getData();
+                int flags = result.getData().getFlags()
+                        & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                try { getContentResolver().takePersistableUriPermission(
+                        tree, flags & Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+                catch (Exception ignored) { }
+                try {
+                    List<com.kenan.optishare.model.TransferItem> files = FolderSelection.collect(this, tree);
+                    selected.clear();
+                    for (com.kenan.optishare.model.TransferItem item : files) selected.add(item.getUri());
+                    FolderTransferQueue.set(files);
+                    showSendSelection();
+                    showMessage("Folder ready", files.size()
+                            + " files selected with folder structure preserved.");
+                } catch (Exception error) {
+                    showMessage("Folder could not be opened", error.getMessage());
+                }
             });
 
     private final ActivityResultLauncher<ScanOptions> qrScanner =
@@ -342,7 +367,7 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout row2 = categoryRow(
                 category("A","Apps",Color.rgb(53,203,165),v -> openExternal("application/vnd.android.package-archive")),
                 category("≡","Documents",Color.rgb(55,143,255),v -> openExternal("application/*")),
-                category("…","Other",Color.rgb(122,140,166),v -> openExternal("*/*")));
+                category("▤","Folder",Color.rgb(122,140,166),v -> openFolder()));
         LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(10),0,0); root.addView(row2,r2);
 
         addHistory(root);
@@ -673,6 +698,14 @@ public class V2Activity extends ComponentActivity implements
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);boolean granted=grantResults.length>0&&grantResults[grantResults.length-1]==PackageManager.PERMISSION_GRANTED;if(requestCode==REQ_MEDIA&&granted&&pendingGalleryType!=null)showMediaGallery(pendingGalleryType);if(requestCode==REQ_NEARBY&&granted){if(currentScreen==SCREEN_DISCOVERY)startDiscovery();else if(currentScreen==SCREEN_RECEIVE)startReceiverMode();}if(requestCode==REQ_LEGACY_WRITE&&granted)showReceive();}
 
     private void requestNotificationPermissionIfUseful(){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},2204);}
+
+    private void openFolder(){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                |Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                |Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        folderPicker.launch(intent);
+    }
 
     private void openExternal(String mime){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType(mime);intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);externalPicker.launch(intent);}
     private void persistReadPermission(Uri uri,int flags){try{getContentResolver().takePersistableUriPermission(uri,flags&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}

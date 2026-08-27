@@ -344,7 +344,7 @@ public final class TransferEngine {
                             throw new IOException("SHA-256 verification failed: " + entry.name);
                         }
                         Uri published = downloadStore.publishVerified(sessionId, fileId,
-                                entry.name, entry.mime, entry.category);
+                                entry.name, entry.mime, entry.category, entry.relativePath);
                         confirmed.put(fileId, entry.size);
                         received.put(fileId, entry.size);
                         resumeStore.save(new ResumeState(sessionId,
@@ -445,7 +445,8 @@ public final class TransferEngine {
                         + item.getName());
             }
             entries.add(new BatchManifest.Entry(item.getId(), item.getName(),
-                    item.getMimeType(), item.getSize(), item.getCategory(), digest.digest()));
+                    item.getMimeType(), item.getSize(), item.getCategory(),
+                    item.getRelativePath(), digest.digest()));
         }
         return new BatchManifest(entries);
     }

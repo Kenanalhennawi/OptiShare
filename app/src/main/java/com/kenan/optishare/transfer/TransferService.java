@@ -24,6 +24,7 @@ import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
 import com.kenan.optishare.storage.FileClassifier;
+import com.kenan.optishare.storage.FolderTransferQueue;
 
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -306,7 +307,8 @@ public final class TransferService extends Service {
         resetMetrics();
         executor.execute(() -> {
             try {
-                activeItems = resolveItems(rawUris);
+                List<TransferItem> folderItems = FolderTransferQueue.takeIfMatches(rawUris.size());
+                activeItems = folderItems.isEmpty() ? resolveItems(rawUris) : folderItems;
                 TransferEngine engine = new TransferEngine(this);
                 activeManifest = engine.buildManifest(activeItems);
                 WifiDirectRecovery.Peer peer = wifiRecovery.capture(2500);

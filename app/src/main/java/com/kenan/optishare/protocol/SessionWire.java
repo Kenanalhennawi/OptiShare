@@ -18,7 +18,7 @@ import java.util.Map;
 /** Framing for OptiShare protocol v2. Every post-handshake application frame is AES-GCM authenticated. */
 public final class SessionWire {
     public static final int MAGIC = 0x4F533250; // OS2P
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
     public static final int TYPE_MANIFEST = 1;
     public static final int TYPE_RESUME = 2;
     public static final int TYPE_CHUNK = 3;
@@ -181,6 +181,7 @@ public final class SessionWire {
             out.writeUTF(e.mime);
             out.writeLong(e.size);
             out.writeInt(e.category.ordinal());
+            out.writeUTF(e.relativePath == null ? "" : e.relativePath);
             out.writeInt(e.sha256.length);
             out.write(e.sha256);
         }
@@ -205,6 +206,8 @@ public final class SessionWire {
             long size = in.readLong();
             if (size < 0) throw new IOException("Negative file size");
             int categoryIndex = in.readInt();
+            String relativePath = in.readUTF();
+            if (relativePath.isEmpty()) relativePath = null;
             int hashLength = in.readInt();
             if (hashLength != SHA256_BYTES) {
                 throw new IOException("Invalid SHA-256 length: " + hashLength);
@@ -214,7 +217,7 @@ public final class SessionWire {
             TransferItem.Category category = categoryIndex >= 0 && categoryIndex < categories.length
                     ? categories[categoryIndex] : TransferItem.Category.OTHER;
             try {
-                entries.add(new BatchManifest.Entry(id, name, mime, size, category, hash));
+                entries.add(new BatchManifest.Entry(id, name, mime, size, category, relativePath, hash));
             } catch (IllegalArgumentException invalid) {
                 throw new IOException("Invalid manifest metadata", invalid);
             }
