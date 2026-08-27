@@ -32,9 +32,11 @@ import java.util.Map;
 /**
  * Encrypted, resumable, multi-file transfer engine.
  *
- * A 1 MiB durable checkpoint balances modern Wi-Fi Direct throughput with bounded retransmission
- * after a disconnect. Every acknowledged checkpoint has been written, fsynced and persisted by
- * the receiver before the ACK is returned to the sender.
+ * Files are streamed in 1 MiB authenticated chunks. Instead of forcing a disk fsync and network
+ * round-trip after every chunk, OptiShare 2.1 pipelines up to four chunks and then creates one
+ * durable checkpoint. A checkpoint is ACKed only after the receiver has fsynced the partial file
+ * and persisted the safe resume offset. This keeps resume correctness while avoiding the stop/start
+ * throughput pattern of the original 2.0 implementation.
  */
 public final class TransferEngine {
     public interface Listener {
@@ -49,7 +51,8 @@ public final class TransferEngine {
     }
 
     private static final int CHUNK = ResumableProtocol.DEFAULT_CHUNK_BYTES;
-    private static final int STREAM_BUFFER = 2 * 1024 * 1024;
+    private static final int CHECKPOINT_CHUNKS = 4;
+    private static final int STREAM_BUFFER = 4 * 1024 * 1024;
     private final Context context;
     private final ResumeStore resumeStore;
     private final DownloadStore downloadStore;
@@ -99,6 +102,7 @@ public final class TransferEngine {
                 long sent = offset;
                 long started = System.nanoTime();
                 long batchBase = confirmedBefore - requested + offset;
+                int chunksAwaitingCheckpoint = 0;
 
                 if (offset < entry.size) {
                     InputStream raw = context.getContentResolver().openInputStream(item.getUri());
@@ -112,17 +116,26 @@ public final class TransferEngine {
                             if (n <= 0) {
                                 throw new IOException("Unexpected end of source file: " + entry.name);
                             }
+                            long chunkOffset = sent;
                             SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_CHUNK,
-                                    SessionWire.encodeChunk(entry.id, sent, buffer, n));
-                            SessionWire.Frame ackFrame = SessionWire.readFrame(in, handshake.crypto);
-                            if (ackFrame.type != SessionWire.TYPE_ACK) {
-                                throw new IOException("Expected chunk acknowledgement");
+                                    SessionWire.encodeChunk(entry.id, chunkOffset, buffer, n));
+                            sent += n;
+                            chunksAwaitingCheckpoint++;
+
+                            boolean checkpoint = chunksAwaitingCheckpoint >= CHECKPOINT_CHUNKS
+                                    || sent == entry.size;
+                            if (checkpoint) {
+                                SessionWire.Frame ackFrame = SessionWire.readFrame(in, handshake.crypto);
+                                if (ackFrame.type != SessionWire.TYPE_ACK) {
+                                    throw new IOException("Expected checkpoint acknowledgement");
+                                }
+                                SessionWire.Ack ack = SessionWire.decodeAck(ackFrame.payload);
+                                if (!entry.id.equals(ack.fileId) || ack.offset != sent) {
+                                    throw new IOException("Invalid checkpoint acknowledgement");
+                                }
+                                chunksAwaitingCheckpoint = 0;
                             }
-                            SessionWire.Ack ack = SessionWire.decodeAck(ackFrame.payload);
-                            if (!entry.id.equals(ack.fileId) || ack.offset != sent + n) {
-                                throw new IOException("Invalid acknowledgement");
-                            }
-                            sent = ack.offset;
+
                             double seconds = Math.max(0.001,
                                     (System.nanoTime() - started) / 1_000_000_000.0);
                             listener.onProgress(manifest.getSessionId(), entry.id, entry.name,
@@ -178,8 +191,6 @@ public final class TransferEngine {
             BatchManifest manifest = SessionWire.decodeManifest(manifestFrame.payload);
             sessionId = manifest.getSessionId();
 
-            // Work out the safe existing state before asking the user to accept. This lets a resumed
-            // 20 GB transfer ask only for the storage still needed instead of treating it as new.
             ResumeState saved = resumeStore.load(sessionId);
             Map<String, Long> offsets = new LinkedHashMap<>();
             long remainingToReceive = 0L;
@@ -200,8 +211,6 @@ public final class TransferEngine {
                 }
                 offsets.put(e.id, safe);
             }
-            // Publishing uses a verified copy into public Downloads. Reserve space for remaining
-            // incoming bytes plus the largest one-file copy peak and a platform safety margin.
             downloadStore.ensureCapacity(saturatingAdd(remainingToReceive, largestUnverifiedFile));
 
             listener.onIncomingBatch(manifest);
@@ -216,6 +225,7 @@ public final class TransferEngine {
 
             Map<String, BatchManifest.Entry> byId = new LinkedHashMap<>();
             Map<String, Long> confirmed = new LinkedHashMap<>(offsets);
+            Map<String, Long> received = new LinkedHashMap<>(offsets);
             Map<String, Long> starts = new LinkedHashMap<>(offsets);
             Map<String, Long> timers = new LinkedHashMap<>();
             long batchTotal = manifest.totalBytes();
@@ -225,93 +235,136 @@ public final class TransferEngine {
                 baseAlreadyConfirmed = saturatingAdd(baseAlreadyConfirmed, offsets.get(e.id));
             }
 
-            while (true) {
-                SessionWire.Frame frame = SessionWire.readFrame(in, handshake.crypto);
-                if (frame.type == SessionWire.TYPE_CHUNK) {
-                    SessionWire.Chunk chunk = SessionWire.decodeChunk(frame.payload);
-                    BatchManifest.Entry entry = byId.get(chunk.fileId);
-                    if (entry == null) throw new IOException("Unknown file id");
-                    if (downloadStore.isVerified(sessionId, entry.id, entry.size)) {
-                        throw new IOException("Received data for already verified file");
-                    }
-                    long expected = value(confirmed, entry.id);
-                    if (chunk.offset != expected) throw new IOException("Unexpected chunk offset");
-                    if (chunk.data.length <= 0 || chunk.data.length > CHUNK) {
-                        throw new IOException("Invalid chunk size");
-                    }
-                    if (chunk.offset + chunk.data.length > entry.size) {
-                        throw new IOException("Chunk exceeds file size");
-                    }
+            FileOutputStream activeTarget = null;
+            String activeFileId = null;
+            int chunksSinceCheckpoint = 0;
+            try {
+                while (true) {
+                    SessionWire.Frame frame = SessionWire.readFrame(in, handshake.crypto);
+                    if (frame.type == SessionWire.TYPE_CHUNK) {
+                        SessionWire.Chunk chunk = SessionWire.decodeChunk(frame.payload);
+                        BatchManifest.Entry entry = byId.get(chunk.fileId);
+                        if (entry == null) throw new IOException("Unknown file id");
+                        if (downloadStore.isVerified(sessionId, entry.id, entry.size)) {
+                            throw new IOException("Received data for already verified file");
+                        }
+                        long expected = value(received, entry.id);
+                        if (chunk.offset != expected) throw new IOException("Unexpected chunk offset");
+                        if (chunk.data.length <= 0 || chunk.data.length > CHUNK) {
+                            throw new IOException("Invalid chunk size");
+                        }
+                        if (chunk.offset + chunk.data.length > entry.size) {
+                            throw new IOException("Chunk exceeds file size");
+                        }
 
-                    try (FileOutputStream target =
-                                 downloadStore.openPartial(sessionId, entry.id, true)) {
-                        target.write(chunk.data);
-                        target.getFD().sync();
-                    }
-                    long next = chunk.offset + chunk.data.length;
-                    confirmed.put(entry.id, next);
-                    resumeStore.save(new ResumeState(sessionId,
-                            System.currentTimeMillis(), confirmed));
-                    SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
-                            SessionWire.encodeAck(entry.id, next));
+                        if (activeTarget == null) {
+                            activeTarget = downloadStore.openPartial(sessionId, entry.id, true);
+                            activeFileId = entry.id;
+                            chunksSinceCheckpoint = 0;
+                        } else if (!entry.id.equals(activeFileId)) {
+                            throw new IOException("Sender changed files before completing checkpoint");
+                        }
 
-                    if (!timers.containsKey(entry.id)) timers.put(entry.id, System.nanoTime());
-                    long startOffset = value(starts, entry.id);
-                    double seconds = Math.max(0.001,
-                            (System.nanoTime() - timers.get(entry.id)) / 1_000_000_000.0);
-                    long newlyTransferred = 0;
-                    for (Map.Entry<String, Long> c : confirmed.entrySet()) {
-                        newlyTransferred = saturatingAdd(newlyTransferred,
-                                Math.max(0, c.getValue() - value(starts, c.getKey())));
-                    }
-                    listener.onProgress(sessionId, entry.id, entry.name, next, entry.size,
-                            saturatingAdd(baseAlreadyConfirmed, newlyTransferred), batchTotal,
-                            (next - startOffset) / seconds);
-                } else if (frame.type == SessionWire.TYPE_FILE_DONE) {
-                    String fileId = new String(frame.payload,
-                            java.nio.charset.StandardCharsets.UTF_8);
-                    BatchManifest.Entry entry = byId.get(fileId);
-                    if (entry == null) throw new IOException("Unknown completed file id");
+                        activeTarget.write(chunk.data);
+                        long next = chunk.offset + chunk.data.length;
+                        received.put(entry.id, next);
+                        chunksSinceCheckpoint++;
 
-                    if (downloadStore.isVerified(sessionId, fileId, entry.size)) {
+                        boolean checkpoint = chunksSinceCheckpoint >= CHECKPOINT_CHUNKS
+                                || next == entry.size;
+                        if (checkpoint) {
+                            activeTarget.getFD().sync();
+                            confirmed.put(entry.id, next);
+                            resumeStore.save(new ResumeState(sessionId,
+                                    System.currentTimeMillis(), confirmed));
+                            SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
+                                    SessionWire.encodeAck(entry.id, next));
+                            chunksSinceCheckpoint = 0;
+                        }
+
+                        if (!timers.containsKey(entry.id)) timers.put(entry.id, System.nanoTime());
+                        long startOffset = value(starts, entry.id);
+                        double seconds = Math.max(0.001,
+                                (System.nanoTime() - timers.get(entry.id)) / 1_000_000_000.0);
+                        long newlyTransferred = 0;
+                        for (Map.Entry<String, Long> c : received.entrySet()) {
+                            newlyTransferred = saturatingAdd(newlyTransferred,
+                                    Math.max(0, c.getValue() - value(starts, c.getKey())));
+                        }
+                        listener.onProgress(sessionId, entry.id, entry.name, next, entry.size,
+                                saturatingAdd(baseAlreadyConfirmed, newlyTransferred), batchTotal,
+                                (next - startOffset) / seconds);
+                    } else if (frame.type == SessionWire.TYPE_FILE_DONE) {
+                        String fileId = new String(frame.payload,
+                                java.nio.charset.StandardCharsets.UTF_8);
+                        BatchManifest.Entry entry = byId.get(fileId);
+                        if (entry == null) throw new IOException("Unknown completed file id");
+
+                        if (activeTarget != null) {
+                            if (!fileId.equals(activeFileId)) {
+                                throw new IOException("Completed file does not match active stream");
+                            }
+                            activeTarget.getFD().sync();
+                            long durable = value(received, fileId);
+                            confirmed.put(fileId, durable);
+                            resumeStore.save(new ResumeState(sessionId,
+                                    System.currentTimeMillis(), confirmed));
+                            activeTarget.close();
+                            activeTarget = null;
+                            activeFileId = null;
+                            chunksSinceCheckpoint = 0;
+                        }
+
+                        if (downloadStore.isVerified(sessionId, fileId, entry.size)) {
+                            confirmed.put(fileId, entry.size);
+                            received.put(fileId, entry.size);
+                            SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
+                                    SessionWire.encodeAck(fileId, entry.size));
+                            continue;
+                        }
+
+                        File partial = downloadStore.partialFile(sessionId, fileId);
+                        if (partial.length() != entry.size) {
+                            throw new IOException("Incomplete file at completion");
+                        }
+                        byte[] actual = sha256(partial);
+                        if (!java.util.Arrays.equals(actual, entry.sha256)) {
+                            downloadStore.discard(sessionId, fileId);
+                            confirmed.put(fileId, 0L);
+                            received.put(fileId, 0L);
+                            resumeStore.save(new ResumeState(sessionId,
+                                    System.currentTimeMillis(), confirmed));
+                            throw new IOException("SHA-256 verification failed: " + entry.name);
+                        }
+                        Uri published = downloadStore.publishVerified(sessionId, fileId,
+                                entry.name, entry.mime, entry.category);
                         confirmed.put(fileId, entry.size);
-                        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
-                                SessionWire.encodeAck(fileId, entry.size));
-                        continue;
-                    }
-
-                    File partial = downloadStore.partialFile(sessionId, fileId);
-                    if (partial.length() != entry.size) {
-                        throw new IOException("Incomplete file at completion");
-                    }
-                    byte[] actual = sha256(partial);
-                    if (!java.util.Arrays.equals(actual, entry.sha256)) {
-                        downloadStore.discard(sessionId, fileId);
-                        confirmed.put(fileId, 0L);
+                        received.put(fileId, entry.size);
                         resumeStore.save(new ResumeState(sessionId,
                                 System.currentTimeMillis(), confirmed));
-                        throw new IOException("SHA-256 verification failed: " + entry.name);
+                        listener.onFileCompleted(sessionId, fileId, published);
+                        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
+                                SessionWire.encodeAck(fileId, entry.size));
+                    } else if (frame.type == SessionWire.TYPE_BATCH_DONE) {
+                        if (activeTarget != null) {
+                            throw new IOException("Batch completed with an open file stream");
+                        }
+                        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
+                                SessionWire.encodeAck(sessionId, manifest.totalBytes()));
+                        resumeStore.clear(sessionId);
+                        downloadStore.clearSession(sessionId);
+                        listener.onCompleted(sessionId);
+                        return;
+                    } else if (frame.type == SessionWire.TYPE_ERROR) {
+                        throw new IOException("Remote error: " + new String(frame.payload,
+                                java.nio.charset.StandardCharsets.UTF_8));
+                    } else {
+                        throw new IOException("Unexpected frame type: " + frame.type);
                     }
-                    Uri published = downloadStore.publishVerified(sessionId, fileId,
-                            entry.name, entry.mime, entry.category);
-                    confirmed.put(fileId, entry.size);
-                    resumeStore.save(new ResumeState(sessionId,
-                            System.currentTimeMillis(), confirmed));
-                    listener.onFileCompleted(sessionId, fileId, published);
-                    SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
-                            SessionWire.encodeAck(fileId, entry.size));
-                } else if (frame.type == SessionWire.TYPE_BATCH_DONE) {
-                    SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
-                            SessionWire.encodeAck(sessionId, manifest.totalBytes()));
-                    resumeStore.clear(sessionId);
-                    downloadStore.clearSession(sessionId);
-                    listener.onCompleted(sessionId);
-                    return;
-                } else if (frame.type == SessionWire.TYPE_ERROR) {
-                    throw new IOException("Remote error: " + new String(frame.payload,
-                            java.nio.charset.StandardCharsets.UTF_8));
-                } else {
-                    throw new IOException("Unexpected frame type: " + frame.type);
+                }
+            } finally {
+                if (activeTarget != null) {
+                    try { activeTarget.close(); } catch (Exception ignored) { }
                 }
             }
         } catch (Exception e) {
