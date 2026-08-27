@@ -62,6 +62,10 @@ jobs:
           test -n "$KEY_ALIAS" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
           test -n "$KEY_PASSWORD" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
           test -s .github/signing/optishare-release.jks.enc.hex || { echo '::error::Encrypted keystore payload missing'; exit 1; }
+          test "$(head -c 8 .github/signing/optishare-release.jks.enc.hex)" = "Salted__" || {
+            echo '::error::Encrypted keystore payload has invalid OpenSSL header';
+            exit 1;
+          }
 
       - name: Restore and validate release keystore
         env:
@@ -70,16 +74,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          text = Path('.github/signing/optishare-release.jks.enc.hex').read_text(encoding='utf-8')
-          compact = ''.join(text.split())
-          if not compact or len(compact) % 2:
-              raise SystemExit('Invalid encrypted keystore HEX payload')
-          Path('/tmp/optishare-release.jks.enc').write_bytes(bytes.fromhex(compact))
-          PY
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-            -in /tmp/optishare-release.jks.enc \
+            -in .github/signing/optishare-release.jks.enc.hex \
             -out "$RUNNER_TEMP/optishare-release.jks" \
             -pass env:ENCRYPTION_PASSWORD
           chmod 600 "$RUNNER_TEMP/optishare-release.jks"
