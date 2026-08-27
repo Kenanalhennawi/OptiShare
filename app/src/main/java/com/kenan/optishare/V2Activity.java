@@ -167,6 +167,10 @@ public class V2Activity extends ComponentActivity implements
             String event = intent.getStringExtra(TransferService.EXTRA_EVENT);
             String message = intent.getStringExtra(TransferService.EXTRA_MESSAGE);
             int progress = intent.getIntExtra(TransferService.EXTRA_PROGRESS, 0);
+            double speed = intent.getDoubleExtra(TransferService.EXTRA_SPEED, 0d);
+            long done = intent.getLongExtra(TransferService.EXTRA_DONE, 0L);
+            long total = intent.getLongExtra(TransferService.EXTRA_TOTAL, 0L);
+            long etaSeconds = intent.getLongExtra(TransferService.EXTRA_ETA_SECONDS, 0L);
             if (event == null) return;
             if (!transferStarted && ("incoming".equals(event) || "progress".equals(event) || "security".equals(event))) {
                 transferStarted = true;
@@ -179,6 +183,7 @@ public class V2Activity extends ComponentActivity implements
                 setTransferUi("Incoming batch", message, 0);
             } else if ("progress".equals(event)) {
                 setTransferUi(receiverMode ? "Receiving…" : "Sending…", message, progress);
+                setTransferMetrics(progress, done, total, speed, etaSeconds);
             } else if ("reconnecting".equals(event)) {
                 setConnectionUi("RECONNECTING…", Color.rgb(255, 188, 70));
                 setTransferUi("Reconnecting automatically", message, -1);
@@ -399,7 +404,13 @@ public class V2Activity extends ComponentActivity implements
         ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,title,"You can leave this screen; the foreground transfer service keeps running");
         connectionPill=connectionBadge("SECURE SESSION",Color.rgb(65,225,151));root.addView(connectionPill);
         LinearLayout card=card();transferState=text("Preparing transfer…",21,Color.WHITE,true);card.addView(transferState);transferDetail=text("Negotiating encrypted session and resume offsets",13,Color.rgb(158,188,211),false);card.addView(transferDetail);
-        transferProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);transferProgress.setMax(100);LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(9));pp.setMargins(0,dp(14),0,0);card.addView(transferProgress,pp);root.addView(card);
+        TextView percent=text("0%",42,Color.WHITE,true);percent.setTag("transfer_percent");percent.setGravity(Gravity.CENTER);percent.setPadding(0,dp(16),0,dp(4));card.addView(percent);
+        transferProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);transferProgress.setMax(100);LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(9));pp.setMargins(0,dp(8),0,0);card.addView(transferProgress,pp);
+        LinearLayout metrics=new LinearLayout(this);metrics.setOrientation(LinearLayout.HORIZONTAL);metrics.setPadding(0,dp(14),0,0);
+        TextView bytes=text("0 B / —",13,Color.rgb(187,215,235),true);bytes.setTag("transfer_bytes");metrics.addView(bytes,new LinearLayout.LayoutParams(0,-2,1));
+        TextView speedView=text("— MB/s",13,Color.rgb(89,205,255),true);speedView.setTag("transfer_speed");speedView.setGravity(Gravity.CENTER);metrics.addView(speedView,new LinearLayout.LayoutParams(0,-2,1));
+        TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.RIGHT);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
+        card.addView(metrics);root.addView(card);
         Button cancel=secondaryButton("Cancel transfer");cancel.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(cancel,cp);
         setContentView(scroll);
     }
@@ -445,7 +456,12 @@ public class V2Activity extends ComponentActivity implements
 
     private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));}
 
-    private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(title);if(transferDetail!=null)transferDetail.setText(detail);if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);});}
+    private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(title);if(transferDetail!=null)transferDetail.setText(detail);if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);if(progress>=0){TextView percent=findViewByTag("transfer_percent");if(percent!=null)percent.setText(progress+"%");}});}
+
+    private void setTransferMetrics(int progress,long done,long total,double speed,long etaSeconds){runOnUiThread(()->{TextView percent=findViewByTag("transfer_percent");TextView bytes=findViewByTag("transfer_bytes");TextView speedView=findViewByTag("transfer_speed");TextView eta=findViewByTag("transfer_eta");if(percent!=null)percent.setText(Math.max(0,Math.min(100,progress))+"%");if(bytes!=null)bytes.setText(formatBytes(Math.max(0L,done))+" / "+(total>0?formatBytes(total):"—"));if(speedView!=null)speedView.setText(formatTransferSpeed(speed));if(eta!=null)eta.setText(formatEta(etaSeconds));});}
+
+    private String formatTransferSpeed(double bytesPerSecond){if(bytesPerSecond>=1024d*1024d)return String.format(Locale.US,"%.1f MB/s",bytesPerSecond/(1024d*1024d));if(bytesPerSecond>=1024d)return String.format(Locale.US,"%.0f KB/s",bytesPerSecond/1024d);return bytesPerSecond>0?String.format(Locale.US,"%.0f B/s",bytesPerSecond):"— MB/s";}
+    private String formatEta(long seconds){if(seconds<=0)return"ETA —";if(seconds<60)return"ETA "+seconds+"s";long minutes=seconds/60;long remain=seconds%60;return"ETA "+minutes+"m "+remain+"s";}
 
     private void refreshReceiverIdentity() {
         if(currentScreen!=SCREEN_RECEIVE)return;TextView label=findViewByTag("receiver_identity");ImageView qr=findViewByTag("receiver_qr");String p2pName=thisDevice==null?identity.name():deviceName(thisDevice);if(label!=null)label.setText(p2pName+" • "+identity.name());if(qr!=null&&thisDevice!=null&&thisDevice.deviceAddress!=null){try{qr.setImageBitmap(makeQr("OPTISHARE2|"+thisDevice.deviceAddress+"|"+p2pName,720));}catch(Exception ignored){}}
