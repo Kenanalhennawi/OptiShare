@@ -1,0 +1,139 @@
+name: Patch OptiShare 2.2 Smart Trust UI
+
+on:
+  push:
+    branches: ['feature/v2.2-fast-transfer']
+    paths: ['.github/workflows/patch-v22-smart-trust-ui.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v2.2-fast-transfer
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Integrate trusted controls and adaptive route scoring
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # V2Activity: trusted-device management + learned LAN fallback delay + route tagging.
+          p=Path('app/src/main/java/com/kenan/optishare/V2Activity.java')
+          s=p.read_text()
+          s=s.replace('import com.kenan.optishare.device.DeviceIdentity;\n',
+                      'import com.kenan.optishare.device.DeviceIdentity;\nimport com.kenan.optishare.device.DeviceIdentityKey;\nimport com.kenan.optishare.device.TrustedDeviceStore;\n',1)
+          s=s.replace('import com.kenan.optishare.transfer.LanDiscovery;\n',
+                      'import com.kenan.optishare.transfer.LanDiscovery;\nimport com.kenan.optishare.transfer.RoutePerformanceStore;\n',1)
+          s=s.replace('''    private DeviceIdentity identity;\n    private TransferHistoryStore historyStore;\n    private LanDiscovery lanDiscovery;''',
+                      '''    private DeviceIdentity identity;\n    private TransferHistoryStore historyStore;\n    private TrustedDeviceStore trustedStore;\n    private RoutePerformanceStore routeStore;\n    private LanDiscovery lanDiscovery;\n    private String activeRoute = RoutePerformanceStore.ROUTE_DIRECT;''',1)
+          s=s.replace('''        identity = new DeviceIdentity(this);\n        historyStore = new TransferHistoryStore(this);\n        lanDiscovery = new LanDiscovery(this);''',
+                      '''        identity = new DeviceIdentity(this);\n        historyStore = new TransferHistoryStore(this);\n        trustedStore = new TrustedDeviceStore(this);\n        routeStore = new RoutePerformanceStore(this);\n        lanDiscovery = new LanDiscovery(this);''',1)
+          assert 'settings.setOnClickListener(v -> editDeviceName());' in s
+          s=s.replace('settings.setOnClickListener(v -> editDeviceName());','settings.setOnClickListener(v -> showDeviceSettings());',1)
+          # SmartRoute hint on discovery card.
+          old='''        TextView hint=text("On the other phone tap RECEIVE. You can also scan its OptiShare QR.",12,Color.rgb(150,179,202),false);'''
+          new='''        TextView hint=text("SmartRoute chooses Wi-Fi Direct or same-Wi-Fi automatically. "\n                + routeStore.summary() + " • QR remains a fallback.",12,Color.rgb(150,179,202),false);'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # learned delay instead of fixed 4.5 sec.
+          assert 'discoveryHandler.postDelayed(lanFallbackConnect,4500L);' in s
+          s=s.replace('discoveryHandler.postDelayed(lanFallbackConnect,4500L);','discoveryHandler.postDelayed(lanFallbackConnect,routeStore.lanFallbackDelayMillis());',1)
+          # Don't continually override learned timer when Android reports another empty peer snapshot.
+          old='''renderPeers();if(currentScreen==SCREEN_DISCOVERY){if(peers.isEmpty()){scheduleDiscoveryRetry();if(pendingLanHost!=null){discoveryHandler.removeCallbacks(lanFallbackConnect);discoveryHandler.postDelayed(lanFallbackConnect,1200L);}}else{discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(lanFallbackConnect);setDiscoveryText(peers.size()+" Wi-Fi Direct device"+(peers.size()==1?"":"s")+" found ✓");}}'''
+          new='''renderPeers();if(currentScreen==SCREEN_DISCOVERY){if(peers.isEmpty()){scheduleDiscoveryRetry();}else{discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(lanFallbackConnect);setDiscoveryText(peers.size()+" Wi-Fi Direct device"+(peers.size()==1?"":"s")+" found ✓");}}'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Route selection labels.
+          old='''        transferStarted=true;\n        activeTransferStartedAt=System.currentTimeMillis();\n        connectedPeerName=(name==null||name.trim().isEmpty()?"OptiShare device":name)+" • same Wi-Fi";'''
+          new='''        transferStarted=true;\n        activeRoute=RoutePerformanceStore.ROUTE_LAN;\n        activeTransferStartedAt=System.currentTimeMillis();\n        connectedPeerName=(name==null||name.trim().isEmpty()?"OptiShare device":name)+" • same Wi-Fi";'''
+          assert old in s
+          s=s.replace(old,new,1)
+          s=s.replace('setConnectionUi("SAME WI-FI ✓",Color.rgb(65,225,151));','setConnectionUi("SMART ROUTE • SAME WI-FI ✓",Color.rgb(65,225,151));',1)
+          # Mark Direct when actual P2P connection becomes the sender route.
+          old='''        else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){transferStarted=true;activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");startSenderService(info.groupOwnerAddress.getHostAddress());}'''
+          new='''        else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){activeRoute=RoutePerformanceStore.ROUTE_DIRECT;transferStarted=true;activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");setConnectionUi("SMART ROUTE • WI-FI DIRECT ✓",Color.rgb(65,225,151));startSenderService(info.groupOwnerAddress.getHostAddress());}'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Pass chosen route to foreground service.
+          old='''Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);'''
+          new='''Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Device settings and trusted device management.
+          anchor='''    private void editDeviceName(){'''
+          methods='''    private void showDeviceSettings(){\n        List<String> options=new ArrayList<>();\n        options.add("Rename this device");\n        options.add("Trusted devices ("+trustedStore.list().size()+")");\n        options.add("My security identity");\n        options.add("SmartRoute status");\n        new AlertDialog.Builder(this).setTitle("Device & security")\n                .setItems(options.toArray(new String[0]),(d,which)->{\n                    if(which==0)editDeviceName();\n                    else if(which==1)showTrustedDevices();\n                    else if(which==2)showMySecurityIdentity();\n                    else showMessage("SmartRoute",routeStore.summary()+"\\nOptiShare learns from successful transfer speed and route reliability.");\n                }).setNegativeButton("Close",null).show();\n    }\n\n    private void showTrustedDevices(){\n        if(!DeviceIdentityKey.supported()){\n            showMessage("Trusted devices","Android 5 uses manual six-digit security verification every time. Persistent device trust is available on Android 6 and newer.");\n            return;\n        }\n        List<TrustedDeviceStore.Entry> entries=trustedStore.list();\n        if(entries.isEmpty()){showMessage("Trusted devices","No trusted devices yet. During the first secure connection choose ‘Trust this device & confirm’. ");return;}\n        String[] labels=new String[entries.size()];\n        for(int i=0;i<entries.size();i++){TrustedDeviceStore.Entry e=entries.get(i);labels[i]=e.name+"\\n"+DeviceIdentityKey.shortFingerprint(e.fingerprint)+(e.autoAccept?" • Auto-accept ON":" • Confirm files");}\n        new AlertDialog.Builder(this).setTitle("Trusted devices").setItems(labels,(d,which)->showTrustedDeviceActions(entries.get(which))).setNegativeButton("Close",null).show();\n    }\n\n    private void showTrustedDeviceActions(TrustedDeviceStore.Entry entry){\n        String auto=entry.autoAccept?"Turn auto-accept OFF":"Turn auto-accept ON";\n        new AlertDialog.Builder(this).setTitle(entry.name)\n                .setMessage("Security fingerprint: "+DeviceIdentityKey.shortFingerprint(entry.fingerprint)+"\\nAuto-accept skips the incoming-files confirmation only after the device identity signature is verified.")\n                .setItems(new String[]{auto,"Forget this device"},(d,which)->{\n                    if(which==0){trustedStore.setAutoAccept(entry.fingerprint,!entry.autoAccept);showTrustedDevices();}\n                    else new AlertDialog.Builder(this).setTitle("Forget trusted device?").setMessage("The six-digit security code will be required again next time.").setPositiveButton("Forget",(x,w)->{trustedStore.forget(entry.fingerprint);showTrustedDevices();}).setNegativeButton("Cancel",null).show();\n                }).setNegativeButton("Back",(d,w)->showTrustedDevices()).show();\n    }\n\n    private void showMySecurityIdentity(){\n        if(!DeviceIdentityKey.supported()){showMessage("Security identity","Android 5 keeps secure manual code verification but does not store a persistent trusted-device key.");return;}\n        try{String fingerprint=new DeviceIdentityKey().fingerprint();showMessage("My security identity","Protected by Android Keystore\\nFingerprint: "+DeviceIdentityKey.shortFingerprint(fingerprint));}\n        catch(Exception e){showMessage("Security identity","Could not access Android Keystore identity: "+e.getMessage());}\n    }\n\n'''
+          assert anchor in s
+          s=s.replace(anchor,methods+anchor,1)
+          p.write_text(s)
+
+          # TransferService: learn actual route performance from finished sender sessions.
+          p=Path('app/src/main/java/com/kenan/optishare/transfer/TransferService.java')
+          s=p.read_text()
+          s=s.replace('    public static final String EXTRA_HOST = "host";','    public static final String EXTRA_HOST = "host";\n    public static final String EXTRA_ROUTE = "route";',1)
+          s=s.replace('''    private LanDiscovery lanDiscovery;\n    private TrustedDeviceStore trustedStore;''','''    private LanDiscovery lanDiscovery;\n    private RoutePerformanceStore routeStore;\n    private TrustedDeviceStore trustedStore;\n    private volatile String currentRoute = RoutePerformanceStore.ROUTE_DIRECT;''',1)
+          s=s.replace('''        lanDiscovery = new LanDiscovery(this);\n        trustedStore = new TrustedDeviceStore(this);''','''        lanDiscovery = new LanDiscovery(this);\n        routeStore = new RoutePerformanceStore(this);\n        trustedStore = new TrustedDeviceStore(this);''',1)
+          # Read and validate sender route.
+          old='''        final String initialHost = intent.getStringExtra(EXTRA_HOST);\n        final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);'''
+          new='''        final String initialHost = intent.getStringExtra(EXTRA_HOST);\n        String requestedRoute = intent.getStringExtra(EXTRA_ROUTE);\n        currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(requestedRoute)\n                ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;\n        final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Learn from successful sender completion.
+          old='''            @Override public void onCompleted(String sessionId) {\n                String summary = benchmarkSummary("Sent");'''
+          new='''            @Override public void onCompleted(String sessionId) {\n                routeStore.recordSuccess(currentRoute, averageBytesPerSecond());\n                String summary = benchmarkSummary("Sent") + " • " + routeLabel(currentRoute);'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Penalize route only after sender has exhausted recovery, not on user decline.
+          old='''        } else {\n            broadcast("error", safe(error) + " — session kept for resume", 0, 0, session);'''
+          new='''        } else {\n            routeStore.recordFailure(currentRoute);\n            broadcast("error", safe(error) + " — session kept for resume", 0, 0, session);'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Average helper shared by benchmark and route learner.
+          anchor='''    private String benchmarkSummary(String verb) {'''
+          helper='''    private double averageBytesPerSecond() {\n        long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();\n        double seconds = activeTransferStartedNanos == 0L ? 0d\n                : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);\n        return total <= 0 || seconds <= 0 ? latestSpeed : total / seconds;\n    }\n\n    private static String routeLabel(String route) {\n        return RoutePerformanceStore.ROUTE_LAN.equals(route) ? "same Wi-Fi" : "Wi-Fi Direct";\n    }\n\n'''
+          assert anchor in s
+          s=s.replace(anchor,helper+anchor,1)
+          # benchmark uses same calculation.
+          old='''        long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();\n        double seconds = activeTransferStartedNanos == 0L ? 0d\n                : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);\n        double average = total <= 0 ? latestSpeed : total / seconds;'''
+          new='''        long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();\n        double seconds = activeTransferStartedNanos == 0L ? 0d\n                : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);\n        double average = averageBytesPerSecond();'''
+          assert old in s
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          # Release metadata documents the trust-aware protocol.
+          p=Path('.github/workflows/build-v22.yml')
+          s=p.read_text()
+          assert "echo 'chunk_bytes=1572864'" in s
+          s=s.replace("echo 'chunk_bytes=1572864'", "echo 'protocol=3'\n            echo 'trusted_identity=android_keystore_api23_plus'\n            echo 'smart_route=wifi_direct_or_lan'\n            echo 'chunk_bytes=1572864'",1)
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff --stat
+
+      - name: Compile lint and test
+        run: gradle --no-daemon --stacktrace testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug
+
+      - name: Commit verified SmartRoute and trust controls
+        shell: bash
+        run: |
+          git config user.name "Kenanalhennawi"
+          git config user.email "135068266+Kenanalhennawi@users.noreply.github.com"
+          git add app/src/main/java/com/kenan/optishare/V2Activity.java \
+                  app/src/main/java/com/kenan/optishare/transfer/TransferService.java \
+                  .github/workflows/build-v22.yml
+          git commit -m "feat: add trusted-device controls and adaptive SmartRoute"
+          git fetch origin feature/v2.2-fast-transfer
+          git rebase origin/feature/v2.2-fast-transfer
+          git push origin HEAD:feature/v2.2-fast-transfer
