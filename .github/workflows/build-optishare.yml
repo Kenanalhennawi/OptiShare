@@ -36,16 +36,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 36
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
-
       - name: Set up Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+
+      - name: Verify preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}" || { echo '::error::ANDROID_HOME is not set on the runner'; exit 1; }
+          test -d "$ANDROID_HOME/platforms/android-36" || { echo '::error::Android SDK platform 36 is not preinstalled'; exit 1; }
+          test -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" || { echo '::error::Android build-tools 35.0.0 are not preinstalled'; exit 1; }
+          echo "Using preinstalled Android SDK at $ANDROID_HOME"
 
       - name: Quality gate and debug APK
         run: >-
