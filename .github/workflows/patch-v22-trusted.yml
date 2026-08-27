@@ -1,0 +1,136 @@
+name: Patch OptiShare 2.2 Trusted Devices
+
+on:
+  push:
+    branches: ['feature/v2.2-fast-transfer']
+    paths: ['.github/workflows/patch-v22-trusted.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v2.2-fast-transfer
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Integrate signed device identity and trust flow
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # SessionWire: protocol v3 + encrypted persistent-identity frame.
+          p=Path('app/src/main/java/com/kenan/optishare/protocol/SessionWire.java')
+          s=p.read_text()
+          s=s.replace('public static final int VERSION = 2;', 'public static final int VERSION = 3;', 1)
+          s=s.replace('public static final int TYPE_ERROR = 7;\n', 'public static final int TYPE_ERROR = 7;\n    public static final int TYPE_IDENTITY = 8;\n', 1)
+          anchor='''    public static byte[] encodeManifest(BatchManifest manifest) throws IOException {'''
+          identity_codec='''    public static byte[] encodeIdentity(byte[] publicKey, byte[] signature) throws IOException {\n        if (publicKey == null || publicKey.length <= 0 || publicKey.length > MAX_KEY_BYTES) {\n            throw new IOException("Invalid identity public key");\n        }\n        if (signature == null || signature.length <= 0 || signature.length > 2048) {\n            throw new IOException("Invalid identity signature");\n        }\n        ByteArrayOutputStream bytes = new ByteArrayOutputStream();\n        DataOutputStream out = new DataOutputStream(bytes);\n        out.writeInt(publicKey.length);\n        out.write(publicKey);\n        out.writeInt(signature.length);\n        out.write(signature);\n        out.flush();\n        return bytes.toByteArray();\n    }\n\n    public static Identity decodeIdentity(byte[] payload) throws IOException {\n        DataInputStream in = payloadInput(payload);\n        int keyLength = positiveLength(in.readInt(), MAX_KEY_BYTES, "identity public key");\n        byte[] publicKey = new byte[keyLength];\n        in.readFully(publicKey);\n        int signatureLength = positiveLength(in.readInt(), 2048, "identity signature");\n        byte[] signature = new byte[signatureLength];\n        in.readFully(signature);\n        ensureConsumed(in);\n        return new Identity(publicKey, signature);\n    }\n\n'''
+          assert anchor in s
+          s=s.replace(anchor, identity_codec+anchor, 1)
+          s=s.replace('if (type < TYPE_MANIFEST || type > TYPE_ERROR)', 'if (type < TYPE_MANIFEST || type > TYPE_IDENTITY)', 1)
+          anchor='''    public static final class Frame {'''
+          identity_class='''    public static final class Identity {\n        public final byte[] publicKey;\n        public final byte[] signature;\n        Identity(byte[] publicKey, byte[] signature) {\n            this.publicKey = publicKey;\n            this.signature = signature;\n        }\n    }\n\n'''
+          assert anchor in s
+          s=s.replace(anchor, identity_class+anchor, 1)
+          p.write_text(s)
+
+          # TransferEngine: signed identity exchange bound to ephemeral session fingerprint.
+          p=Path('app/src/main/java/com/kenan/optishare/transfer/TransferEngine.java')
+          s=p.read_text()
+          s=s.replace('import com.kenan.optishare.model.TransferItem;\n', 'import com.kenan.optishare.device.DeviceIdentityKey;\nimport com.kenan.optishare.model.TransferItem;\n', 1)
+          s=s.replace('''        void onSecurityCode(String code);\n        void onIncomingBatch(BatchManifest manifest);''', '''        void onSecurityCode(String code);\n        boolean onPeerIdentity(String fingerprint);\n        void onIncomingBatch(BatchManifest manifest);''', 1)
+          s=s.replace('''            SessionWire.Handshake handshake = SessionWire.clientHandshake(in, out);\n            listener.onSecurityCode(handshake.securityCode);''', '''            SessionWire.Handshake handshake = SessionWire.clientHandshake(in, out);\n            String peerFingerprint = exchangeClientIdentity(in, out, handshake);\n            if (!listener.onPeerIdentity(peerFingerprint)) {\n                listener.onSecurityCode(handshake.securityCode);\n            }''', 1)
+          s=s.replace('''            SessionWire.Handshake handshake = SessionWire.serverHandshake(in, out);\n            listener.onSecurityCode(handshake.securityCode);''', '''            SessionWire.Handshake handshake = SessionWire.serverHandshake(in, out);\n            String peerFingerprint = exchangeServerIdentity(in, out, handshake);\n            if (!listener.onPeerIdentity(peerFingerprint)) {\n                listener.onSecurityCode(handshake.securityCode);\n            }''', 1)
+          anchor='''    public BatchManifest buildManifest(List<TransferItem> items) throws Exception {'''
+          helpers='''    private String exchangeClientIdentity(DataInputStream in, DataOutputStream out,\n                                          SessionWire.Handshake handshake) throws Exception {\n        DeviceIdentityKey local = new DeviceIdentityKey();\n        byte[] challenge = handshake.crypto.sessionFingerprint();\n        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_IDENTITY,\n                SessionWire.encodeIdentity(local.publicKeyEncoded(), local.sign(challenge)));\n        SessionWire.Frame frame = SessionWire.readFrame(in, handshake.crypto);\n        if (frame.type != SessionWire.TYPE_IDENTITY) throw new IOException("Expected peer identity");\n        return verifyPeerIdentity(SessionWire.decodeIdentity(frame.payload), challenge);\n    }\n\n    private String exchangeServerIdentity(DataInputStream in, DataOutputStream out,\n                                          SessionWire.Handshake handshake) throws Exception {\n        byte[] challenge = handshake.crypto.sessionFingerprint();\n        SessionWire.Frame frame = SessionWire.readFrame(in, handshake.crypto);\n        if (frame.type != SessionWire.TYPE_IDENTITY) throw new IOException("Expected peer identity");\n        String peer = verifyPeerIdentity(SessionWire.decodeIdentity(frame.payload), challenge);\n        DeviceIdentityKey local = new DeviceIdentityKey();\n        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_IDENTITY,\n                SessionWire.encodeIdentity(local.publicKeyEncoded(), local.sign(challenge)));\n        return peer;\n    }\n\n    private static String verifyPeerIdentity(SessionWire.Identity identity, byte[] challenge)\n            throws Exception {\n        if (!DeviceIdentityKey.verify(identity.publicKey, challenge, identity.signature)) {\n            throw new SecurityException("Peer device identity signature is invalid");\n        }\n        return DeviceIdentityKey.fingerprint(identity.publicKey);\n    }\n\n'''
+          assert anchor in s
+          s=s.replace(anchor, helpers+anchor, 1)
+          p.write_text(s)
+
+          # IncomingApproval: carry optional peer fingerprint to focused UI.
+          p=Path('app/src/main/java/com/kenan/optishare/transfer/IncomingApproval.java')
+          s=p.read_text()
+          s=s.replace('''    private static String pendingText;''', '''    private static String pendingText;\n    private static String pendingPeerFingerprint;''', 1)
+          s=s.replace('''    static void begin(String key, String title, String text) {\n        synchronized (LOCK) {\n            pendingKey = key;\n            decision = null;\n            pendingTitle = title;\n            pendingText = text;\n        }\n        showApprovalSurface();\n    }''', '''    static void begin(String key, String title, String text) {\n        begin(key, title, text, null);\n    }\n\n    static void begin(String key, String title, String text, String peerFingerprint) {\n        synchronized (LOCK) {\n            pendingKey = key;\n            decision = null;\n            pendingTitle = title;\n            pendingText = text;\n            pendingPeerFingerprint = peerFingerprint;\n        }\n        showApprovalSurface();\n    }''', 1)
+          s=s.replace('''        pendingText = null;''', '''        pendingText = null;\n        pendingPeerFingerprint = null;''', 1)
+          s=s.replace('''        String title;\n        String text;\n        synchronized (LOCK) {\n            title = pendingTitle == null ? "OptiShare approval required" : pendingTitle;\n            text = pendingText == null ? "Open OptiShare to continue" : pendingText;\n        }''', '''        String title;\n        String text;\n        String peerFingerprint;\n        synchronized (LOCK) {\n            title = pendingTitle == null ? "OptiShare approval required" : pendingTitle;\n            text = pendingText == null ? "Open OptiShare to continue" : pendingText;\n            peerFingerprint = pendingPeerFingerprint;\n        }''', 1)
+          s=s.replace('''.putExtra(ApprovalActivity.EXTRA_TEXT, text)\n                        .addFlags''', '''.putExtra(ApprovalActivity.EXTRA_TEXT, text)\n                        .putExtra(ApprovalActivity.EXTRA_PEER_FINGERPRINT, peerFingerprint)\n                        .addFlags''', 1)
+          s=s.replace('''.putExtra(ApprovalActivity.EXTRA_TEXT, text)\n                .addFlags''', '''.putExtra(ApprovalActivity.EXTRA_TEXT, text)\n                .putExtra(ApprovalActivity.EXTRA_PEER_FINGERPRINT, peerFingerprint)\n                .addFlags''', 1)
+          # showNotification needs peer fingerprint parameter.
+          s=s.replace('showNotification(context, title, text);', 'showNotification(context, title, text, peerFingerprint);', 1)
+          s=s.replace('private static void showNotification(Context context, String title, String text) {', 'private static void showNotification(Context context, String title, String text, String peerFingerprint) {', 1)
+          p.write_text(s)
+
+          # ApprovalActivity: explicit Trust + Confirm button only for cryptographically identified peers.
+          p=Path('app/src/main/java/com/kenan/optishare/ApprovalActivity.java')
+          s=p.read_text()
+          s=s.replace('''    public static final String EXTRA_TEXT = "approval_text";''', '''    public static final String EXTRA_TEXT = "approval_text";\n    public static final String EXTRA_PEER_FINGERPRINT = "peer_fingerprint";''', 1)
+          s=s.replace('''        String text = getIntent().getStringExtra(EXTRA_TEXT);''', '''        String text = getIntent().getStringExtra(EXTRA_TEXT);\n        String peerFingerprint = getIntent().getStringExtra(EXTRA_PEER_FINGERPRINT);''', 1)
+          s=s.replace('''        confirm.setOnClickListener(v -> decide(true));''', '''        confirm.setOnClickListener(v -> decide(true, false));''', 1)
+          anchor='''        Button decline = button(security ? "Codes do not match" : "Decline transfer",'''
+          trust_button='''        if (security && peerFingerprint != null && !peerFingerprint.trim().isEmpty()) {\n            Button trust = button("Trust this device & confirm",\n                    Color.rgb(48, 126, 218), Color.rgb(35, 72, 164));\n            trust.setOnClickListener(v -> decide(true, true));\n            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, dp(54));\n            tp.setMargins(0, dp(10), 0, 0);\n            root.addView(trust, tp);\n        }\n\n'''
+          assert anchor in s
+          s=s.replace(anchor, trust_button+anchor, 1)
+          s=s.replace('decline.setOnClickListener(v -> decide(false));', 'decline.setOnClickListener(v -> decide(false, false));', 1)
+          s=s.replace('''    private void decide(boolean accept) {\n        Intent decision = new Intent(this, TransferService.class)\n                .setAction(accept ? TransferService.ACTION_ACCEPT : TransferService.ACTION_DECLINE);\n        startService(decision);\n        finish();\n    }''', '''    private void decide(boolean accept, boolean trust) {\n        String action = !accept ? TransferService.ACTION_DECLINE\n                : trust ? TransferService.ACTION_TRUST_ACCEPT : TransferService.ACTION_ACCEPT;\n        Intent decision = new Intent(this, TransferService.class).setAction(action);\n        startService(decision);\n        finish();\n    }''', 1)
+          s=s.replace('decide(false);', 'decide(false, false);', 1)
+          p.write_text(s)
+
+          # TransferService: consult trust database, skip repeated security prompt, optional auto-accept.
+          p=Path('app/src/main/java/com/kenan/optishare/transfer/TransferService.java')
+          s=p.read_text()
+          s=s.replace('import com.kenan.optishare.device.DeviceIdentity;\n', 'import com.kenan.optishare.device.DeviceIdentity;\nimport com.kenan.optishare.device.DeviceIdentityKey;\nimport com.kenan.optishare.device.TrustedDeviceStore;\n', 1)
+          s=s.replace('''    public static final String ACTION_DECLINE = "com.kenan.optishare.action.DECLINE";''', '''    public static final String ACTION_DECLINE = "com.kenan.optishare.action.DECLINE";\n    public static final String ACTION_TRUST_ACCEPT = "com.kenan.optishare.action.TRUST_ACCEPT";''', 1)
+          s=s.replace('''    private LanDiscovery lanDiscovery;''', '''    private LanDiscovery lanDiscovery;\n    private TrustedDeviceStore trustedStore;\n    private volatile String activePeerFingerprint;''', 1)
+          s=s.replace('''        lanDiscovery = new LanDiscovery(this);\n        createChannel();''', '''        lanDiscovery = new LanDiscovery(this);\n        trustedStore = new TrustedDeviceStore(this);\n        createChannel();''', 1)
+          s=s.replace('''        if (ACTION_DECLINE.equals(action)) {\n            IncomingApproval.decide(false);\n            return START_STICKY;\n        }''', '''        if (ACTION_DECLINE.equals(action)) {\n            IncomingApproval.decide(false);\n            return START_STICKY;\n        }\n        if (ACTION_TRUST_ACCEPT.equals(action)) {\n            if (activePeerFingerprint != null) {\n                trustedStore.trust(activePeerFingerprint,\n                        "Device " + DeviceIdentityKey.shortFingerprint(activePeerFingerprint));\n                broadcast("trusted_peer", "Device trusted securely ✓", 0, 0, null);\n            }\n            IncomingApproval.decide(true);\n            return START_STICKY;\n        }''', 1)
+          s=s.replace('''        latestSpeed = 0d;\n        lanDiscovery.advertise''', '''        latestSpeed = 0d;\n        activePeerFingerprint = null;\n        lanDiscovery.advertise''', 1)
+          # Receiver listener identity callback.
+          s=s.replace('''        new TransferEngine(this).receive(socket, new TransferEngine.Listener() {\n            @Override public void onSecurityCode(String code) {''', '''        new TransferEngine(this).receive(socket, new TransferEngine.Listener() {\n            @Override public boolean onPeerIdentity(String fingerprint) {\n                activePeerFingerprint = fingerprint;\n                boolean trusted = trustedStore.isTrusted(fingerprint);\n                if (trusted) broadcast("trusted_peer", "Trusted device verified ✓", 0, 0, null);\n                return trusted;\n            }\n\n            @Override public void onSecurityCode(String code) {''', 1)
+          # Auto accept incoming batch only if explicitly enabled for authenticated trusted peer.
+          s=s.replace('''                IncomingApproval.begin(\n                        approvalKey,\n                        "Incoming OptiShare transfer",\n                        detail + "\\nConfirm only if you expect this transfer.");''', '''                if (!trustedStore.autoAccept(activePeerFingerprint)) {\n                    IncomingApproval.begin(\n                            approvalKey,\n                            "Incoming OptiShare transfer",\n                            detail + "\\nConfirm only if you expect this transfer.");\n                } else {\n                    broadcast("trusted_peer", "Trusted device • auto-accept enabled", 0, 0, manifest.getSessionId());\n                }''', 1)
+          s=s.replace('''            @Override public boolean acceptIncomingBatch(BatchManifest manifest) {\n                if (!running.get()) return false;\n                try {''', '''            @Override public boolean acceptIncomingBatch(BatchManifest manifest) {\n                if (!running.get()) return false;\n                if (trustedStore.autoAccept(activePeerFingerprint)) return true;\n                try {''', 1)
+          # Sender listener identity callback.
+          s=s.replace('''        engine.send(socket, activeManifest, activeItems, new TransferEngine.Listener() {\n            @Override public void onSecurityCode(String code) {''', '''        engine.send(socket, activeManifest, activeItems, new TransferEngine.Listener() {\n            @Override public boolean onPeerIdentity(String fingerprint) {\n                activePeerFingerprint = fingerprint;\n                boolean trusted = trustedStore.isTrusted(fingerprint);\n                if (trusted) broadcast("trusted_peer", "Trusted device verified ✓", 0, 0, activeManifest.getSessionId());\n                return trusted;\n            }\n\n            @Override public void onSecurityCode(String code) {''', 1)
+          # Bind trust prompt to active cryptographic fingerprint.
+          s=s.replace('''                "Compare both phones. The code must be " + formatted\n                        + ". Confirm only if both screens match exactly.");''', '''                "Compare both phones. The code must be " + formatted\n                        + ". Confirm only if both screens match exactly.",\n                activePeerFingerprint);''', 1)
+          p.write_text(s)
+
+          # V2Activity: surface trusted state in transfer/discovery UI.
+          p=Path('app/src/main/java/com/kenan/optishare/V2Activity.java')
+          s=p.read_text()
+          s=s.replace('''            if ("security".equals(event)) {\n                setTransferUi("Secure connection established", message, -1);''', '''            if ("security".equals(event)) {\n                setTransferUi("Secure connection established", message, -1);\n            } else if ("trusted_peer".equals(event)) {\n                setConnectionUi("TRUSTED DEVICE ✓", Color.rgb(65, 225, 151));\n                if (currentScreen == SCREEN_TRANSFER) setTransferUi("Trusted device verified ✓", message, -1);''', 1)
+          p.write_text(s)
+          PY
+
+          git diff --check
+          git diff --stat
+
+      - name: Compile and test trusted-device integration
+        run: gradle --no-daemon --stacktrace testDebugUnitTest testReleaseUnitTest lintDebug assembleDebug
+
+      - name: Commit verified trusted-device integration
+        shell: bash
+        run: |
+          git config user.name "Kenanalhennawi"
+          git config user.email "135068266+Kenanalhennawi@users.noreply.github.com"
+          git add app/src/main/java/com/kenan/optishare/protocol/SessionWire.java \
+                  app/src/main/java/com/kenan/optishare/transfer/TransferEngine.java \
+                  app/src/main/java/com/kenan/optishare/transfer/TransferService.java \
+                  app/src/main/java/com/kenan/optishare/transfer/IncomingApproval.java \
+                  app/src/main/java/com/kenan/optishare/ApprovalActivity.java \
+                  app/src/main/java/com/kenan/optishare/V2Activity.java
+          git commit -m "feat: authenticate and trust persistent peer identities"
+          git push origin HEAD:feature/v2.2-fast-transfer
