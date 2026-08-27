@@ -117,7 +117,7 @@ public final class TransferEngine {
                                 throw new IOException("Unexpected end of source file: " + entry.name);
                             }
                             long chunkOffset = sent;
-                            SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_CHUNK,
+                            SessionWire.writeFrameBuffered(out, handshake.crypto, SessionWire.TYPE_CHUNK,
                                     SessionWire.encodeChunk(entry.id, chunkOffset, buffer, n));
                             sent += n;
                             chunksAwaitingCheckpoint++;
@@ -125,6 +125,7 @@ public final class TransferEngine {
                             boolean checkpoint = chunksAwaitingCheckpoint >= CHECKPOINT_CHUNKS
                                     || sent == entry.size;
                             if (checkpoint) {
+                                out.flush();
                                 SessionWire.Frame ackFrame = SessionWire.readFrame(in, handshake.crypto);
                                 if (ackFrame.type != SessionWire.TYPE_ACK) {
                                     throw new IOException("Expected checkpoint acknowledgement");
