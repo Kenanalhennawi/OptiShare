@@ -41,7 +41,7 @@ final class IncomingApproval {
             pendingTitle = title;
             pendingText = text;
         }
-        showNotification();
+        showApprovalSurface();
     }
 
     static boolean await(String key, long timeoutMillis) throws InterruptedException {
@@ -93,7 +93,7 @@ final class IncomingApproval {
         pendingText = null;
     }
 
-    private static void showNotification() {
+    private static void showApprovalSurface() {
         Context context;
         try {
             context = OptiShareApp.context();
@@ -101,6 +101,30 @@ final class IncomingApproval {
             return;
         }
 
+        String title;
+        String text;
+        synchronized (LOCK) {
+            title = pendingTitle == null ? "OptiShare approval required" : pendingTitle;
+            text = pendingText == null ? "Open OptiShare to continue" : pendingText;
+        }
+
+        showNotification(context, title, text);
+        if (OptiShareApp.isForeground()) {
+            try {
+                Intent approvalScreen = new Intent(context, ApprovalActivity.class)
+                        .putExtra(ApprovalActivity.EXTRA_TITLE, title)
+                        .putExtra(ApprovalActivity.EXTRA_TEXT, text)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                context.startActivity(approvalScreen);
+            } catch (Exception ignored) {
+                // Notification remains available when an OEM blocks foreground activity promotion.
+            }
+        }
+    }
+
+    private static void showNotification(Context context, String title, String text) {
         NotificationManager manager =
                 (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
@@ -108,13 +132,6 @@ final class IncomingApproval {
                     CHANNEL, "Transfer approvals", NotificationManager.IMPORTANCE_HIGH);
             channel.setDescription("Security verification and incoming transfer approvals");
             manager.createNotificationChannel(channel);
-        }
-
-        String title;
-        String text;
-        synchronized (LOCK) {
-            title = pendingTitle == null ? "OptiShare approval required" : pendingTitle;
-            text = pendingText == null ? "Open OptiShare to continue" : pendingText;
         }
 
         int immutable = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
