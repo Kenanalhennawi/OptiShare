@@ -46,6 +46,7 @@ public final class TransferService extends Service {
     public static final String ACTION_STOP = "com.kenan.optishare.action.STOP";
     public static final String ACTION_EVENT = "com.kenan.optishare.TRANSFER_EVENT";
     public static final String EXTRA_HOST = "host";
+    public static final String EXTRA_ROUTE = "route";
     public static final String EXTRA_URIS = "uris";
     public static final String EXTRA_EVENT = "event";
     public static final String EXTRA_MESSAGE = "message";
@@ -71,7 +72,9 @@ public final class TransferService extends Service {
     private SenderSessionStore senderStore;
     private WifiDirectRecovery wifiRecovery;
     private LanDiscovery lanDiscovery;
+    private RoutePerformanceStore routeStore;
     private TrustedDeviceStore trustedStore;
+    private volatile String currentRoute = RoutePerformanceStore.ROUTE_DIRECT;
     private volatile String activePeerFingerprint;
     private volatile long activeTransferStartedNanos;
     private volatile int reconnectCount;
@@ -83,6 +86,7 @@ public final class TransferService extends Service {
         senderStore = new SenderSessionStore(this);
         wifiRecovery = new WifiDirectRecovery(this);
         lanDiscovery = new LanDiscovery(this);
+        routeStore = new RoutePerformanceStore(this);
         trustedStore = new TrustedDeviceStore(this);
         createChannel();
     }
@@ -280,6 +284,8 @@ public final class TransferService extends Service {
 
     private void startSender(Intent intent) {
         final String initialHost = intent.getStringExtra(EXTRA_HOST);
+        String requestedRoute = intent.getStringExtra(EXTRA_ROUTE);
+        currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(requestedRoute) ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;
         final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);
         if (initialHost == null || rawUris == null || rawUris.isEmpty()) {
             broadcast("error", "Missing receiver or files", 0, 0, null);
@@ -377,6 +383,7 @@ public final class TransferService extends Service {
             senderStore.clear();
             broadcast("declined", safe(error), 0, 0, session);
         } else {
+            routeStore.recordFailure(currentRoute);
             broadcast("error", safe(error) + " — session kept for resume", 0, 0, session);
             updateNotification("Transfer paused",
                     "Open OptiShare to resume the pending session", 0, false);
@@ -421,7 +428,8 @@ public final class TransferService extends Service {
                                                   Uri publishedUri) { }
 
             @Override public void onCompleted(String sessionId) {
-                String summary = benchmarkSummary("Sent");
+                routeStore.recordSuccess(currentRoute, averageBytesPerSecond());
+                String summary = benchmarkSummary("Sent") + " • " + routeLabel(currentRoute);
                 updateNotification("Transfer complete", summary, 100, false);
                 broadcast("completed", summary, 100, 0, sessionId);
             }
@@ -630,11 +638,19 @@ public final class TransferService extends Service {
         return value.toString();
     }
 
+    private double averageBytesPerSecond() {
+        long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
+        double seconds = activeTransferStartedNanos == 0L ? 0d : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);
+        return total <= 0 || seconds <= 0 ? latestSpeed : total / seconds;
+    }
+
+    private static String routeLabel(String route) { return RoutePerformanceStore.ROUTE_LAN.equals(route) ? "same Wi-Fi" : "Wi-Fi Direct"; }
+
     private String benchmarkSummary(String verb) {
         long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
         double seconds = activeTransferStartedNanos == 0L ? 0d
                 : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);
-        double average = total <= 0 ? latestSpeed : total / seconds;
+        double average = averageBytesPerSecond();
         StringBuilder value = new StringBuilder();
         value.append(verb).append(" ").append(formatBytes(total))
                 .append(" in ").append(formatElapsed(seconds))

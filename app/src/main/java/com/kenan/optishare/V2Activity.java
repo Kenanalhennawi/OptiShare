@@ -49,9 +49,12 @@ import com.google.zxing.common.BitMatrix;
 import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanOptions;
 import com.kenan.optishare.device.DeviceIdentity;
+import com.kenan.optishare.device.DeviceIdentityKey;
+import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.history.TransferHistoryStore;
 import com.kenan.optishare.storage.MediaRepository;
 import com.kenan.optishare.transfer.LanDiscovery;
+import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.TransferService;
 import com.kenan.optishare.ui.GalleryAdapter;
 
@@ -102,7 +105,10 @@ public class V2Activity extends ComponentActivity implements
 
     private DeviceIdentity identity;
     private TransferHistoryStore historyStore;
+    private TrustedDeviceStore trustedStore;
+    private RoutePerformanceStore routeStore;
     private LanDiscovery lanDiscovery;
+    private String activeRoute = RoutePerformanceStore.ROUTE_DIRECT;
     private String pendingLanHost;
     private String pendingLanName;
     private long activeTransferStartedAt;
@@ -238,6 +244,8 @@ public class V2Activity extends ComponentActivity implements
         super.onCreate(state);
         identity = new DeviceIdentity(this);
         historyStore = new TransferHistoryStore(this);
+        trustedStore = new TrustedDeviceStore(this);
+        routeStore = new RoutePerformanceStore(this);
         lanDiscovery = new LanDiscovery(this);
         manager = (WifiP2pManager) getSystemService(WIFI_P2P_SERVICE);
         if (manager != null) {
@@ -268,7 +276,7 @@ public class V2Activity extends ComponentActivity implements
         titleBox.addView(text(identity.name() + " • Private local sharing", 12, Color.rgb(157,198,228), false));
         top.addView(titleBox, new LinearLayout.LayoutParams(0,-2,1));
         Button settings = smallButton("Device");
-        settings.setOnClickListener(v -> editDeviceName());
+        settings.setOnClickListener(v -> showDeviceSettings());
         top.addView(settings, new LinearLayout.LayoutParams(dp(86), dp(42)));
         root.addView(top);
 
@@ -405,7 +413,7 @@ public class V2Activity extends ComponentActivity implements
         connectionPill=connectionBadge("SEARCHING",Color.rgb(255,194,73));root.addView(connectionPill);
         LinearLayout radar=card();TextView icon=text("◎",76,Color.rgb(80,198,255),true);icon.setGravity(Gravity.CENTER);radar.addView(icon);
         discoveryState=text("Searching for receiving phones…",16,Color.WHITE,true);discoveryState.setGravity(Gravity.CENTER);radar.addView(discoveryState);
-        TextView hint=text("On the other phone tap RECEIVE. You can also scan its OptiShare QR.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
+        TextView hint=text("SmartRoute chooses Wi-Fi Direct or same-Wi-Fi automatically. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
         LinearLayout qrRow=new LinearLayout(this);qrRow.setOrientation(LinearLayout.HORIZONTAL);
         Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());qrRow.addView(scan,new LinearLayout.LayoutParams(0,dp(50),1));
         Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(8),0,0,0);qrRow.addView(retry,rr);
@@ -468,7 +476,7 @@ public class V2Activity extends ComponentActivity implements
                     if(peers.isEmpty()){
                         setDiscoveryText("Found "+name+" on the same Wi-Fi • giving Wi-Fi Direct a moment…");
                         discoveryHandler.removeCallbacks(lanFallbackConnect);
-                        discoveryHandler.postDelayed(lanFallbackConnect,4500L);
+                        discoveryHandler.postDelayed(lanFallbackConnect,routeStore.lanFallbackDelayMillis());
                     }
                 });
             }
@@ -486,12 +494,13 @@ public class V2Activity extends ComponentActivity implements
     private void connectViaLan(String name,String host){
         if(host==null||host.trim().isEmpty()||transferStarted)return;
         transferStarted=true;
+        activeRoute=RoutePerformanceStore.ROUTE_LAN;
         activeTransferStartedAt=System.currentTimeMillis();
         connectedPeerName=(name==null||name.trim().isEmpty()?"OptiShare device":name)+" • same Wi-Fi";
         discoveryHandler.removeCallbacks(discoveryRetry);
         stopLanDiscovery();
         showTransferScreen("Sending");
-        setConnectionUi("SAME WI-FI ✓",Color.rgb(65,225,151));
+        setConnectionUi("SMART ROUTE • SAME WI-FI ✓",Color.rgb(65,225,151));
         setTransferUi("Connecting over local Wi-Fi","Using the encrypted OptiShare transport without Internet",0);
         startSenderService(host);
     }
@@ -531,7 +540,7 @@ public class V2Activity extends ComponentActivity implements
     @Override public void onPeersAvailable(WifiP2pDeviceList list) {
         peers.clear();peers.addAll(list.getDeviceList());Collections.sort(peers,Comparator.comparing(this::deviceName,String.CASE_INSENSITIVE_ORDER));
         if(pendingQrAddress!=null){for(WifiP2pDevice d:peers){if(pendingQrAddress.equalsIgnoreCase(d.deviceAddress)){pendingQrAddress=null;connectTo(d);return;}}}
-        renderPeers();if(currentScreen==SCREEN_DISCOVERY){if(peers.isEmpty()){scheduleDiscoveryRetry();if(pendingLanHost!=null){discoveryHandler.removeCallbacks(lanFallbackConnect);discoveryHandler.postDelayed(lanFallbackConnect,1200L);}}else{discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(lanFallbackConnect);setDiscoveryText(peers.size()+" Wi-Fi Direct device"+(peers.size()==1?"":"s")+" found ✓");}}
+        renderPeers();if(currentScreen==SCREEN_DISCOVERY){if(peers.isEmpty()){scheduleDiscoveryRetry();}else{discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(lanFallbackConnect);setDiscoveryText(peers.size()+" Wi-Fi Direct device"+(peers.size()==1?"":"s")+" found ✓");}}
     }
 
     private void renderPeers() {
@@ -546,7 +555,7 @@ public class V2Activity extends ComponentActivity implements
     @Override public void onConnectionInfoAvailable(WifiP2pInfo info) {
         if(info==null||!info.groupFormed||info.groupOwnerAddress==null)return;setConnectionUi("CONNECTED ✓",Color.rgb(65,225,151));
         if(receiverMode&&info.isGroupOwner){setDiscoveryText("CONNECTED ✓\nSecure receiver channel is active.");startReceiverService();}
-        else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");startSenderService(info.groupOwnerAddress.getHostAddress());}
+        else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){activeRoute=RoutePerformanceStore.ROUTE_DIRECT;transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");setConnectionUi("SMART ROUTE • WI-FI DIRECT ✓",Color.rgb(65,225,151));startSenderService(info.groupOwnerAddress.getHostAddress());}
     }
 
     private void startReceiverService() {
@@ -554,7 +563,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void startSenderService(String host) {
-        ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);
+        ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);
     }
 
     private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));}
@@ -596,6 +605,34 @@ public class V2Activity extends ComponentActivity implements
     private long selectedTotalBytes(){long total=0;for(Uri uri:selected){long size=querySize(uri);if(size>0&&Long.MAX_VALUE-total>size)total+=size;}return total;}
     private long querySize(Uri uri){Cursor c=null;try{c=getContentResolver().query(uri,new String[]{OpenableColumns.SIZE},null,null,null);if(c!=null&&c.moveToFirst()){int i=c.getColumnIndex(OpenableColumns.SIZE);if(i>=0&&!c.isNull(i))return c.getLong(i);}}catch(Exception ignored){}finally{if(c!=null)c.close();}return 0;}
     private String displayName(Uri uri){Cursor c=null;try{c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(c!=null&&c.moveToFirst()){int i=c.getColumnIndex(OpenableColumns.DISPLAY_NAME);if(i>=0&&!c.isNull(i))return c.getString(i);}}catch(Exception ignored){}finally{if(c!=null)c.close();}String last=uri.getLastPathSegment();return last==null?"item":last;}
+
+    private void showDeviceSettings(){
+        String[] options={"Rename this device","Trusted devices ("+trustedStore.list().size()+")","My security identity","SmartRoute status"};
+        new AlertDialog.Builder(this).setTitle("Device & security").setItems(options,(d,which)->{
+            if(which==0)editDeviceName(); else if(which==1)showTrustedDevices(); else if(which==2)showMySecurityIdentity(); else showMessage("SmartRoute",routeStore.summary()+"\nLearns from real transfer speed and route reliability.");
+        }).setNegativeButton("Close",null).show();
+    }
+
+    private void showTrustedDevices(){
+        if(!DeviceIdentityKey.supported()){showMessage("Trusted devices","Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.");return;}
+        List<TrustedDeviceStore.Entry> entries=trustedStore.list();
+        if(entries.isEmpty()){showMessage("Trusted devices","No trusted devices yet. On the first secure connection choose ‘Trust this device & confirm’.");return;}
+        String[] labels=new String[entries.size()];
+        for(int i=0;i<entries.size();i++){TrustedDeviceStore.Entry e=entries.get(i);labels[i]=e.name+"\n"+DeviceIdentityKey.shortFingerprint(e.fingerprint)+(e.autoAccept?" • Auto-accept ON":" • Confirm files");}
+        new AlertDialog.Builder(this).setTitle("Trusted devices").setItems(labels,(d,which)->showTrustedDeviceActions(entries.get(which))).setNegativeButton("Close",null).show();
+    }
+
+    private void showTrustedDeviceActions(TrustedDeviceStore.Entry entry){
+        String auto=entry.autoAccept?"Turn auto-accept OFF":"Turn auto-accept ON";
+        new AlertDialog.Builder(this).setTitle(entry.name).setMessage("Fingerprint: "+DeviceIdentityKey.shortFingerprint(entry.fingerprint)+"\nAuto-accept works only after the stored device key signs the new secure session.").setItems(new String[]{auto,"Forget this device"},(d,which)->{
+            if(which==0){trustedStore.setAutoAccept(entry.fingerprint,!entry.autoAccept);showTrustedDevices();} else new AlertDialog.Builder(this).setTitle("Forget trusted device?").setMessage("The six-digit code will be required again next time.").setPositiveButton("Forget",(x,w)->{trustedStore.forget(entry.fingerprint);showTrustedDevices();}).setNegativeButton("Cancel",null).show();
+        }).setNegativeButton("Back",(d,w)->showTrustedDevices()).show();
+    }
+
+    private void showMySecurityIdentity(){
+        if(!DeviceIdentityKey.supported()){showMessage("Security identity","Android 5 uses manual security-code verification and does not store a persistent trust key.");return;}
+        try{String fp=new DeviceIdentityKey().fingerprint();showMessage("My security identity","Protected by Android Keystore\nFingerprint: "+DeviceIdentityKey.shortFingerprint(fp));}catch(Exception e){showMessage("Security identity","Could not access identity: "+e.getMessage());}
+    }
 
     private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle("Device name").setMessage("This name is used inside OptiShare.").setView(input).setPositiveButton("Save",(d,w)->{try{identity.setName(input.getText().toString());showHome();}catch(Exception e){showMessage("Invalid name",e.getMessage());}}).setNegativeButton("Cancel",null).show();}
 
