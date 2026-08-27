@@ -1,7 +1,10 @@
 package com.kenan.optishare.device;
 
+import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
+
+import androidx.annotation.RequiresApi;
 
 import java.security.KeyFactory;
 import java.security.KeyPairGenerator;
@@ -10,19 +13,29 @@ import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.spec.ECGenParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Locale;
 
-/** Persistent per-install signing identity stored in Android Keystore. */
+/** Persistent per-install signing identity stored in Android Keystore on Android 6+. */
 public final class DeviceIdentityKey {
     private static final String STORE = "AndroidKeyStore";
     private static final String ALIAS = "optishare_device_identity_v1";
 
-    public DeviceIdentityKey() throws Exception {
-        ensureKey();
+    public static boolean supported() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
     }
 
-    private static void ensureKey() throws Exception {
+    public DeviceIdentityKey() throws Exception {
+        if (!supported()) {
+            throw new UnsupportedOperationException(
+                    "Persistent trusted-device identity requires Android 6 or newer");
+        }
+        ensureKeyApi23();
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    private static void ensureKeyApi23() throws Exception {
         KeyStore store = KeyStore.getInstance(STORE);
         store.load(null);
         if (store.containsAlias(ALIAS)) return;
@@ -32,11 +45,13 @@ public final class DeviceIdentityKey {
                 ALIAS,
                 KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                 .setDigests(KeyProperties.DIGEST_SHA256)
+                .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
                 .build());
         generator.generateKeyPair();
     }
 
     public byte[] publicKeyEncoded() throws Exception {
+        requireSupported();
         KeyStore store = KeyStore.getInstance(STORE);
         store.load(null);
         java.security.cert.Certificate certificate = store.getCertificate(ALIAS);
@@ -45,6 +60,7 @@ public final class DeviceIdentityKey {
     }
 
     public byte[] sign(byte[] challenge) throws Exception {
+        requireSupported();
         KeyStore store = KeyStore.getInstance(STORE);
         store.load(null);
         PrivateKey privateKey = (PrivateKey) store.getKey(ALIAS, null);
@@ -57,6 +73,13 @@ public final class DeviceIdentityKey {
 
     public String fingerprint() throws Exception {
         return fingerprint(publicKeyEncoded());
+    }
+
+    private static void requireSupported() {
+        if (!supported()) {
+            throw new UnsupportedOperationException(
+                    "Persistent trusted-device identity requires Android 6 or newer");
+        }
     }
 
     public static boolean verify(byte[] publicKey, byte[] challenge, byte[] signatureBytes)
@@ -77,7 +100,9 @@ public final class DeviceIdentityKey {
     }
 
     public static String shortFingerprint(String fingerprint) {
-        if (fingerprint == null || fingerprint.length() < 12) return fingerprint == null ? "unknown" : fingerprint;
+        if (fingerprint == null || fingerprint.length() < 12) {
+            return fingerprint == null ? "unknown" : fingerprint;
+        }
         return fingerprint.substring(0, 6).toUpperCase(Locale.US) + "…"
                 + fingerprint.substring(fingerprint.length() - 6).toUpperCase(Locale.US);
     }
