@@ -23,13 +23,15 @@ public final class SenderSessionStore {
     public static final class Pending {
         public final String host;
         public final String peerAddress;
+        public final String route;
         public final List<TransferItem> items;
         public final BatchManifest manifest;
 
-        Pending(String host, String peerAddress, List<TransferItem> items,
+        Pending(String host, String peerAddress, String route, List<TransferItem> items,
                 BatchManifest manifest) {
             this.host = host;
             this.peerAddress = peerAddress;
+            this.route = route;
             this.items = items;
             this.manifest = manifest;
         }
@@ -47,10 +49,16 @@ public final class SenderSessionStore {
 
     public synchronized void save(String host, List<TransferItem> items,
                                   BatchManifest manifest) throws Exception {
-        save(host, null, items, manifest);
+        save(host, null, RoutePerformanceStore.ROUTE_DIRECT, items, manifest);
     }
 
     public synchronized void save(String host, String peerAddress,
+                                  List<TransferItem> items,
+                                  BatchManifest manifest) throws Exception {
+        save(host, peerAddress, RoutePerformanceStore.ROUTE_DIRECT, items, manifest);
+    }
+
+    public synchronized void save(String host, String peerAddress, String route,
                                   List<TransferItem> items,
                                   BatchManifest manifest) throws Exception {
         if (host == null || items == null || manifest == null
@@ -61,6 +69,7 @@ public final class SenderSessionStore {
         JSONObject root = new JSONObject();
         root.put("host", host);
         root.put("peerAddress", peerAddress == null ? JSONObject.NULL : peerAddress);
+        root.put("route", RoutePerformanceStore.ROUTE_LAN.equals(route) ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT);
         root.put("sessionId", manifest.getSessionId());
         root.put("createdAt", manifest.getCreatedAt());
         JSONArray array = new JSONArray();
@@ -107,6 +116,8 @@ public final class SenderSessionStore {
             String host = root.getString("host");
             String peerAddress = root.isNull("peerAddress")
                     ? null : root.optString("peerAddress", null);
+            String route = root.optString("route", RoutePerformanceStore.ROUTE_DIRECT);
+            if (!RoutePerformanceStore.ROUTE_LAN.equals(route)) route = RoutePerformanceStore.ROUTE_DIRECT;
             String sessionId = root.getString("sessionId");
             long createdAt = root.getLong("createdAt");
             JSONArray array = root.getJSONArray("files");
@@ -134,7 +145,7 @@ public final class SenderSessionStore {
                 items.add(new TransferItem(id, uri, name, mime, size, category));
                 entries.add(new BatchManifest.Entry(id, name, mime, size, category, sha));
             }
-            return new Pending(host, peerAddress, items,
+            return new Pending(host, peerAddress, route, items,
                     new BatchManifest(sessionId, createdAt, entries));
         } catch (Exception corrupted) {
             clear();

@@ -55,6 +55,7 @@ import com.kenan.optishare.history.TransferHistoryStore;
 import com.kenan.optishare.storage.MediaRepository;
 import com.kenan.optishare.transfer.LanDiscovery;
 import com.kenan.optishare.transfer.RoutePerformanceStore;
+import com.kenan.optishare.transfer.SenderSessionStore;
 import com.kenan.optishare.transfer.TransferService;
 import com.kenan.optishare.ui.GalleryAdapter;
 
@@ -102,11 +103,14 @@ public class V2Activity extends ComponentActivity implements
     private TextView transferState;
     private TextView transferDetail;
     private ProgressBar transferProgress;
+    private Button transferPauseButton;
+    private boolean transferPaused;
 
     private DeviceIdentity identity;
     private TransferHistoryStore historyStore;
     private TrustedDeviceStore trustedStore;
     private RoutePerformanceStore routeStore;
+    private SenderSessionStore senderSessionStore;
     private LanDiscovery lanDiscovery;
     private String activeRoute = RoutePerformanceStore.ROUTE_DIRECT;
     private String pendingLanHost;
@@ -216,8 +220,17 @@ public class V2Activity extends ComponentActivity implements
             } else if ("incoming".equals(event)) {
                 setTransferUi("Incoming batch", message, 0);
             } else if ("progress".equals(event)) {
+                transferPaused=false;
+                updatePauseButton(false);
                 setTransferUi(receiverMode ? "Receiving…" : "Sending…", message, progress);
                 setTransferMetrics(progress, done, total, speed, etaSeconds);
+            } else if ("paused".equals(event)) {
+                transferPaused=true;
+                setConnectionUi("PAUSED", Color.rgb(255,188,70));
+                setTransferUi("Transfer paused", message, progress);
+                updatePauseButton(true);
+            } else if ("pause_unavailable".equals(event)) {
+                setTransferUi("Finishing secure setup", message, -1);
             } else if ("reconnecting".equals(event)) {
                 setConnectionUi("RECONNECTING…", Color.rgb(255, 188, 70));
                 setTransferUi("Reconnecting automatically", message, -1);
@@ -230,6 +243,8 @@ public class V2Activity extends ComponentActivity implements
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
                         connectedPeerName, selected.size(), selectedTotalBytes(), true));
                 transferStarted = false;
+                transferPaused=false;
+                updatePauseButton(false);
             } else if ("error".equals(event)) {
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
                 setTransferUi("Transfer could not continue", message, -1);
@@ -246,6 +261,7 @@ public class V2Activity extends ComponentActivity implements
         historyStore = new TransferHistoryStore(this);
         trustedStore = new TrustedDeviceStore(this);
         routeStore = new RoutePerformanceStore(this);
+        senderSessionStore = new SenderSessionStore(this);
         lanDiscovery = new LanDiscovery(this);
         manager = (WifiP2pManager) getSystemService(WIFI_P2P_SERVICE);
         if (manager != null) {
@@ -298,6 +314,15 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1,-2);
         actionsLp.setMargins(0,dp(22),0,0);
         root.addView(actions,actionsLp);
+
+        if(senderSessionStore.exists()){
+            LinearLayout resumeCard=card();
+            resumeCard.addView(text("Pending transfer",15,Color.WHITE,true));
+            resumeCard.addView(text("Confirmed progress is saved. Resume from the last verified chunk instead of starting over.",12,Color.rgb(158,188,211),false));
+            Button resume=primary("Resume pending transfer →");resume.setOnClickListener(v->resumePendingTransfer());
+            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(50));rp.setMargins(0,dp(10),0,0);resumeCard.addView(resume,rp);
+            LinearLayout.LayoutParams rcp=new LinearLayout.LayoutParams(-1,-2);rcp.setMargins(0,dp(14),0,0);root.addView(resumeCard,rcp);
+        }
 
         TextView browse = text("Browse by type",18,Color.WHITE,true);
         browse.setPadding(0,dp(24),0,dp(10));
@@ -448,6 +473,11 @@ public class V2Activity extends ComponentActivity implements
         TextView speedView=text("— MB/s",13,Color.rgb(89,205,255),true);speedView.setTag("transfer_speed");speedView.setGravity(Gravity.CENTER);metrics.addView(speedView,new LinearLayout.LayoutParams(0,-2,1));
         TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.RIGHT);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
         card.addView(metrics);root.addView(card);
+        if(!receiverMode){
+            transferPauseButton=secondaryButton("Pause transfer");
+            transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());
+            LinearLayout.LayoutParams pbtn=new LinearLayout.LayoutParams(-1,dp(50));pbtn.setMargins(0,dp(12),0,0);root.addView(transferPauseButton,pbtn);
+        }else transferPauseButton=null;
         Button cancel=secondaryButton("Cancel transfer");cancel.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(cancel,cp);
         setContentView(scroll);
     }
@@ -565,6 +595,23 @@ public class V2Activity extends ComponentActivity implements
     private void startSenderService(String host) {
         ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);
     }
+
+    private void pauseOrResumeTransfer(){
+        if(transferPaused){resumePendingTransfer();return;}
+        startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_PAUSE));
+    }
+
+    private void resumePendingTransfer(){
+        if(!senderSessionStore.exists()){showMessage("Resume transfer","No pending outgoing transfer was found.");return;}
+        receiverMode=false;transferPaused=false;transferStarted=true;
+        showTransferScreen("Resuming");
+        setConnectionUi("RESUMING…",Color.rgb(255,188,70));
+        setTransferUi("Restoring transfer","Connecting and requesting the receiver's verified resume offsets…",-1);
+        Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_RESUME_PENDING);
+        ContextCompat.startForegroundService(this,i);
+    }
+
+    private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null)return;transferPauseButton.setText(paused?"Resume transfer":"Pause transfer");transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
 
     private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));}
 

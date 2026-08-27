@@ -44,6 +44,7 @@ public final class TransferService extends Service {
     public static final String ACTION_TRUST_ACCEPT = "com.kenan.optishare.action.TRUST_ACCEPT";
     public static final String ACTION_RESUME_PENDING = "com.kenan.optishare.action.RESUME_PENDING";
     public static final String ACTION_STOP = "com.kenan.optishare.action.STOP";
+    public static final String ACTION_PAUSE = "com.kenan.optishare.action.PAUSE";
     public static final String ACTION_EVENT = "com.kenan.optishare.TRANSFER_EVENT";
     public static final String EXTRA_HOST = "host";
     public static final String EXTRA_ROUTE = "route";
@@ -118,6 +119,10 @@ public final class TransferService extends Service {
             }
             IncomingApproval.decide(true);
             return START_STICKY;
+        }
+        if (ACTION_PAUSE.equals(action)) {
+            pauseOutgoingTransfer();
+            return START_NOT_STICKY;
         }
         if (ACTION_STOP.equals(action)) {
             stopTransfer(true);
@@ -302,7 +307,7 @@ public final class TransferService extends Service {
                 WifiDirectRecovery.Peer peer = wifiRecovery.capture(2500);
                 String host = peer != null && peer.host != null ? peer.host : initialHost;
                 String peerAddress = peer == null ? null : peer.deviceAddress;
-                senderStore.save(host, peerAddress, activeItems, activeManifest);
+                senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
                 runSenderLoop(host, peerAddress, engine);
             } catch (Exception error) {
                 failSender(error);
@@ -312,6 +317,8 @@ public final class TransferService extends Service {
 
     private void startPendingSender(SenderSessionStore.Pending pending) {
         if (!running.compareAndSet(false, true)) return;
+        currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(pending.route)
+                ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;
         resetMetrics();
         executor.execute(() -> {
             try {
@@ -361,7 +368,7 @@ public final class TransferService extends Service {
                         String recoveredHost = wifiRecovery.recover(peerAddress, 12_000);
                         if (recoveredHost != null) {
                             host = recoveredHost;
-                            senderStore.save(host, peerAddress, activeItems, activeManifest);
+                            senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
                             broadcast("reconnecting",
                                     "Direct link restored — resuming encrypted session",
                                     0, 0, activeManifest.getSessionId());
@@ -581,6 +588,27 @@ public final class TransferService extends Service {
         intent.putExtra(EXTRA_TOTAL, total);
         intent.putExtra(EXTRA_ETA_SECONDS, etaSeconds);
         sendBroadcast(intent);
+    }
+
+    private void pauseOutgoingTransfer() {
+        if (!running.get() || activeManifest == null || activeItems == null) {
+            broadcast("pause_unavailable", "Pause is available after an outgoing transfer starts", 0, 0,
+                    activeManifest == null ? null : activeManifest.getSessionId());
+            return;
+        }
+        if (latestBatchDone <= 0L) {
+            broadcast("pause_unavailable", "Secure setup is still finishing — pause will be available once file data starts", 0, 0,
+                    activeManifest.getSessionId());
+            return;
+        }
+        int p = percent(latestBatchDone, activeManifest.totalBytes());
+        running.set(false);
+        closeSocket();
+        broadcast("paused", "Paused safely • confirmed progress kept for resume", p, latestSpeed,
+                activeManifest.getSessionId());
+        updateNotification("Transfer paused", "Open OptiShare and tap Resume", p, false);
+        stopForeground(false);
+        stopSelf();
     }
 
     private void stopTransfer(boolean userCancelled) {
