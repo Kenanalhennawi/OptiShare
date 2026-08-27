@@ -55,6 +55,7 @@ import com.kenan.optishare.history.TransferHistoryStore;
 import com.kenan.optishare.storage.MediaRepository;
 import com.kenan.optishare.storage.FolderSelection;
 import com.kenan.optishare.storage.FolderTransferQueue;
+import com.kenan.optishare.storage.TextTransferStore;
 import com.kenan.optishare.transfer.LanDiscovery;
 import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
@@ -165,9 +166,10 @@ public class V2Activity extends ComponentActivity implements
                 catch (Exception ignored) { }
                 try {
                     List<com.kenan.optishare.model.TransferItem> files = FolderSelection.collect(this, tree);
-                    selected.clear();
-                    for (com.kenan.optishare.model.TransferItem item : files) selected.add(item.getUri());
-                    FolderTransferQueue.set(files);
+                    for (com.kenan.optishare.model.TransferItem item : files) {
+                        if (!selected.contains(item.getUri())) selected.add(item.getUri());
+                    }
+                    FolderTransferQueue.addAll(files);
                     showSendSelection();
                     showMessage("Folder ready", files.size()
                             + " files selected with folder structure preserved.");
@@ -265,6 +267,10 @@ public class V2Activity extends ComponentActivity implements
             } else if ("reconnecting".equals(event)) {
                 setConnectionUi("RECONNECTING…", Color.rgb(255, 188, 70));
                 setTransferUi("Reconnecting automatically", message, -1);
+            } else if ("text_received".equals(event)) {
+                android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                if(clipboard!=null&&message!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OptiShare text",message));
+                setTransferUi("Text received & copied ✓","The received text is now in your clipboard.",-1);
             } else if ("file_done".equals(event)) {
                 setTransferUi("File verified ✓", message, -1);
             } else if ("completed".equals(event)) {
@@ -369,6 +375,11 @@ public class V2Activity extends ComponentActivity implements
                 category("≡","Documents",Color.rgb(55,143,255),v -> openExternal("application/*")),
                 category("▤","Folder",Color.rgb(122,140,166),v -> openFolder()));
         LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(10),0,0); root.addView(row2,r2);
+        LinearLayout row3 = categoryRow(
+                category("T","Text",Color.rgb(89,190,255),v -> showTextComposer(null)),
+                category("▣","Clipboard",Color.rgb(81,210,157),v -> addClipboardToQueue()),
+                category("…","Other",Color.rgb(122,140,166),v -> openExternal("*/*")));
+        LinearLayout.LayoutParams r3 = new LinearLayout.LayoutParams(-1,-2); r3.setMargins(0,dp(10),0,0); root.addView(row3,r3);
 
         addHistory(root);
 
@@ -422,6 +433,14 @@ public class V2Activity extends ComponentActivity implements
         tabs.addView(photos,new LinearLayout.LayoutParams(0,dp(46),1));
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);p.setMargins(dp(8),0,0,0);tabs.addView(videos,p);
         LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(46),1);p2.setMargins(dp(8),0,0,0);tabs.addView(files,p2);root.addView(tabs);
+        LinearLayout addRow=new LinearLayout(this);addRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button folder=smallButton("Folder");folder.setOnClickListener(v->openFolder());
+        Button textBtn=smallButton("Text");textBtn.setOnClickListener(v->showTextComposer(null));
+        Button clipBtn=smallButton("Clipboard");clipBtn.setOnClickListener(v->addClipboardToQueue());
+        addRow.addView(folder,new LinearLayout.LayoutParams(0,dp(46),1));
+        LinearLayout.LayoutParams ar1=new LinearLayout.LayoutParams(0,dp(46),1);ar1.setMargins(dp(8),0,0,0);addRow.addView(textBtn,ar1);
+        LinearLayout.LayoutParams ar2=new LinearLayout.LayoutParams(0,dp(46),1);ar2.setMargins(dp(8),0,0,0);addRow.addView(clipBtn,ar2);
+        LinearLayout.LayoutParams arp=new LinearLayout.LayoutParams(-1,-2);arp.setMargins(0,dp(8),0,0);root.addView(addRow,arp);
 
         TextView count=text(selected.size()+" item"+(selected.size()==1?"":"s")+" selected • "+formatBytes(selectedTotalBytes()),18,Color.WHITE,true);
         count.setPadding(0,dp(18),0,dp(8));root.addView(count);
@@ -431,7 +450,7 @@ public class V2Activity extends ComponentActivity implements
             int show=Math.min(selected.size(),10);
             for(int i=0;i<show;i++) selection.addView(text("✓ "+displayName(selected.get(i)),13,Color.WHITE,false));
             if(selected.size()>show) selection.addView(text("+ "+(selected.size()-show)+" more",12,Color.rgb(82,196,255),true));
-            Button clear=secondaryButton("Clear selection");clear.setOnClickListener(v->{selected.clear();showSendSelection();});
+            Button clear=secondaryButton("Clear selection");clear.setOnClickListener(v->{selected.clear();FolderTransferQueue.clear();showSendSelection();});
             LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,dp(46));cl.setMargins(0,dp(10),0,0);selection.addView(clear,cl);
         }
         root.addView(selection);
@@ -459,13 +478,13 @@ public class V2Activity extends ComponentActivity implements
         recycler.setLayoutManager(new GridLayoutManager(this,3));
         Set<Uri> initial=new HashSet<>(selected);
         GalleryAdapter adapter=new GalleryAdapter(initial,set->{
-            selected.clear();selected.addAll(set);selectedCount.setText(selected.size()+" selected");
+            selectedCount.setText((selected.size()+Math.max(0,set.size()-initial.size()))+" queued");
         });
         adapter.replace(new MediaRepository(this).load(type,180,0));
         recycler.setAdapter(adapter);
         root.addView(recycler,new LinearLayout.LayoutParams(-1,dp(760)));
 
-        Button done=primary("Done • "+selected.size()+" selected");done.setOnClickListener(v->{selected.clear();selected.addAll(adapter.selection());showSendSelection();});
+        Button done=primary("Add selected to queue");done.setOnClickListener(v->{for(Uri uri:adapter.selection())if(!selected.contains(uri))selected.add(uri);showSendSelection();});
         LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(-1,dp(56));dl.setMargins(0,dp(12),0,0);root.addView(done,dl);
         setContentView(outer);
     }
@@ -488,7 +507,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void showReceive() {
-        currentScreen=SCREEN_RECEIVE;receiverMode=true;selected.clear();
+        currentScreen=SCREEN_RECEIVE;receiverMode=true;selected.clear();FolderTransferQueue.clear();
         if(!ensureLegacyWritePermission()){return;}
         ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,"Receive","Keep this screen open until the direct session is ready");
         connectionPill=connectionBadge("STARTING RECEIVER",Color.rgb(255,194,73));root.addView(connectionPill);
@@ -698,6 +717,28 @@ public class V2Activity extends ComponentActivity implements
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);boolean granted=grantResults.length>0&&grantResults[grantResults.length-1]==PackageManager.PERMISSION_GRANTED;if(requestCode==REQ_MEDIA&&granted&&pendingGalleryType!=null)showMediaGallery(pendingGalleryType);if(requestCode==REQ_NEARBY&&granted){if(currentScreen==SCREEN_DISCOVERY)startDiscovery();else if(currentScreen==SCREEN_RECEIVE)startReceiverMode();}if(requestCode==REQ_LEGACY_WRITE&&granted)showReceive();}
 
     private void requestNotificationPermissionIfUseful(){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},2204);}
+
+    private void showTextComposer(String initial){
+        final android.widget.EditText input=new android.widget.EditText(this);
+        input.setMinLines(5);input.setMaxLines(12);input.setGravity(Gravity.TOP|Gravity.START);
+        input.setText(initial==null?"":initial);input.setHint("Type or paste text to send securely");
+        new AlertDialog.Builder(this).setTitle("Send text").setView(input)
+                .setPositiveButton("Add to queue",(d,w)->{
+                    try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,input.getText());
+                        if(!selected.contains(item.getUri()))selected.add(item.getUri());
+                        FolderTransferQueue.add(item);showSendSelection();}
+                    catch(Exception e){showMessage("Text not added",e.getMessage());}
+                }).setNegativeButton("Cancel",null).show();
+    }
+
+    private void addClipboardToQueue(){
+        android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+        if(clipboard==null||!clipboard.hasPrimaryClip()||clipboard.getPrimaryClip()==null||clipboard.getPrimaryClip().getItemCount()==0){showMessage("Clipboard is empty","Copy some text first, then try again.");return;}
+        CharSequence value=clipboard.getPrimaryClip().getItemAt(0).coerceToText(this);
+        if(value==null||value.length()==0){showMessage("Clipboard has no text","The current clipboard item cannot be sent as text.");return;}
+        try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,value);if(!selected.contains(item.getUri()))selected.add(item.getUri());FolderTransferQueue.add(item);showSendSelection();}
+        catch(Exception e){showMessage("Clipboard not added",e.getMessage());}
+    }
 
     private void openFolder(){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);

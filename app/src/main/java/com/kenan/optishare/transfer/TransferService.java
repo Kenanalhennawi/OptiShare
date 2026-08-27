@@ -31,6 +31,11 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -274,6 +279,11 @@ public final class TransferService extends Service {
 
             @Override public void onFileCompleted(String sessionId, String fileId,
                                                   Uri publishedUri) {
+                BatchManifest.Entry entry=findEntry(fileId);
+                if(entry!=null&&"text/plain".equalsIgnoreCase(entry.mime)&&entry.name.startsWith("OptiShare Text")){
+                    String text=readSmallText(publishedUri);
+                    if(text!=null)broadcast("text_received",text,0,0,sessionId);
+                }
                 broadcast("file_done", "Verified ✓ • saved to Download/OptiShare",
                         0, 0, sessionId);
             }
@@ -307,8 +317,8 @@ public final class TransferService extends Service {
         resetMetrics();
         executor.execute(() -> {
             try {
-                List<TransferItem> folderItems = FolderTransferQueue.takeIfMatches(rawUris.size());
-                activeItems = folderItems.isEmpty() ? resolveItems(rawUris) : folderItems;
+                List<TransferItem> richItems = FolderTransferQueue.takeAll();
+                activeItems = mergeRichItems(rawUris, richItems);
                 TransferEngine engine = new TransferEngine(this);
                 activeManifest = engine.buildManifest(activeItems);
                 WifiDirectRecovery.Peer peer = wifiRecovery.capture(2500);
@@ -486,6 +496,28 @@ public final class TransferService extends Service {
             Thread.currentThread().interrupt();
             throw new SecurityException("Security-code confirmation interrupted", e);
         }
+    }
+
+    private List<TransferItem> mergeRichItems(List<String> rawUris,List<TransferItem> rich) throws Exception {
+        Map<String,TransferItem> richByUri=new LinkedHashMap<>();
+        if(rich!=null)for(TransferItem item:rich)if(item!=null&&item.getUri()!=null)richByUri.put(item.getUri().toString(),item);
+        List<TransferItem> result=new ArrayList<>();
+        for(String raw:rawUris){TransferItem item=richByUri.get(raw);if(item!=null){result.add(item);continue;}result.addAll(resolveItems(java.util.Collections.singletonList(raw)));}
+        return result;
+    }
+
+    private BatchManifest.Entry findEntry(String fileId){
+        if(activeManifest==null||fileId==null)return null;
+        for(BatchManifest.Entry entry:activeManifest.getEntries())if(fileId.equals(entry.id))return entry;
+        return null;
+    }
+
+    private String readSmallText(Uri uri){
+        if(uri==null)return null;
+        try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){
+            if(in==null)return null;byte[] buffer=new byte[8192];int total=0,n;
+            while((n=in.read(buffer))!=-1){total+=n;if(total>65536)return null;out.write(buffer,0,n);}return out.toString(StandardCharsets.UTF_8.name());
+        }catch(Exception ignored){return null;}
     }
 
     private List<TransferItem> resolveItems(List<String> rawUris) throws Exception {
