@@ -1,0 +1,156 @@
+name: Build OptiShare 2.2 Fast Transfer
+
+on:
+  push:
+    branches:
+      - feature/v2.2-fast-transfer
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optishare-2.2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test, build and verify 2.2
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OPTISHARE_KEYSTORE_B64: ${{ secrets.OPTISHARE_KEYSTORE_B64 }}
+      OPTISHARE_STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
+      OPTISHARE_KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
+      OPTISHARE_KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
+      EXPECTED_CERT_SHA256: c408ec09bdfa5b6186591a1beafa333323f8fc5f205b418116129bd3f90f60e3
+      EXPECTED_JKS_SHA256: edc91c288d98396d9c8bbb1540f90e536ce6758ae0355f1d724fbf2df0f52531
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Verify preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}" || { echo '::error::ANDROID_HOME is not set'; exit 1; }
+          test -d "$ANDROID_HOME/platforms/android-36" || { echo '::error::Android SDK 36 is not preinstalled'; exit 1; }
+          test -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" || { echo '::error::apksigner 35.0.0 is not preinstalled'; exit 1; }
+
+      - name: Quality gate and fast-transfer tests
+        run: >-
+          gradle --no-daemon --stacktrace clean
+          testDebugUnitTest testReleaseUnitTest
+          lintDebug lintRelease assembleDebug
+
+      - name: Validate signing secrets exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPTISHARE_KEYSTORE_B64" || { echo '::error::Missing OPTISHARE_KEYSTORE_B64'; exit 1; }
+          test -n "$OPTISHARE_STORE_PASSWORD" || { echo '::error::Missing OPTISHARE_STORE_PASSWORD'; exit 1; }
+          test -n "$OPTISHARE_KEY_ALIAS" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
+          test -n "$OPTISHARE_KEY_PASSWORD" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
+
+      - name: Restore release keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$OPTISHARE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks"
+          chmod 600 "$RUNNER_TEMP/optishare-release.jks"
+          ACTUAL_JKS_SHA256=$(sha256sum "$RUNNER_TEMP/optishare-release.jks" | awk '{print $1}')
+          test "$ACTUAL_JKS_SHA256" = "$EXPECTED_JKS_SHA256" || {
+            echo "::error::Keystore SHA-256 mismatch: $ACTUAL_JKS_SHA256"
+            exit 1
+          }
+          keytool -list \
+            -keystore "$RUNNER_TEMP/optishare-release.jks" \
+            -storepass "$OPTISHARE_STORE_PASSWORD" \
+            -alias "$OPTISHARE_KEY_ALIAS" >/dev/null
+
+      - name: Build signed 2.2 APK and AAB
+        env:
+          ORG_GRADLE_PROJECT_OPTISHARE_STORE_FILE: ${{ runner.temp }}/optishare-release.jks
+          ORG_GRADLE_PROJECT_OPTISHARE_STORE_PASSWORD: ${{ env.OPTISHARE_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_OPTISHARE_KEY_ALIAS: ${{ env.OPTISHARE_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_OPTISHARE_KEY_PASSWORD: ${{ env.OPTISHARE_KEY_PASSWORD }}
+        run: gradle --no-daemon --stacktrace assembleRelease bundleRelease
+
+      - name: Verify signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          test -s "$APK"
+          test -s "$AAB"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apksigner.txt"
+          ACTUAL_CERT=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/apksigner.txt" | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')
+          test "$ACTUAL_CERT" = "$EXPECTED_CERT_SHA256" || {
+            echo "::error::Unexpected signer: $ACTUAL_CERT"
+            exit 1
+          }
+
+      - name: Prepare 2.2 artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-output
+          cp app/build/outputs/apk/release/app-release.apk release-output/OptiShare-2.2-FAST-SIGNED.apk
+          cp app/build/outputs/bundle/release/app-release.aab release-output/OptiShare-2.2-FAST-Play.aab
+          (
+            cd release-output
+            sha256sum OptiShare-2.2-FAST-SIGNED.apk OptiShare-2.2-FAST-Play.aab > SHA256SUMS.txt
+          )
+          {
+            echo 'version=2.2.0'
+            echo 'chunk_bytes=1572864'
+            echo 'checkpoint_chunks=4'
+            echo 'checkpoint_window_bytes=6291456'
+            echo "commit=${GITHUB_SHA}"
+            echo "signer_sha256=${EXPECTED_CERT_SHA256}"
+          } > release-output/BUILD_INFO.txt
+
+      - name: Upload 2.2 debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.2-fast-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload 2.2 signed release
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.2-FAST-SIGNED
+          path: |
+            release-output/OptiShare-2.2-FAST-SIGNED.apk
+            release-output/OptiShare-2.2-FAST-Play.aab
+            release-output/SHA256SUMS.txt
+            release-output/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload quality reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.2-quality-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+          retention-days: 14
