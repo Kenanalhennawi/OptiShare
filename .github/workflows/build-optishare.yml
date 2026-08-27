@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 35
     env:
       EXPECTED_CERT_SHA256: c408ec09bdfa5b6186591a1beafa333323f8fc5f205b418116129bd3f90f60e3
+      EXPECTED_JKS_SHA256: 714155b7dd73326504178197761fb8f3a1da0efa7e8a123eb963a6907a654323
 
     steps:
       - name: Checkout
@@ -51,11 +52,13 @@ jobs:
 
       - name: Validate signing inputs
         env:
+          ENCRYPTION_PASSWORD: ${{ secrets.OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          test -n "$ENCRYPTION_PASSWORD" || { echo '::error::Missing OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD'; exit 1; }
           test -n "$STORE_PASSWORD" || { echo '::error::Missing OPTISHARE_STORE_PASSWORD'; exit 1; }
           test -n "$KEY_ALIAS" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
           test -n "$KEY_PASSWORD" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
@@ -67,6 +70,7 @@ jobs:
 
       - name: Restore and validate release keystore
         env:
+          ENCRYPTION_PASSWORD: ${{ secrets.OPTISHARE_KEYSTORE_ENCRYPTION_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
         run: |
@@ -74,8 +78,13 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
             -in .github/signing/optishare-release.jks.enc \
             -out "$RUNNER_TEMP/optishare-release.jks" \
-            -pass env:STORE_PASSWORD
+            -pass env:ENCRYPTION_PASSWORD
           chmod 600 "$RUNNER_TEMP/optishare-release.jks"
+          ACTUAL_JKS_SHA256=$(sha256sum "$RUNNER_TEMP/optishare-release.jks" | awk '{print $1}')
+          test "$ACTUAL_JKS_SHA256" = "$EXPECTED_JKS_SHA256" || {
+            echo "::error::Restored JKS checksum mismatch: $ACTUAL_JKS_SHA256";
+            exit 1;
+          }
           keytool -list \
             -keystore "$RUNNER_TEMP/optishare-release.jks" \
             -storepass "$STORE_PASSWORD" \
