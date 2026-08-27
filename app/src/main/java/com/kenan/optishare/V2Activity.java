@@ -23,6 +23,8 @@ import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -100,6 +102,15 @@ public class V2Activity extends ComponentActivity implements
     private DeviceIdentity identity;
     private TransferHistoryStore historyStore;
     private long activeTransferStartedAt;
+    private final Handler discoveryHandler = new Handler(Looper.getMainLooper());
+    private int discoveryAttempt;
+    private static final int MAX_DISCOVERY_ATTEMPTS = 8;
+    private static final long DISCOVERY_RETRY_MS = 3500L;
+    private final Runnable discoveryRetry = () -> {
+        if (currentScreen == SCREEN_DISCOVERY && !transferStarted && peers.isEmpty()) {
+            runDiscoveryPass();
+        }
+    };
 
     private final ActivityResultLauncher<Intent> externalPicker =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -416,8 +427,40 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void startDiscovery() {
-        if(!ensureNearbyReady())return;peers.clear();renderPeers();setDiscoveryText("Searching for receiving phones…");setConnectionUi("SEARCHING",Color.rgb(255,194,73));
-        try{manager.discoverPeers(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Searching… receiver must remain on RECEIVE.");try{manager.requestPeers(channel,V2Activity.this);}catch(SecurityException ignored){showNearbyPermissionHelp();}}@Override public void onFailure(int reason){setDiscoveryText(p2pError("Search failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}
+        if(!ensureNearbyReady())return;
+        discoveryHandler.removeCallbacks(discoveryRetry);
+        discoveryAttempt=0;
+        peers.clear();
+        renderPeers();
+        setConnectionUi("SEARCHING",Color.rgb(255,194,73));
+        runDiscoveryPass();
+    }
+
+    private void runDiscoveryPass() {
+        if(currentScreen!=SCREEN_DISCOVERY||transferStarted||!ensureNearbyReady())return;
+        discoveryAttempt++;
+        setDiscoveryText("Searching for receiving phones… • pass "+discoveryAttempt+"/"+MAX_DISCOVERY_ATTEMPTS);
+        try{
+            manager.discoverPeers(channel,new WifiP2pManager.ActionListener(){
+                @Override public void onSuccess(){
+                    try{manager.requestPeers(channel,V2Activity.this);}catch(SecurityException ignored){showNearbyPermissionHelp();return;}
+                    scheduleDiscoveryRetry();
+                }
+                @Override public void onFailure(int reason){
+                    setDiscoveryText(p2pError("Search pass "+discoveryAttempt+" failed",reason));
+                    scheduleDiscoveryRetry();
+                }
+            });
+        }catch(SecurityException e){showNearbyPermissionHelp();}
+    }
+
+    private void scheduleDiscoveryRetry(){
+        discoveryHandler.removeCallbacks(discoveryRetry);
+        if(currentScreen==SCREEN_DISCOVERY&&!transferStarted&&peers.isEmpty()&&discoveryAttempt<MAX_DISCOVERY_ATTEMPTS){
+            discoveryHandler.postDelayed(discoveryRetry,DISCOVERY_RETRY_MS);
+        }else if(currentScreen==SCREEN_DISCOVERY&&peers.isEmpty()&&discoveryAttempt>=MAX_DISCOVERY_ATTEMPTS){
+            setDiscoveryText("No receiver found yet. Keep RECEIVE open, then tap Search again.");
+        }
     }
 
     private void startReceiverMode() {
@@ -428,7 +471,7 @@ public class V2Activity extends ComponentActivity implements
     @Override public void onPeersAvailable(WifiP2pDeviceList list) {
         peers.clear();peers.addAll(list.getDeviceList());Collections.sort(peers,Comparator.comparing(this::deviceName,String.CASE_INSENSITIVE_ORDER));
         if(pendingQrAddress!=null){for(WifiP2pDevice d:peers){if(pendingQrAddress.equalsIgnoreCase(d.deviceAddress)){pendingQrAddress=null;connectTo(d);return;}}}
-        renderPeers();if(currentScreen==SCREEN_DISCOVERY)setDiscoveryText(peers.isEmpty()?"No receiver found yet. Keep RECEIVE open on the other phone.":peers.size()+" nearby device"+(peers.size()==1?"":"s")+" found");
+        renderPeers();if(currentScreen==SCREEN_DISCOVERY){if(peers.isEmpty()){scheduleDiscoveryRetry();}else{discoveryHandler.removeCallbacks(discoveryRetry);setDiscoveryText(peers.size()+" nearby device"+(peers.size()==1?"":"s")+" found ✓");}}
     }
 
     private void renderPeers() {
@@ -436,7 +479,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void connectTo(WifiP2pDevice device) {
-        if(!ensureNearbyReady())return;connectedPeerName=deviceName(device);setConnectionUi("CONNECTING…",Color.rgb(255,194,73));setDiscoveryText("Connecting to "+connectedPeerName+"…");WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
+        if(!ensureNearbyReady())return;discoveryHandler.removeCallbacks(discoveryRetry);connectedPeerName=deviceName(device);setConnectionUi("CONNECTING…",Color.rgb(255,194,73));setDiscoveryText("Connecting to "+connectedPeerName+"…");WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
         try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Connection request sent. Waiting for the direct link…");}@Override public void onFailure(int reason){setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Connection failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}
     }
 
@@ -525,7 +568,7 @@ public class V2Activity extends ComponentActivity implements
     private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK",null).show());}
 
     @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);}
-    @Override protected void onPause(){super.onPause();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}}
+    @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}}
     @Override protected void onDestroy(){super.onDestroy();}
     @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else if(currentScreen==SCREEN_GALLERY||currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
 }
