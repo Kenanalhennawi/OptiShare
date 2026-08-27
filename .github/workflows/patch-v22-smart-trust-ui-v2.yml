@@ -1,0 +1,113 @@
+name: Patch OptiShare 2.2 Smart Trust UI v2
+
+on:
+  push:
+    branches: ['feature/v2.2-fast-transfer']
+    paths: ['.github/workflows/patch-v22-smart-trust-ui-v2.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v2.2-fast-transfer
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Apply current-code SmartRoute and trust controls
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('app/src/main/java/com/kenan/optishare/V2Activity.java')
+          s=p.read_text()
+          def once(old,new,label):
+              global s
+              if old not in s: raise RuntimeError('missing V2 anchor: '+label)
+              s=s.replace(old,new,1)
+
+          once('import com.kenan.optishare.device.DeviceIdentity;\n',
+               'import com.kenan.optishare.device.DeviceIdentity;\nimport com.kenan.optishare.device.DeviceIdentityKey;\nimport com.kenan.optishare.device.TrustedDeviceStore;\n','imports trust')
+          once('import com.kenan.optishare.transfer.LanDiscovery;\n',
+               'import com.kenan.optishare.transfer.LanDiscovery;\nimport com.kenan.optishare.transfer.RoutePerformanceStore;\n','import route')
+          once('    private TransferHistoryStore historyStore;\n',
+               '    private TransferHistoryStore historyStore;\n    private TrustedDeviceStore trustedStore;\n    private RoutePerformanceStore routeStore;\n','fields stores')
+          once('    private LanDiscovery lanDiscovery;\n',
+               '    private LanDiscovery lanDiscovery;\n    private String activeRoute = RoutePerformanceStore.ROUTE_DIRECT;\n','active route')
+          once('        historyStore = new TransferHistoryStore(this);\n        lanDiscovery = new LanDiscovery(this);',
+               '        historyStore = new TransferHistoryStore(this);\n        trustedStore = new TrustedDeviceStore(this);\n        routeStore = new RoutePerformanceStore(this);\n        lanDiscovery = new LanDiscovery(this);','init stores')
+          once('settings.setOnClickListener(v -> editDeviceName());','settings.setOnClickListener(v -> showDeviceSettings());','device button')
+          once('TextView hint=text("On the other phone tap RECEIVE. You can also scan its OptiShare QR.",12,Color.rgb(150,179,202),false);',
+               'TextView hint=text("SmartRoute chooses Wi-Fi Direct or same-Wi-Fi automatically. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);','smart hint')
+          once('discoveryHandler.postDelayed(lanFallbackConnect,4500L);','discoveryHandler.postDelayed(lanFallbackConnect,routeStore.lanFallbackDelayMillis());','learned delay')
+          once('renderPeers();if(currentScreen==SCREEN_DISCOVERY){if(peers.isEmpty()){scheduleDiscoveryRetry();if(pendingLanHost!=null){discoveryHandler.removeCallbacks(lanFallbackConnect);discoveryHandler.postDelayed(lanFallbackConnect,1200L);}}else{discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(lanFallbackConnect);setDiscoveryText(peers.size()+" Wi-Fi Direct device"+(peers.size()==1?"":"s")+" found ✓");}}',
+               'renderPeers();if(currentScreen==SCREEN_DISCOVERY){if(peers.isEmpty()){scheduleDiscoveryRetry();}else{discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(lanFallbackConnect);setDiscoveryText(peers.size()+" Wi-Fi Direct device"+(peers.size()==1?"":"s")+" found ✓");}}','peer timer')
+          once('        transferStarted=true;\n        activeTransferStartedAt=System.currentTimeMillis();\n        connectedPeerName=(name==null||name.trim().isEmpty()?"OptiShare device":name)+" • same Wi-Fi";',
+               '        transferStarted=true;\n        activeRoute=RoutePerformanceStore.ROUTE_LAN;\n        activeTransferStartedAt=System.currentTimeMillis();\n        connectedPeerName=(name==null||name.trim().isEmpty()?"OptiShare device":name)+" • same Wi-Fi";','lan route')
+          once('setConnectionUi("SAME WI-FI ✓",Color.rgb(65,225,151));','setConnectionUi("SMART ROUTE • SAME WI-FI ✓",Color.rgb(65,225,151));','lan label')
+          once('else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");startSenderService(info.groupOwnerAddress.getHostAddress());}',
+               'else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){activeRoute=RoutePerformanceStore.ROUTE_DIRECT;transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");setConnectionUi("SMART ROUTE • WI-FI DIRECT ✓",Color.rgb(65,225,151));startSenderService(info.groupOwnerAddress.getHostAddress());}','direct route')
+          once('Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);',
+               'Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);','route extra')
+
+          anchor='    private void editDeviceName(){'
+          methods='''    private void showDeviceSettings(){\n        String[] options={"Rename this device","Trusted devices ("+trustedStore.list().size()+")","My security identity","SmartRoute status"};\n        new AlertDialog.Builder(this).setTitle("Device & security").setItems(options,(d,which)->{\n            if(which==0)editDeviceName();\n            else if(which==1)showTrustedDevices();\n            else if(which==2)showMySecurityIdentity();\n            else showMessage("SmartRoute",routeStore.summary()+"\\nLearns from real transfer speed and route reliability.");\n        }).setNegativeButton("Close",null).show();\n    }\n\n    private void showTrustedDevices(){\n        if(!DeviceIdentityKey.supported()){showMessage("Trusted devices","Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.");return;}\n        List<TrustedDeviceStore.Entry> entries=trustedStore.list();\n        if(entries.isEmpty()){showMessage("Trusted devices","No trusted devices yet. On the first secure connection choose ‘Trust this device & confirm’.");return;}\n        String[] labels=new String[entries.size()];\n        for(int i=0;i<entries.size();i++){TrustedDeviceStore.Entry e=entries.get(i);labels[i]=e.name+"\\n"+DeviceIdentityKey.shortFingerprint(e.fingerprint)+(e.autoAccept?" • Auto-accept ON":" • Confirm files");}\n        new AlertDialog.Builder(this).setTitle("Trusted devices").setItems(labels,(d,which)->showTrustedDeviceActions(entries.get(which))).setNegativeButton("Close",null).show();\n    }\n\n    private void showTrustedDeviceActions(TrustedDeviceStore.Entry entry){\n        String auto=entry.autoAccept?"Turn auto-accept OFF":"Turn auto-accept ON";\n        new AlertDialog.Builder(this).setTitle(entry.name)\n                .setMessage("Fingerprint: "+DeviceIdentityKey.shortFingerprint(entry.fingerprint)+"\\nAuto-accept is allowed only after the stored device key signs the new secure session.")\n                .setItems(new String[]{auto,"Forget this device"},(d,which)->{\n                    if(which==0){trustedStore.setAutoAccept(entry.fingerprint,!entry.autoAccept);showTrustedDevices();}\n                    else new AlertDialog.Builder(this).setTitle("Forget trusted device?").setMessage("The six-digit code will be required again next time.").setPositiveButton("Forget",(x,w)->{trustedStore.forget(entry.fingerprint);showTrustedDevices();}).setNegativeButton("Cancel",null).show();\n                }).setNegativeButton("Back",(d,w)->showTrustedDevices()).show();\n    }\n\n    private void showMySecurityIdentity(){\n        if(!DeviceIdentityKey.supported()){showMessage("Security identity","Android 5 uses manual security-code verification and does not store a persistent trust key.");return;}\n        try{String fp=new DeviceIdentityKey().fingerprint();showMessage("My security identity","Protected by Android Keystore\\nFingerprint: "+DeviceIdentityKey.shortFingerprint(fp));}\n        catch(Exception e){showMessage("Security identity","Could not access identity: "+e.getMessage());}\n    }\n\n'''
+          if anchor not in s: raise RuntimeError('missing settings anchor')
+          s=s.replace(anchor,methods+anchor,1)
+          p.write_text(s)
+
+          p=Path('app/src/main/java/com/kenan/optishare/transfer/TransferService.java')
+          s=p.read_text()
+          def one(old,new,label):
+              global s
+              if old not in s: raise RuntimeError('missing service anchor: '+label)
+              s=s.replace(old,new,1)
+          one('    public static final String EXTRA_HOST = "host";\n','    public static final String EXTRA_HOST = "host";\n    public static final String EXTRA_ROUTE = "route";\n','route constant')
+          one('    private LanDiscovery lanDiscovery;\n    private TrustedDeviceStore trustedStore;','    private LanDiscovery lanDiscovery;\n    private RoutePerformanceStore routeStore;\n    private TrustedDeviceStore trustedStore;\n    private volatile String currentRoute = RoutePerformanceStore.ROUTE_DIRECT;','route fields')
+          one('        lanDiscovery = new LanDiscovery(this);\n        trustedStore = new TrustedDeviceStore(this);','        lanDiscovery = new LanDiscovery(this);\n        routeStore = new RoutePerformanceStore(this);\n        trustedStore = new TrustedDeviceStore(this);','route init')
+          one('''        final String initialHost = intent.getStringExtra(EXTRA_HOST);\n        final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);''','''        final String initialHost = intent.getStringExtra(EXTRA_HOST);\n        String requestedRoute = intent.getStringExtra(EXTRA_ROUTE);\n        currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(requestedRoute) ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;\n        final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);''','route read')
+          one('''            @Override public void onCompleted(String sessionId) {\n                String summary = benchmarkSummary("Sent");''','''            @Override public void onCompleted(String sessionId) {\n                routeStore.recordSuccess(currentRoute, averageBytesPerSecond());\n                String summary = benchmarkSummary("Sent") + " • " + routeLabel(currentRoute);''','success learning')
+          one('''        } else {\n            broadcast("error", safe(error) + " — session kept for resume", 0, 0, session);''','''        } else {\n            routeStore.recordFailure(currentRoute);\n            broadcast("error", safe(error) + " — session kept for resume", 0, 0, session);''','failure learning')
+          anchor='    private String benchmarkSummary(String verb) {'
+          helper='''    private double averageBytesPerSecond() {\n        long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();\n        double seconds = activeTransferStartedNanos == 0L ? 0d : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);\n        return total <= 0 || seconds <= 0 ? latestSpeed : total / seconds;\n    }\n\n    private static String routeLabel(String route) {\n        return RoutePerformanceStore.ROUTE_LAN.equals(route) ? "same Wi-Fi" : "Wi-Fi Direct";\n    }\n\n'''
+          if anchor not in s: raise RuntimeError('missing benchmark anchor')
+          s=s.replace(anchor,helper+anchor,1)
+          old='''        double average = total <= 0 ? latestSpeed : total / seconds;'''
+          if old not in s: raise RuntimeError('missing average line')
+          s=s.replace(old,'        double average = averageBytesPerSecond();',1)
+          p.write_text(s)
+
+          p=Path('.github/workflows/build-v22.yml')
+          s=p.read_text()
+          marker="echo 'chunk_bytes=1572864'"
+          if marker in s:
+              s=s.replace(marker,"echo 'protocol=3'\n            echo 'trusted_identity=android_keystore_api23_plus'\n            echo 'smart_route=wifi_direct_or_lan'\n            echo 'chunk_bytes=1572864'",1)
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff --stat
+
+      - name: Compile lint and test
+        run: gradle --no-daemon --stacktrace testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug
+
+      - name: Commit verified changes
+        shell: bash
+        run: |
+          git config user.name "Kenanalhennawi"
+          git config user.email "135068266+Kenanalhennawi@users.noreply.github.com"
+          git add app/src/main/java/com/kenan/optishare/V2Activity.java app/src/main/java/com/kenan/optishare/transfer/TransferService.java .github/workflows/build-v22.yml
+          git commit -m "feat: add trusted-device controls and adaptive SmartRoute"
+          git fetch origin feature/v2.2-fast-transfer
+          git rebase origin/feature/v2.2-fast-transfer
+          git push origin HEAD:feature/v2.2-fast-transfer
