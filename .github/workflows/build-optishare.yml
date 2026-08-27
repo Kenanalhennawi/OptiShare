@@ -51,24 +51,23 @@ jobs:
 
       - name: Restore Base64 release keystore
         env:
-          RAW_KEYSTORE_BASE64: ${{ secrets.OPTISHARE_KEYSTORE_BASE64 }}
+          RAW_KEYSTORE_B64: ${{ secrets.OPTISHARE_KEYSTORE_B64 }}
         run: |
           set -euo pipefail
-
-          if [ -z "${RAW_KEYSTORE_BASE64:-}" ]; then
-            echo '::error::Missing GitHub Actions secret OPTISHARE_KEYSTORE_BASE64'
+          if [ -z "${RAW_KEYSTORE_B64:-}" ]; then
+            echo '::error::Missing GitHub Actions secret OPTISHARE_KEYSTORE_B64'
             exit 1
           fi
 
-          KEYSTORE_BASE64="$RAW_KEYSTORE_BASE64"
-          KEYSTORE_BASE64="${KEYSTORE_BASE64//$'\r'/}"
-          KEYSTORE_BASE64="${KEYSTORE_BASE64//$'\n'/}"
-          if [[ "$KEYSTORE_BASE64" == OPTISHARE_KEYSTORE_BASE64=* ]]; then
-            KEYSTORE_BASE64="${KEYSTORE_BASE64#OPTISHARE_KEYSTORE_BASE64=}"
+          KEYSTORE_B64="$RAW_KEYSTORE_B64"
+          KEYSTORE_B64="${KEYSTORE_B64//$'\r'/}"
+          KEYSTORE_B64="${KEYSTORE_B64//$'\n'/}"
+          if [[ "$KEYSTORE_B64" == OPTISHARE_KEYSTORE_B64=* ]]; then
+            KEYSTORE_B64="${KEYSTORE_B64#OPTISHARE_KEYSTORE_B64=}"
           fi
 
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks" || {
-            echo '::error::OPTISHARE_KEYSTORE_BASE64 is not valid Base64'
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks" || {
+            echo '::error::OPTISHARE_KEYSTORE_B64 is not valid Base64'
             exit 1
           }
 
@@ -84,7 +83,7 @@ jobs:
             exit 1
           fi
 
-          echo 'OPTISHARE_STORE_FILE='"$RUNNER_TEMP/optishare-release.jks" >> "$GITHUB_ENV"
+          echo "OPTISHARE_STORE_FILE=$RUNNER_TEMP/optishare-release.jks" >> "$GITHUB_ENV"
           echo 'Release keystore decoded and checksum verified.'
 
       - name: Validate release signing credentials
@@ -94,33 +93,23 @@ jobs:
           KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-
           test -n "${STORE_PASSWORD:-}" || { echo '::error::Missing OPTISHARE_STORE_PASSWORD'; exit 1; }
           test -n "${KEY_ALIAS:-}" || { echo '::error::Missing OPTISHARE_KEY_ALIAS'; exit 1; }
           test -n "${KEY_PASSWORD:-}" || { echo '::error::Missing OPTISHARE_KEY_PASSWORD'; exit 1; }
 
-          if ! keytool -list \
-            -keystore "$OPTISHARE_STORE_FILE" \
-            -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
+          if ! keytool -list -keystore "$OPTISHARE_STORE_FILE" -storepass "$STORE_PASSWORD" >/dev/null 2>&1; then
             echo '::error::Wrong OPTISHARE_STORE_PASSWORD or invalid keystore'
             exit 1
           fi
 
-          if ! keytool -list \
-            -keystore "$OPTISHARE_STORE_FILE" \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+          if ! keytool -list -keystore "$OPTISHARE_STORE_FILE" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
             echo '::error::OPTISHARE_KEY_ALIAS does not exist in the release keystore'
             exit 1
           fi
 
           printf 'OptiShare signing probe\n' > "$RUNNER_TEMP/signing-probe.txt"
           jar --create --file "$RUNNER_TEMP/signing-probe.jar" -C "$RUNNER_TEMP" signing-probe.txt
-          if ! jarsigner \
-            -keystore "$OPTISHARE_STORE_FILE" \
-            -storepass "$STORE_PASSWORD" \
-            -keypass "$KEY_PASSWORD" \
-            "$RUNNER_TEMP/signing-probe.jar" "$KEY_ALIAS" >/dev/null 2>&1; then
+          if ! jarsigner -keystore "$OPTISHARE_STORE_FILE" -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" "$RUNNER_TEMP/signing-probe.jar" "$KEY_ALIAS" >/dev/null 2>&1; then
             echo '::error::Wrong OPTISHARE_KEY_PASSWORD or alias is not a private signing key'
             exit 1
           fi
@@ -133,28 +122,23 @@ jobs:
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_ALIAS: ${{ secrets.OPTISHARE_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_PASSWORD: ${{ secrets.OPTISHARE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          gradle --no-daemon --stacktrace assembleRelease bundleRelease
+        run: gradle --no-daemon --stacktrace assembleRelease bundleRelease
 
       - name: Verify Android signature and signer identity
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/release/app-release.apk
           AAB=app/build/outputs/bundle/release/app-release.aab
-
           test -s "$APK" || { echo '::error::Signed release APK was not produced'; exit 1; }
           test -s "$AAB" || { echo '::error::Release AAB was not produced'; exit 1; }
 
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apksigner.txt"
           ACTUAL_CERT=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/apksigner.txt" | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')
-
           test -n "$ACTUAL_CERT" || { echo '::error::Could not read APK signer SHA-256'; exit 1; }
           if [ "$ACTUAL_CERT" != "$EXPECTED_CERT_SHA256" ]; then
             echo "::error::Unexpected release signing certificate: $ACTUAL_CERT"
             exit 1
           fi
-
           echo 'APK signature and signer certificate verified.'
 
       - name: Create release metadata and checksums
