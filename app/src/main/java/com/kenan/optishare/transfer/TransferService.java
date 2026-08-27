@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat;
 
 import com.kenan.optishare.R;
 import com.kenan.optishare.V2Activity;
+import com.kenan.optishare.device.DeviceIdentity;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
 import com.kenan.optishare.storage.FileClassifier;
@@ -66,6 +67,7 @@ public final class TransferService extends Service {
     private volatile List<TransferItem> activeItems;
     private SenderSessionStore senderStore;
     private WifiDirectRecovery wifiRecovery;
+    private LanDiscovery lanDiscovery;
     private volatile long activeTransferStartedNanos;
     private volatile int reconnectCount;
     private volatile long latestBatchDone;
@@ -75,6 +77,7 @@ public final class TransferService extends Service {
         super.onCreate();
         senderStore = new SenderSessionStore(this);
         wifiRecovery = new WifiDirectRecovery(this);
+        lanDiscovery = new LanDiscovery(this);
         createChannel();
     }
 
@@ -129,8 +132,14 @@ public final class TransferService extends Service {
         reconnectCount = 0;
         latestBatchDone = 0L;
         latestSpeed = 0d;
-        updateNotification("Ready to receive", "Waiting for a nearby OptiShare sender", 0, false);
-        broadcast("receiver_ready", "Waiting for sender…", 0, 0, null);
+        lanDiscovery.advertise(new DeviceIdentity(this).name(), PORT, new LanDiscovery.Listener() {
+            @Override public void onPeer(String name, String host) { }
+            @Override public void onStatus(String message) {
+                broadcast("receiver_ready", message + " • Wi-Fi Direct also available when supported", 0, 0, null);
+            }
+        });
+        updateNotification("Ready to receive", "Waiting via Wi-Fi Direct or the same Wi-Fi network", 0, false);
+        broadcast("receiver_ready", "Waiting via Wi-Fi Direct or same Wi-Fi…", 0, 0, null);
         executor.execute(() -> {
             try (ServerSocket server = new ServerSocket()) {
                 serverSocket = server;
@@ -161,6 +170,7 @@ public final class TransferService extends Service {
                 if (running.get()) broadcast("error", safe(serverError), 0, 0, null);
             } finally {
                 running.set(false);
+                lanDiscovery.stopAdvertising();
                 serverSocket = null;
                 stopForeground(true);
                 stopSelf();
@@ -531,6 +541,7 @@ public final class TransferService extends Service {
         running.set(false);
         IncomingApproval.cancel();
         if (userCancelled && senderStore != null) senderStore.clear();
+        if (lanDiscovery != null) lanDiscovery.stopAdvertising();
         closeSocket();
         try {
             if (serverSocket != null) serverSocket.close();
@@ -550,6 +561,7 @@ public final class TransferService extends Service {
     @Override public void onDestroy() {
         running.set(false);
         IncomingApproval.cancel();
+        if (lanDiscovery != null) lanDiscovery.close();
         closeSocket();
         try {
             if (serverSocket != null) serverSocket.close();
