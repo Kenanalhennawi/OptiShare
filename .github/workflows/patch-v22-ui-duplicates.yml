@@ -1,0 +1,45 @@
+name: Polish OptiShare 2.2 Completion and Duplicate UX
+
+on:
+  push:
+    branches:
+      - feature/v2.2-fast-transfer
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout latest branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/v2.2-fast-transfer
+          fetch-depth: 0
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Apply UX polish
+        run: python tools/patch_v22_ui_duplicates.py
+      - name: Verify UX polish
+        run: |
+          git diff --check
+          gradle --no-daemon --stacktrace testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug
+      - name: Commit verified polish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/kenan/optishare/V2Activity.java app/src/main/java/com/kenan/optishare/storage/DownloadStore.java
+          git commit -m "ux: polish completion nearby and duplicate files"
+          git push origin HEAD:feature/v2.2-fast-transfer
