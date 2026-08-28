@@ -63,6 +63,7 @@ public final class BrowserReceiveService extends Service {
     private DownloadStore downloadStore;
     private DatagramSocket discoverySocket;
     private Thread discoveryThread;
+    private SecurePcReceiveServer securePcServer;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -92,6 +93,9 @@ public final class BrowserReceiveService extends Service {
         try {
             server = new BrowserServer();
             server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+            securePcServer = new SecurePcReceiveServer(this, downloadStore, this::ensureActiveToken,
+                    (event, message, progress) -> broadcast(event, message, null, progress));
+            securePcServer.start();
             active.set(true);
             startDiscoveryResponder();
             broadcastReady();
@@ -109,6 +113,7 @@ public final class BrowserReceiveService extends Service {
             try { server.stop(); } catch (Exception ignored) { }
             server = null;
         }
+        if (securePcServer != null) { securePcServer.stop(); securePcServer = null; }
         token = null;
         expiresAt = 0L;
         broadcast("stopped", "Browser receiver stopped", null, 0);
@@ -134,7 +139,7 @@ public final class BrowserReceiveService extends Service {
                     String device = android.os.Build.MODEL == null ? "Android"
                             : android.os.Build.MODEL.replace('|', '-');
                     String response = "OPTISHARE_ANDROID_V1|" + device + "|" + PORT
-                            + "|" + activeToken + "|1";
+                            + "|" + activeToken + "|2|" + SecurePcReceiveServer.PORT;
                     byte[] payload = response.getBytes(StandardCharsets.UTF_8);
                     discoverySocket.send(new DatagramPacket(payload, payload.length,
                             request.getAddress(), request.getPort()));
@@ -456,6 +461,7 @@ public final class BrowserReceiveService extends Service {
 
     @Override public void onDestroy() {
         if (server != null) try { server.stop(); } catch (Exception ignored) { }
+        if (securePcServer != null) { securePcServer.stop(); securePcServer = null; }
         active.set(false);
         IncomingApproval.cancel();
         super.onDestroy();

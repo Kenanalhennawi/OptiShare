@@ -5,7 +5,7 @@ using System.Text;
 
 namespace OptiShare.Windows;
 
-internal sealed record AndroidDevice(string Name, IPAddress Address, int Port, string Token)
+internal sealed record AndroidDevice(string Name, IPAddress Address, int Port, string Token, int ProtocolVersion, int SecurePort)
 {
     public string Key => $"{Address}:{Port}";
     public override string ToString() => $"{Name} — {Address}";
@@ -38,10 +38,12 @@ internal sealed class AndroidDiscovery : IDisposable
                     if (completed != receive) continue;
                     var packet = await receive;
                     var parts = Encoding.UTF8.GetString(packet.Buffer).Trim().Split('|');
-                    if (parts.Length != 5 || parts[0] != "OPTISHARE_ANDROID_V1" || parts[4] != "1"
+                    if ((parts.Length != 5 && parts.Length != 6) || parts[0] != "OPTISHARE_ANDROID_V1"
                         || !int.TryParse(parts[2], out var port) || port is < 1 or > 65535
                         || parts[3].Length is < 16 or > 128) continue;
-                    DeviceFound?.Invoke(new AndroidDevice(parts[1], packet.RemoteEndPoint.Address, port, parts[3]));
+                    if(!int.TryParse(parts[4],out var version)||version is <1 or >2)continue;
+                    var securePort=0;if(version>=2&&(parts.Length!=6||!int.TryParse(parts[5],out securePort)||securePort is <1024 or >65535))continue;
+                    DeviceFound?.Invoke(new AndroidDevice(parts[1], packet.RemoteEndPoint.Address, port, parts[3],version,securePort));
                 }
                 catch (OperationCanceledException) { return; }
                 catch (SocketException) { }
