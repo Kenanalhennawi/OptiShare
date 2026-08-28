@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/patch_v22_clipboard_benchmark.py
+          python3 tools/patch_v22_clipboard_benchmark_v2.py
           git diff --check
 
       - name: Verify Android integration
