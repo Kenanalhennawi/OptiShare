@@ -3,6 +3,7 @@ package com.kenan.optishare.storage;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -168,12 +169,13 @@ public final class DownloadStore {
     private Uri publishMediaStore(File source, String name, String mime, String folder)
             throws IOException {
         ContentResolver resolver = context.getContentResolver();
+        String relativePath = Environment.DIRECTORY_DOWNLOADS + "/OptiShare/" + folder;
+        String uniqueName = uniqueMediaStoreName(resolver, name, relativePath);
         ContentValues values = new ContentValues();
-        values.put(MediaStore.Downloads.DISPLAY_NAME, name);
+        values.put(MediaStore.Downloads.DISPLAY_NAME, uniqueName);
         values.put(MediaStore.Downloads.MIME_TYPE,
                 mime == null ? "application/octet-stream" : mime);
-        values.put(MediaStore.Downloads.RELATIVE_PATH,
-                Environment.DIRECTORY_DOWNLOADS + "/OptiShare/" + folder);
+        values.put(MediaStore.Downloads.RELATIVE_PATH, relativePath);
         values.put(MediaStore.Downloads.IS_PENDING, 1);
         Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
         if (uri == null) throw new IOException("Could not create download entry");
@@ -194,6 +196,37 @@ public final class DownloadStore {
             throw new IOException("Could not finalize download entry");
         }
         return uri;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private String uniqueMediaStoreName(ContentResolver resolver, String name, String relativePath) {
+        if (!mediaStoreNameExists(resolver, name, relativePath)) return name;
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String ext = dot > 0 ? name.substring(dot) : "";
+        for (int i = 1; i < 10000; i++) {
+            String candidate = base + " (" + i + ")" + ext;
+            if (!mediaStoreNameExists(resolver, candidate, relativePath)) return candidate;
+        }
+        return System.currentTimeMillis() + "-" + name;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private boolean mediaStoreNameExists(ContentResolver resolver, String name, String relativePath) {
+        Cursor cursor = null;
+        try {
+            cursor = resolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    new String[]{MediaStore.Downloads._ID},
+                    MediaStore.Downloads.DISPLAY_NAME + "=? AND " + MediaStore.Downloads.RELATIVE_PATH + "=?",
+                    new String[]{name, relativePath}, null);
+            return cursor != null && cursor.moveToFirst();
+        } catch (RuntimeException ignored) {
+            // If an OEM restricts the query, MediaStore still protects existing rows; publishing continues.
+            return false;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
     }
 
     @SuppressWarnings("deprecation")
