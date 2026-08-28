@@ -13,7 +13,7 @@ function Start-Receiver {
     if (-not (Test-Path -LiteralPath $receiverScript)) { return }
     try {
         $script:receiverProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $receiverScript + '"')
+            '-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',('"' + $receiverScript + '"')
         ) -WindowStyle Hidden -PassThru
     } catch {
         $script:receiverProcess = $null

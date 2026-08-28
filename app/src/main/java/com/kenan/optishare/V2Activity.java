@@ -320,6 +320,12 @@ public class V2Activity extends ComponentActivity implements
             }else if("completed".equals(event)){
                 setDiscoveryText(message);
                 setConnectionUi("BROWSER FILE SAVED ✓",Color.rgb(65,225,151));
+            }else if("clipboard".equals(event)){
+                setDiscoveryText(message);
+                setConnectionUi("CLIPBOARD COPIED ✓",Color.rgb(65,225,151));
+            }else if("benchmark".equals(event)){
+                setDiscoveryText(message);
+                setConnectionUi("SPEED TEST ✓",Color.rgb(89,205,255));
             }else if("error".equals(event)){
                 setDiscoveryText(message);setConnectionUi("BROWSER ERROR",Color.rgb(255,92,102));
             }else if("stopped".equals(event)){
