@@ -53,7 +53,6 @@ public final class TransferEngine {
     }
 
     private static final int CHUNK = ResumableProtocol.DEFAULT_CHUNK_BYTES;
-    private static final int CHECKPOINT_CHUNKS = 4;
     private static final int STREAM_BUFFER = 4 * 1024 * 1024;
     private final Context context;
     private final ResumeStore resumeStore;
@@ -107,6 +106,7 @@ public final class TransferEngine {
                 long started = System.nanoTime();
                 long batchBase = confirmedBefore - requested + offset;
                 int chunksAwaitingCheckpoint = 0;
+                int checkpointChunks = ResumableProtocol.checkpointChunksForFile(entry.size);
 
                 if (offset < entry.size) {
                     InputStream raw = context.getContentResolver().openInputStream(item.getUri());
@@ -126,7 +126,7 @@ public final class TransferEngine {
                             sent += n;
                             chunksAwaitingCheckpoint++;
 
-                            boolean checkpoint = chunksAwaitingCheckpoint >= CHECKPOINT_CHUNKS
+                            boolean checkpoint = chunksAwaitingCheckpoint >= checkpointChunks
                                     || sent == entry.size;
                             if (checkpoint) {
                                 out.flush();
@@ -277,7 +277,7 @@ public final class TransferEngine {
                         received.put(entry.id, next);
                         chunksSinceCheckpoint++;
 
-                        boolean checkpoint = chunksSinceCheckpoint >= CHECKPOINT_CHUNKS
+                        boolean checkpoint = chunksSinceCheckpoint >= ResumableProtocol.checkpointChunksForFile(entry.size)
                                 || next == entry.size;
                         if (checkpoint) {
                             activeTarget.getFD().sync();
