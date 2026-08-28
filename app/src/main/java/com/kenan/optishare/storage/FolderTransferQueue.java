@@ -31,6 +31,12 @@ public final class FolderTransferQueue {
         pending.add(item);
     }
 
+    /** Returns a defensive copy without consuming metadata needed by another transfer route. */
+    public static synchronized List<TransferItem> snapshot() {
+        if (pending.isEmpty()) return Collections.emptyList();
+        return new ArrayList<>(pending);
+    }
+
     public static synchronized List<TransferItem> takeAll() {
         if (pending.isEmpty()) return Collections.emptyList();
         List<TransferItem> result = new ArrayList<>(pending);
