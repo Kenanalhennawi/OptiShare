@@ -331,7 +331,8 @@ public final class TransferService extends Service {
                 activeItems = mergeRichItems(rawUris, richItems);
                 TransferEngine engine = new TransferEngine(this);
                 activeManifest = engine.buildManifest(activeItems);
-                WifiDirectRecovery.Peer peer = wifiRecovery.capture(2500);
+                WifiDirectRecovery.Peer peer = RoutePerformanceStore.ROUTE_DIRECT.equals(currentRoute)
+                        ? wifiRecovery.capture(2500) : null;
                 String host = peer != null && peer.host != null ? peer.host : initialHost;
                 String peerAddress = peer == null ? null : peer.deviceAddress;
                 senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
