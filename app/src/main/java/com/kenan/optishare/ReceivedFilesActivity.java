@@ -19,6 +19,7 @@ import android.widget.TextView;
 
 import androidx.activity.ComponentActivity;
 import androidx.annotation.RequiresApi;
+import androidx.core.content.FileProvider;
 
 import java.io.File;
 import java.text.DateFormat;
@@ -139,7 +140,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         actions.setPadding(0, dp(12), 0, 0);
         Button open = button("Open");
         Button share = button("Share");
-        boolean actionable = item.uri != null && "content".equals(item.uri.getScheme());
+        boolean actionable = itemUri(item) != null;
         open.setEnabled(actionable);
         share.setEnabled(actionable);
         open.setAlpha(actionable ? 1f : .45f);
@@ -221,20 +222,40 @@ public final class ReceivedFilesActivity extends ComponentActivity {
     }
 
     private void openItem(Item item) {
-        if (item.uri == null) return;
-        Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(item.uri, item.mime)
+        Uri uri = itemUri(item);
+        if (uri == null) return;
+        Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, item.mime)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try { startActivity(intent); }
         catch (Exception error) { showSimple("No app can open this file type."); }
     }
 
     private void shareItem(Item item) {
-        if (item.uri == null) return;
+        Uri uri = itemUri(item);
+        if (uri == null) return;
         Intent intent = new Intent(Intent.ACTION_SEND).setType(item.mime)
-                .putExtra(Intent.EXTRA_STREAM, item.uri)
+                .putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try { startActivity(Intent.createChooser(intent, "Share received file")); }
         catch (Exception error) { showSimple("This file cannot be shared right now."); }
+    }
+
+    private Uri itemUri(Item item) {
+        if (item == null) return null;
+        if (item.uri != null && "content".equals(item.uri.getScheme())) return item.uri;
+        if (item.path == null || item.path.trim().isEmpty()) return null;
+        try {
+            File file = new File(item.path);
+            if (!file.exists() || !file.isFile()) return null;
+            File allowedRoot = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS), "OptiShare");
+            String rootPath = allowedRoot.getCanonicalPath() + File.separator;
+            String filePath = file.getCanonicalPath();
+            if (!filePath.startsWith(rootPath)) return null;
+            return FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void showSimple(String message) {
