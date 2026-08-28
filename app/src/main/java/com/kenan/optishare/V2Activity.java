@@ -101,6 +101,7 @@ public class V2Activity extends ComponentActivity implements
     private boolean transferStarted;
     private boolean browserMode;
     private boolean pcTransferMode;
+    private boolean benchmarkMode;
 
     private WifiP2pManager manager;
     private WifiP2pManager.Channel channel;
@@ -274,6 +275,18 @@ public class V2Activity extends ComponentActivity implements
             } else if ("reconnecting".equals(event)) {
                 setConnectionUi("RECONNECTING…", Color.rgb(255, 188, 70));
                 setTransferUi("Reconnecting automatically", message, -1);
+            } else if ("benchmark_started".equals(event)) {
+                setConnectionUi("ENCRYPTED SPEED TEST", Color.rgb(89,205,255));
+                setTransferUi("Measuring Android route", message, 0);
+            } else if ("benchmark_completed".equals(event)) {
+                setConnectionUi("SPEED TEST ✓", Color.rgb(65,225,151));
+                setTransferUi("Speed test complete ✓", message, 100);
+                setTransferMetrics(100, completedTotalBytes, completedTotalBytes, speed, 0);
+                transferStarted = false;
+            } else if ("benchmark_error".equals(event)) {
+                setConnectionUi("SPEED TEST FAILED", Color.rgb(255,92,102));
+                setTransferUi("Speed test could not finish", message, -1);
+                transferStarted = false;
             } else if ("text_received".equals(event)) {
                 android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
                 if(clipboard!=null&&message!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OptiShare text",message));
@@ -620,7 +633,11 @@ public class V2Activity extends ComponentActivity implements
             transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());
             LinearLayout.LayoutParams pbtn=new LinearLayout.LayoutParams(-1,dp(50));pbtn.setMargins(0,dp(12),0,0);root.addView(transferPauseButton,pbtn);
         }else transferPauseButton=null;
-        Button cancel=secondaryButton("Cancel transfer");cancel.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(cancel,cp);
+        if(benchmarkMode){
+            Button back=secondaryButton("Back to nearby devices");back.setOnClickListener(v->{stopTransferService();benchmarkMode=false;pcTransferMode=false;transferStarted=false;showDiscovery();});LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(back,cp);
+        }else{
+            Button cancel=secondaryButton("Cancel transfer");cancel.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(cancel,cp);
+        }
         setContentView(scroll);
     }
 
@@ -772,13 +789,41 @@ public class V2Activity extends ComponentActivity implements
                 line.addView(connect,new LinearLayout.LayoutParams(dp(112),dp(46)));row.addView(line);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
             }
             for(WifiP2pDevice device:peers){
-                LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);TextView avatar=text(firstLetter(deviceName(device)),18,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(38,151,232),Color.rgb(62,91,220),18));line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);names.addView(text(deviceName(device),15,Color.WHITE,true));names.addView(text(deviceStatus(device.status),12,Color.rgb(151,182,205),false));line.addView(names,new LinearLayout.LayoutParams(0,-2,1));Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectTo(device));line.addView(connect,new LinearLayout.LayoutParams(dp(112),dp(46)));row.addView(line);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
+                LinearLayout row=card();
+                LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+                TextView avatar=text(firstLetter(deviceName(device)),18,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(38,151,232),Color.rgb(62,91,220),18));
+                line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
+                names.addView(text(deviceName(device),15,Color.WHITE,true));
+                names.addView(text(deviceStatus(device.status)+" • encrypted Android peer",12,Color.rgb(151,182,205),false));
+                line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
+                LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
+                Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkDevice(device));
+                Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectTo(device));
+                actions.addView(test,new LinearLayout.LayoutParams(0,dp(46),1));
+                LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(8),0,0,0);actions.addView(connect,sendLp);
+                row.addView(actions);
+                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
             }
         });
     }
 
+
+    private void benchmarkDevice(WifiP2pDevice device) {
+        benchmarkMode=true;pcTransferMode=true;stopPcDiscovery();
+        if(!ensureNearbyReady())return;
+        discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();
+        connectedPeerName=deviceName(device);setConnectionUi("CONNECTING FOR TEST…",Color.rgb(89,205,255));
+        setDiscoveryText("Connecting to "+connectedPeerName+" for encrypted speed test…");
+        WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
+        try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){
+            @Override public void onSuccess(){setDiscoveryText("Speed-test connection request sent…");}
+            @Override public void onFailure(int reason){benchmarkMode=false;pcTransferMode=false;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Speed-test connection failed",reason));}
+        });}catch(SecurityException e){benchmarkMode=false;pcTransferMode=false;showNearbyPermissionHelp();}
+    }
+
     private void connectTo(WifiP2pDevice device) {
-        pcTransferMode=false;stopPcDiscovery();
+        benchmarkMode=false;pcTransferMode=false;stopPcDiscovery();
         if(!ensureNearbyReady())return;discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();connectedPeerName=deviceName(device);setConnectionUi("CONNECTING…",Color.rgb(255,194,73));setDiscoveryText("Connecting to "+connectedPeerName+"…");WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
         try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Connection request sent. Waiting for the direct link…");}@Override public void onFailure(int reason){setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Connection failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}
     }
@@ -786,7 +831,16 @@ public class V2Activity extends ComponentActivity implements
     @Override public void onConnectionInfoAvailable(WifiP2pInfo info) {
         if(info==null||!info.groupFormed||info.groupOwnerAddress==null)return;setConnectionUi("CONNECTED ✓",Color.rgb(65,225,151));
         if(receiverMode&&info.isGroupOwner){setDiscoveryText("CONNECTED ✓\nSecure receiver channel is active.");startReceiverService();}
-        else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){activeRoute=RoutePerformanceStore.ROUTE_DIRECT;transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");setConnectionUi("SMART ROUTE • WI-FI DIRECT ✓",Color.rgb(65,225,151));startSenderService(info.groupOwnerAddress.getHostAddress());}
+        else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){
+            activeRoute=RoutePerformanceStore.ROUTE_DIRECT;transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();
+            if(benchmarkMode){
+                pcTransferMode=true;showTransferScreen("Android speed test");setConnectionUi("ENCRYPTED SPEED TEST",Color.rgb(89,205,255));
+                setTransferUi("Preparing 8 MB speed test","Uses the same ECDH/AES-GCM transport as Android file transfer. No test file is saved.",0);
+                startBenchmarkService(info.groupOwnerAddress.getHostAddress());
+            }else{
+                showTransferScreen("Sending");setConnectionUi("SMART ROUTE • WI-FI DIRECT ✓",Color.rgb(65,225,151));startSenderService(info.groupOwnerAddress.getHostAddress());
+            }
+        }
     }
 
     private void startBrowserReceive(){
@@ -802,6 +856,12 @@ public class V2Activity extends ComponentActivity implements
 
     private void startReceiverService() {
         Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_START_RECEIVER);ContextCompat.startForegroundService(this,i);
+    }
+
+    private void startBenchmarkService(String host) {
+        Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_BENCHMARK);
+        i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);
+        ContextCompat.startForegroundService(this,i);
     }
 
     private void startSenderService(String host) {

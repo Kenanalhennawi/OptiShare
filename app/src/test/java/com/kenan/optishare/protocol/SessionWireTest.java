@@ -47,6 +47,17 @@ public class SessionWireTest {
         assertArrayEquals(bytes, decoded.data);
     }
 
+    @Test public void benchmarkSizeRoundTripIsBounded() throws Exception {
+        assertEquals(SessionWire.BENCHMARK_TOTAL_BYTES,
+                SessionWire.decodeBenchmarkSize(SessionWire.encodeBenchmarkSize(SessionWire.BENCHMARK_TOTAL_BYTES)));
+        try {
+            SessionWire.encodeBenchmarkSize(SessionWire.MAX_BENCHMARK_BYTES + 1L);
+            fail("Expected IOException");
+        } catch (IOException expected) {
+            // expected
+        }
+    }
+
     @Test public void decodeOffsetsRejectsNegativeOffset() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(bytes);

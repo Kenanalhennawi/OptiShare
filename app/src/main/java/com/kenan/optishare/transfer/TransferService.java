@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class TransferService extends Service {
     public static final String ACTION_START_RECEIVER = "com.kenan.optishare.action.START_RECEIVER";
     public static final String ACTION_SEND = "com.kenan.optishare.action.SEND";
+    public static final String ACTION_BENCHMARK = "com.kenan.optishare.action.BENCHMARK";
     public static final String ACTION_ACCEPT = "com.kenan.optishare.action.ACCEPT";
     public static final String ACTION_DECLINE = "com.kenan.optishare.action.DECLINE";
     public static final String ACTION_TRUST_ACCEPT = "com.kenan.optishare.action.TRUST_ACCEPT";
@@ -146,6 +147,8 @@ public final class TransferService extends Service {
             startReceiver();
         } else if (ACTION_SEND.equals(action)) {
             startSender(intent);
+        } else if (ACTION_BENCHMARK.equals(action)) {
+            startBenchmark(intent);
         } else if (ACTION_RESUME_PENDING.equals(action)) {
             SenderSessionStore.Pending pending = senderStore.load();
             if (pending != null) startPendingSender(pending);
@@ -294,6 +297,13 @@ public final class TransferService extends Service {
                 broadcastCompleted(summary, sessionId, "incoming");
             }
 
+            @Override public void onBenchmarkCompleted(long bytes, long durationMs, double bytesPerSecond) {
+                String summary = "Encrypted Android speed test • " + formatBytes(bytes)
+                        + " in " + formatElapsed(durationMs / 1000.0) + " • " + formatSpeed(bytesPerSecond);
+                updateNotification("Speed test complete", summary, 100, false);
+                broadcastBenchmarkCompleted(summary, bytes, durationMs, bytesPerSecond, "incoming");
+            }
+
             @Override public void onError(String sessionId, Throwable error, boolean resumable) {
                 if (isTerminalUserDecision(error)) return;
                 broadcast(resumable ? "reconnecting" : "error",
@@ -328,6 +338,79 @@ public final class TransferService extends Service {
                 runSenderLoop(host, peerAddress, engine);
             } catch (Exception error) {
                 failSender(error);
+            }
+        });
+    }
+
+
+    private void startBenchmark(Intent intent) {
+        final String host = intent.getStringExtra(EXTRA_HOST);
+        String requestedRoute = intent.getStringExtra(EXTRA_ROUTE);
+        currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(requestedRoute)
+                ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;
+        if (host == null || host.trim().isEmpty()) {
+            broadcast("benchmark_error", "Missing Android receiver for speed test", 0, 0, null);
+            stopSelf();
+            return;
+        }
+        if (!running.compareAndSet(false, true)) return;
+        activeManifest = null;
+        activeItems = null;
+        activePeerFingerprint = null;
+        resetMetrics();
+        updateNotification("Android speed test", "Measuring encrypted local throughput", 0, true);
+        broadcast("benchmark_started", "Testing the encrypted Android route…", 0, 0, null);
+        executor.execute(() -> {
+            try {
+                Socket socket = new Socket();
+                activeSocket = socket;
+                socket.connect(new InetSocketAddress(host, PORT), 8000);
+                new TransferEngine(this).benchmark(socket, new TransferEngine.Listener() {
+                    @Override public boolean onPeerIdentity(String fingerprint) {
+                        activePeerFingerprint = fingerprint;
+                        boolean trusted = trustedStore.isTrusted(fingerprint);
+                        if (trusted) broadcast("trusted_peer", "Trusted device verified ✓", 0, 0, null);
+                        return trusted;
+                    }
+
+                    @Override public void onSecurityCode(String code) {
+                        requireSecurityConfirmation(code, null);
+                    }
+
+                    @Override public void onIncomingBatch(BatchManifest manifest) { }
+                    @Override public boolean acceptIncomingBatch(BatchManifest manifest) { return true; }
+                    @Override public void onProgress(String sessionId, String fileId, String fileName,
+                                                     long done, long total, long batchDone,
+                                                     long batchTotal, double bytesPerSecond) { }
+                    @Override public void onFileCompleted(String sessionId, String fileId, Uri publishedUri) { }
+                    @Override public void onCompleted(String sessionId) { }
+                    @Override public void onError(String sessionId, Throwable error, boolean resumable) { }
+
+                    @Override public void onBenchmarkCompleted(long bytes, long durationMs,
+                                                               double bytesPerSecond) {
+                        routeStore.recordSuccess(currentRoute, bytesPerSecond);
+                        String summary = "Encrypted Android speed test • " + formatBytes(bytes)
+                                + " in " + formatElapsed(durationMs / 1000.0)
+                                + " • " + formatSpeed(bytesPerSecond)
+                                + " • " + routeLabel(currentRoute);
+                        updateNotification("Speed test complete", summary, 100, false);
+                        broadcastBenchmarkCompleted(summary, bytes, durationMs,
+                                bytesPerSecond, currentRoute);
+                    }
+                });
+            } catch (Exception error) {
+                routeStore.recordFailure(currentRoute);
+                String message = safe(error);
+                if (message.toLowerCase(Locale.US).contains("invalid frame type")) {
+                    message = "The other OptiShare version does not support Android speed test yet";
+                }
+                broadcast("benchmark_error", message, 0, 0, null);
+                updateNotification("Speed test failed", message, 0, false);
+            } finally {
+                running.set(false);
+                closeSocket();
+                stopForeground(false);
+                stopSelf();
             }
         });
     }
@@ -632,6 +715,23 @@ public final class TransferService extends Service {
         intent.putExtra(EXTRA_RECONNECTS, reconnectCount);
         intent.putExtra(EXTRA_FILE_COUNT, fileCount);
         intent.putExtra(EXTRA_TOTAL_BYTES, total);
+        sendBroadcast(intent);
+    }
+
+
+    private void broadcastBenchmarkCompleted(String message, long bytes, long durationMs,
+                                             double speed, String route) {
+        Intent intent = new Intent(ACTION_EVENT);
+        intent.setPackage(getPackageName());
+        intent.putExtra(EXTRA_EVENT, "benchmark_completed");
+        intent.putExtra(EXTRA_MESSAGE, message);
+        intent.putExtra(EXTRA_PROGRESS, 100);
+        intent.putExtra(EXTRA_SPEED, speed);
+        intent.putExtra(EXTRA_DONE, bytes);
+        intent.putExtra(EXTRA_TOTAL, bytes);
+        intent.putExtra(EXTRA_TOTAL_BYTES, bytes);
+        intent.putExtra(EXTRA_DURATION_MS, durationMs);
+        intent.putExtra(EXTRA_ROUTE, route == null ? "unknown" : route);
         sendBroadcast(intent);
     }
 

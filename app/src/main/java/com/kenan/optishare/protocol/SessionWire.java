@@ -27,7 +27,13 @@ public final class SessionWire {
     public static final int TYPE_BATCH_DONE = 6;
     public static final int TYPE_ERROR = 7;
     public static final int TYPE_IDENTITY = 8;
+    public static final int TYPE_BENCHMARK_BEGIN = 9;
+    public static final int TYPE_BENCHMARK_DATA = 10;
+    public static final int TYPE_BENCHMARK_DONE = 11;
     public static final int MAX_FRAME = 2 * 1024 * 1024;
+    public static final int BENCHMARK_BLOCK_BYTES = 512 * 1024;
+    public static final long BENCHMARK_TOTAL_BYTES = 8L * 1024L * 1024L;
+    public static final long MAX_BENCHMARK_BYTES = 64L * 1024L * 1024L;
     private static final int SHA256_BYTES = 32;
     private static final int MAX_KEY_BYTES = 4096;
     private static final int MAX_SALT_BYTES = 64;
@@ -325,6 +331,27 @@ public final class SessionWire {
         return encoded;
     }
 
+    public static byte[] encodeBenchmarkSize(long bytes) throws IOException {
+        if (bytes <= 0 || bytes > MAX_BENCHMARK_BYTES) {
+            throw new IOException("Invalid benchmark size: " + bytes);
+        }
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(8);
+        DataOutputStream out = new DataOutputStream(buffer);
+        out.writeLong(bytes);
+        out.flush();
+        return buffer.toByteArray();
+    }
+
+    public static long decodeBenchmarkSize(byte[] payload) throws IOException {
+        DataInputStream in = payloadInput(payload);
+        long bytes = in.readLong();
+        if (bytes <= 0 || bytes > MAX_BENCHMARK_BYTES) {
+            throw new IOException("Invalid benchmark size: " + bytes);
+        }
+        ensureConsumed(in);
+        return bytes;
+    }
+
     private static DataInputStream payloadInput(byte[] payload) throws IOException {
         if (payload == null) throw new IOException("Missing payload");
         return new DataInputStream(new ByteArrayInputStream(payload));
@@ -347,7 +374,7 @@ public final class SessionWire {
     }
 
     private static void validateFrameType(int type) throws IOException {
-        if (type < TYPE_MANIFEST || type > TYPE_IDENTITY) {
+        if (type < TYPE_MANIFEST || type > TYPE_BENCHMARK_DONE) {
             throw new IOException("Invalid frame type: " + type);
         }
     }

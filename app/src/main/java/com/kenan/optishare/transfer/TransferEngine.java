@@ -50,6 +50,7 @@ public final class TransferEngine {
         void onFileCompleted(String sessionId, String fileId, Uri publishedUri);
         void onCompleted(String sessionId);
         void onError(String sessionId, Throwable error, boolean resumable);
+        default void onBenchmarkCompleted(long bytes, long durationMs, double bytesPerSecond) { }
     }
 
     private static final int CHUNK = ResumableProtocol.DEFAULT_CHUNK_BYTES;
@@ -180,6 +181,67 @@ public final class TransferEngine {
         }
     }
 
+
+    /** Measures the authenticated encrypted Android-to-Android transport without creating a file. */
+    public void benchmark(Socket socket, Listener listener) throws Exception {
+        tuneSocket(socket);
+        try (DataInputStream in = new DataInputStream(
+                     new BufferedInputStream(socket.getInputStream(), STREAM_BUFFER));
+             DataOutputStream out = new DataOutputStream(
+                     new BufferedOutputStream(socket.getOutputStream(), STREAM_BUFFER))) {
+            SessionWire.Handshake handshake = SessionWire.clientHandshake(in, out);
+            String peerFingerprint = exchangeClientIdentity(in, out, handshake);
+            boolean trusted = peerFingerprint != null && listener.onPeerIdentity(peerFingerprint);
+            if (!trusted) listener.onSecurityCode(handshake.securityCode);
+
+            final long total = SessionWire.BENCHMARK_TOTAL_BYTES;
+            SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_BENCHMARK_BEGIN,
+                    SessionWire.encodeBenchmarkSize(total));
+            SessionWire.Frame ready = SessionWire.readFrame(in, handshake.crypto);
+            if (ready.type != SessionWire.TYPE_ACK) {
+                throw new IOException("Peer does not support encrypted speed test");
+            }
+            SessionWire.Ack readyAck = SessionWire.decodeAck(ready.payload);
+            if (!"benchmark-ready".equals(readyAck.fileId) || readyAck.offset != 0L) {
+                throw new IOException("Invalid benchmark ready acknowledgement");
+            }
+
+            byte[] block = new byte[SessionWire.BENCHMARK_BLOCK_BYTES];
+            for (int i = 0; i < block.length; i++) block[i] = (byte) (i * 31 + 17);
+            long sent = 0L;
+            long started = System.nanoTime();
+            while (sent < total) {
+                int length = (int) Math.min(block.length, total - sent);
+                if (length == block.length) {
+                    SessionWire.writeFrameBuffered(out, handshake.crypto,
+                            SessionWire.TYPE_BENCHMARK_DATA, block);
+                } else {
+                    byte[] tail = java.util.Arrays.copyOf(block, length);
+                    SessionWire.writeFrameBuffered(out, handshake.crypto,
+                            SessionWire.TYPE_BENCHMARK_DATA, tail);
+                }
+                sent += length;
+            }
+            SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_BENCHMARK_DONE,
+                    SessionWire.encodeBenchmarkSize(sent));
+            SessionWire.Frame result = SessionWire.readFrame(in, handshake.crypto);
+            if (result.type != SessionWire.TYPE_ACK) {
+                throw new IOException("Peer did not acknowledge speed test");
+            }
+            SessionWire.Ack ack = SessionWire.decodeAck(result.payload);
+            if (!"benchmark".equals(ack.fileId) || ack.offset != total) {
+                throw new IOException("Invalid benchmark acknowledgement");
+            }
+            long durationMs = Math.max(1L,
+                    Math.round((System.nanoTime() - started) / 1_000_000.0));
+            double bytesPerSecond = total / Math.max(0.001, durationMs / 1000.0);
+            listener.onBenchmarkCompleted(total, durationMs, bytesPerSecond);
+        } catch (Exception error) {
+            listener.onError("benchmark", error, false);
+            throw error;
+        }
+    }
+
     public void receive(Socket socket, Listener listener) throws Exception {
         tuneSocket(socket);
         String sessionId = "unknown";
@@ -192,6 +254,10 @@ public final class TransferEngine {
             boolean trusted = peerFingerprint != null && listener.onPeerIdentity(peerFingerprint);
             if (!trusted) listener.onSecurityCode(handshake.securityCode);
             SessionWire.Frame manifestFrame = SessionWire.readFrame(in, handshake.crypto);
+            if (manifestFrame.type == SessionWire.TYPE_BENCHMARK_BEGIN) {
+                receiveBenchmark(in, out, handshake, manifestFrame, listener);
+                return;
+            }
             if (manifestFrame.type != SessionWire.TYPE_MANIFEST) {
                 throw new IOException("Expected transfer manifest");
             }
@@ -377,6 +443,45 @@ public final class TransferEngine {
         } catch (Exception e) {
             listener.onError(sessionId, e, isResumable(e));
             throw e;
+        }
+    }
+
+
+    private void receiveBenchmark(DataInputStream in, DataOutputStream out,
+                                  SessionWire.Handshake handshake, SessionWire.Frame begin,
+                                  Listener listener) throws Exception {
+        long expected = SessionWire.decodeBenchmarkSize(begin.payload);
+        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
+                SessionWire.encodeAck("benchmark-ready", 0L));
+        long received = 0L;
+        long started = System.nanoTime();
+        while (true) {
+            SessionWire.Frame frame = SessionWire.readFrame(in, handshake.crypto);
+            if (frame.type == SessionWire.TYPE_BENCHMARK_DATA) {
+                int length = frame.payload == null ? 0 : frame.payload.length;
+                if (length <= 0 || length > SessionWire.BENCHMARK_BLOCK_BYTES) {
+                    throw new IOException("Invalid benchmark data block");
+                }
+                if (received > expected - length) {
+                    throw new IOException("Benchmark data exceeds declared size");
+                }
+                received += length;
+                continue;
+            }
+            if (frame.type == SessionWire.TYPE_BENCHMARK_DONE) {
+                long declared = SessionWire.decodeBenchmarkSize(frame.payload);
+                if (declared != expected || received != expected) {
+                    throw new IOException("Incomplete benchmark payload");
+                }
+                long durationMs = Math.max(1L,
+                        Math.round((System.nanoTime() - started) / 1_000_000.0));
+                double bytesPerSecond = received / Math.max(0.001, durationMs / 1000.0);
+                SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
+                        SessionWire.encodeAck("benchmark", received));
+                listener.onBenchmarkCompleted(received, durationMs, bytesPerSecond);
+                return;
+            }
+            throw new IOException("Unexpected frame during speed test: " + frame.type);
         }
     }
 
