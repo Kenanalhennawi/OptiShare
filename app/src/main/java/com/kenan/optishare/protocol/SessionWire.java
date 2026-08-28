@@ -18,7 +18,7 @@ import java.util.Map;
 /** Framing for OptiShare protocol v2. Every post-handshake application frame is AES-GCM authenticated. */
 public final class SessionWire {
     public static final int MAGIC = 0x4F533250; // OS2P
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
     public static final int TYPE_MANIFEST = 1;
     public static final int TYPE_RESUME = 2;
     public static final int TYPE_CHUNK = 3;
@@ -30,6 +30,9 @@ public final class SessionWire {
     public static final int TYPE_BENCHMARK_BEGIN = 9;
     public static final int TYPE_BENCHMARK_DATA = 10;
     public static final int TYPE_BENCHMARK_DONE = 11;
+    public static final int TYPE_STRIPE_BEGIN = 12;
+    public static final int TYPE_STRIPE_DATA = 13;
+    public static final int TYPE_STRIPE_DONE = 14;
     public static final int MAX_FRAME = 2 * 1024 * 1024;
     public static final int BENCHMARK_BLOCK_BYTES = 512 * 1024;
     public static final long BENCHMARK_TOTAL_BYTES = 8L * 1024L * 1024L;
@@ -374,7 +377,7 @@ public final class SessionWire {
     }
 
     private static void validateFrameType(int type) throws IOException {
-        if (type < TYPE_MANIFEST || type > TYPE_BENCHMARK_DONE) {
+        if (type < TYPE_MANIFEST || type > TYPE_STRIPE_DONE) {
             throw new IOException("Invalid frame type: " + type);
         }
     }

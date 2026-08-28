@@ -36,18 +36,23 @@ public final class RoutePerformanceStore {
         prefs.edit().putInt("fail:" + route, Math.min(10000, failures(route) + 1)).apply();
     }
 
-    public void recordParallelBenchmark(double singleBytesPerSecond, double dualBytesPerSecond) {
+    public void recordParallelBenchmark(double singleBytesPerSecond, double dualBytesPerSecond, String peerFingerprint) {
         if (singleBytesPerSecond <= 0d || dualBytesPerSecond <= 0d) return;
         int gain = ParallelBenchmarkDecision.improvementPercent(singleBytesPerSecond, dualBytesPerSecond);
         int streams = ParallelBenchmarkDecision.recommendTwoStreams(singleBytesPerSecond, dualBytesPerSecond) ? 2 : 1;
-        prefs.edit()
+        SharedPreferences.Editor edit = prefs.edit()
                 .putLong(PARALLEL_SINGLE, Double.doubleToLongBits(singleBytesPerSecond))
                 .putLong(PARALLEL_DUAL, Double.doubleToLongBits(dualBytesPerSecond))
                 .putInt(PARALLEL_GAIN, gain)
                 .putInt(PARALLEL_STREAMS, streams)
-                .putLong(PARALLEL_UPDATED, System.currentTimeMillis())
-                .apply();
+                .putLong(PARALLEL_UPDATED, System.currentTimeMillis());
+        if (peerFingerprint != null && !peerFingerprint.trim().isEmpty()) edit.putString("parallel_peer_fingerprint", peerFingerprint);
+        else edit.remove("parallel_peer_fingerprint");
+        edit.apply();
     }
+
+    public boolean parallelRecommended() { return recommendedStreams() == 2; }
+    public String parallelPeerFingerprint() { return prefs.getString("parallel_peer_fingerprint", null); }
 
     public int recommendedStreams() {
         int value = prefs.getInt(PARALLEL_STREAMS, 1);

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.net.Uri;
 
 import com.kenan.optishare.device.DeviceIdentityKey;
+import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
 import com.kenan.optishare.protocol.SessionWire;
@@ -57,6 +58,7 @@ public final class StripedTransferEngine {
 
     private final Context context;
     private final DownloadStore store;
+    private final java.util.Set<Socket> openSockets = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<Socket, Boolean>());
 
     public StripedTransferEngine(Context context) {
         this.context = context.getApplicationContext();
@@ -115,6 +117,7 @@ public final class StripedTransferEngine {
                             String expectedFingerprint, AtomicLong combined, long started,
                             Listener listener) throws Exception {
         try (Socket socket = new Socket()) {
+            openSockets.add(socket);
             tune(socket);
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
             try (DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream(), BUFFER));
@@ -156,6 +159,9 @@ public final class StripedTransferEngine {
                     throw new java.io.IOException("Invalid striped completion acknowledgement");
                 }
             }
+        } finally {
+            // try-with-resources already closed the socket; remove the stale handle.
+            openSockets.removeIf(Socket::isClosed);
         }
     }
 
@@ -216,7 +222,7 @@ public final class StripedTransferEngine {
                     if (state.failure != null) throw state.failure;
                     SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
                             SessionWire.encodeAck(begin.fileId, begin.totalSize));
-                    if (state.publishedUri != null) {
+                    if (state.publishedUri != null && state.completionDelivered.compareAndSet(false, true)) {
                         listener.onCompleted(begin.sessionId, state.publishedUri,
                                 state.durationMs(), state.speed());
                     }
@@ -242,6 +248,7 @@ public final class StripedTransferEngine {
         final java.util.concurrent.atomic.AtomicBoolean approvalStarted = new java.util.concurrent.atomic.AtomicBoolean(false);
         final CountDownLatch approval = new CountDownLatch(1);
         final CountDownLatch published = new CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicBoolean completionDelivered = new java.util.concurrent.atomic.AtomicBoolean(false);
         final Object fileLock = new Object();
         volatile boolean accepted;
         volatile Exception failure;
@@ -378,6 +385,14 @@ public final class StripedTransferEngine {
         if(!identity.supported)return null;
         if(!DeviceIdentityKey.verify(identity.publicKey,challenge,identity.signature))throw new SecurityException("Peer identity signature invalid");
         return DeviceIdentityKey.fingerprint(identity.publicKey);
+    }
+
+
+    public void cancel() {
+        for (Socket socket : openSockets) {
+            try { socket.close(); } catch (Exception ignored) { }
+        }
+        openSockets.clear();
     }
 
     private static long alignSplit(long size) {

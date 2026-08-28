@@ -71,6 +71,7 @@ public final class TransferService extends Service {
     public static final String EXTRA_TOTAL_BYTES = "total_bytes";
     public static final int PORT = 49888;
     public static final int PARALLEL_BENCHMARK_PORT = 49891;
+    public static final int STRIPED_TRANSFER_PORT = 49892;
 
     private static final String CHANNEL = "optishare_transfers";
     private static final int NOTIFICATION_ID = 2200;
@@ -81,7 +82,10 @@ public final class TransferService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ServerSocket serverSocket;
     private volatile ServerSocket benchmarkServerSocket;
+    private volatile ServerSocket stripedServerSocket;
     private volatile Socket activeSocket;
+    private volatile StripedTransferEngine activeStripedEngine;
+    private volatile boolean stripedActive;
     private volatile BatchManifest activeManifest;
     private volatile List<TransferItem> activeItems;
     private SenderSessionStore senderStore;
@@ -185,6 +189,7 @@ public final class TransferService extends Service {
         updateNotification("Ready to receive", "Waiting via Wi-Fi Direct or the same Wi-Fi network", 0, false);
         broadcast("receiver_ready", "Waiting via Wi-Fi Direct or same Wi-Fi…", 0, 0, null);
         startParallelBenchmarkReceiver();
+        startStripedReceiver();
         executor.execute(() -> {
             try (ServerSocket server = new ServerSocket()) {
                 serverSocket = server;
@@ -220,6 +225,54 @@ public final class TransferService extends Service {
                 stopForeground(true);
                 stopSelf();
             }
+        });
+    }
+
+    private void startStripedReceiver() {
+        executor.execute(() -> {
+            try (ServerSocket server = new ServerSocket()) {
+                stripedServerSocket = server;
+                server.setReuseAddress(true);
+                server.bind(new InetSocketAddress(STRIPED_TRANSFER_PORT));
+                while (running.get()) {
+                    Socket socket = server.accept();
+                    executor.execute(() -> {
+                        try {
+                            new StripedTransferEngine(this).receive(socket, trustedStore, new StripedTransferEngine.Listener() {
+                                @Override public void onIncoming(String sessionId, String name, long totalBytes, String fingerprint, StripedTransferEngine.Approval approval) {
+                                    activePeerFingerprint = fingerprint;
+                                    activeTransferStartedNanos = System.nanoTime();
+                                    dataTransferStartedNanos = 0L;
+                                    latestBatchDone = 0L;
+                                    latestSpeed = 0d;
+                                    if (trustedStore.autoAccept(fingerprint)) { approval.decide(true); return; }
+                                    String key = "striped:" + sessionId;
+                                    IncomingApproval.begin(key, "Incoming accelerated OptiShare transfer", name + " • " + formatBytes(totalBytes) + "\n2 encrypted streams • verify this transfer is expected.");
+                                    broadcast("incoming", "Accelerated transfer • " + name + " • " + formatBytes(totalBytes), 0, 0, sessionId);
+                                    try { approval.decide(IncomingApproval.await(key, APPROVAL_TIMEOUT_MS)); }
+                                    catch (InterruptedException e) { Thread.currentThread().interrupt(); approval.decide(false); }
+                                }
+                                @Override public void onProgress(long done, long total, double speed) {
+                                    if (dataTransferStartedNanos == 0L && done > 0L) dataTransferStartedNanos = System.nanoTime();
+                                    latestBatchDone = done; latestSpeed = speed;
+                                    int p = percent(done, total); long eta = etaSeconds(done, total, speed);
+                                    String message = "Receiving with 2 encrypted streams • " + formatProgress(done, total, speed, eta);
+                                    updateNotification("Accelerated receive", message, p, true);
+                                    broadcastProgress(message, p, speed, null, done, total, eta);
+                                }
+                                @Override public void onCompleted(String sessionId, Uri publishedUri, long durationMs, double speed) {
+                                    latestBatchDone = Math.max(latestBatchDone, 1L); latestSpeed = speed;
+                                    String summary = "Received with 2 streams • " + formatElapsed(durationMs / 1000.0) + " • avg " + formatSpeed(speed);
+                                    updateNotification("Transfer complete", summary, 100, false);
+                                    broadcastCompleted(summary, sessionId, RoutePerformanceStore.ROUTE_LAN);
+                                }
+                            });
+                        } catch (Exception ignored) { }
+                    });
+                }
+            } catch (Exception ignored) {
+                // Normal resumable receiver remains available if accelerated port cannot bind.
+            } finally { stripedServerSocket = null; }
         });
     }
 
@@ -431,6 +484,23 @@ public final class TransferService extends Service {
                 String host = peer != null && peer.host != null ? peer.host : initialHost;
                 String peerAddress = peer == null ? null : peer.deviceAddress;
                 senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
+                if (shouldUseStripedTransfer()) {
+                    try {
+                        runStripedSender(host);
+                        senderStore.clear();
+                        running.set(false);
+                        stopForeground(false);
+                        stopSelf();
+                        return;
+                    } catch (Exception stripedError) {
+                        stripedActive = false;
+                        activeStripedEngine = null;
+                        if (!running.get()) return;
+                        dataTransferStartedNanos = 0L; latestBatchDone = 0L; latestSpeed = 0d;
+                        broadcast("parallel_fallback", "2-stream acceleration unavailable — falling back safely to 1 stream", 0, 0, activeManifest.getSessionId());
+                        updateNotification("Using reliable fallback", "Continuing with the normal encrypted resumable stream", 0, true);
+                    }
+                }
                 runSenderLoop(host, peerAddress, engine);
             } catch (Exception error) {
                 failSender(error);
@@ -438,6 +508,42 @@ public final class TransferService extends Service {
         });
     }
 
+
+    private boolean shouldUseStripedTransfer() {
+        if (!RoutePerformanceStore.ROUTE_LAN.equals(currentRoute) || !routeStore.parallelRecommended()) return false;
+        if (activeItems == null || activeManifest == null || activeItems.size() != 1 || activeManifest.getEntries().size() != 1) return false;
+        if (activeItems.get(0).getSize() < StripedTransferEngine.MIN_FILE_BYTES) return false;
+        String fingerprint = routeStore.parallelPeerFingerprint();
+        return fingerprint != null && trustedStore.isTrusted(fingerprint);
+    }
+
+    private void runStripedSender(String host) throws Exception {
+        String expectedFingerprint = routeStore.parallelPeerFingerprint();
+        StripedTransferEngine engine = new StripedTransferEngine(this);
+        activeStripedEngine = engine; stripedActive = true;
+        broadcast("parallel_started", "SmartRoute selected 2 encrypted streams • benchmark showed a meaningful gain", 0, 0, activeManifest.getSessionId());
+        updateNotification("2-stream acceleration", "Sending large file over two authenticated encrypted streams", 0, true);
+        try {
+            engine.send(host, STRIPED_TRANSFER_PORT, activeManifest, activeItems.get(0), expectedFingerprint, new StripedTransferEngine.Listener() {
+                @Override public void onIncoming(String sessionId, String name, long totalBytes, String fingerprint, StripedTransferEngine.Approval approval) { }
+                @Override public void onProgress(long done, long total, double speed) {
+                    if (dataTransferStartedNanos == 0L && done > 0L) dataTransferStartedNanos = System.nanoTime();
+                    latestBatchDone = done; latestSpeed = speed;
+                    int p = percent(done, total); long eta = etaSeconds(done, total, speed);
+                    String message = "Sending with 2 encrypted streams • " + formatProgress(done, total, speed, eta);
+                    updateNotification("Accelerated send", message, p, true);
+                    broadcastProgress(message, p, speed, activeManifest.getSessionId(), done, total, eta);
+                }
+                @Override public void onCompleted(String sessionId, Uri publishedUri, long durationMs, double speed) {
+                    latestBatchDone = activeManifest.totalBytes(); latestSpeed = speed;
+                    routeStore.recordSuccess(currentRoute, speed);
+                    String summary = "Sent " + formatBytes(activeManifest.totalBytes()) + " in " + formatElapsed(durationMs / 1000.0) + " • avg " + formatSpeed(speed) + " • 2 encrypted streams • same Wi-Fi";
+                    updateNotification("Transfer complete", summary, 100, false);
+                    broadcastCompleted(summary, sessionId, currentRoute);
+                }
+            });
+        } finally { stripedActive = false; activeStripedEngine = null; }
+    }
 
     private void startBenchmark(Intent intent) {
         final String host = intent.getStringExtra(EXTRA_HOST);
@@ -486,7 +592,7 @@ public final class TransferService extends Service {
                 double dualSpeed = dualBytes / Math.max(0.001, dualDurationMs / 1000.0);
                 int gain = ParallelBenchmarkDecision.improvementPercent(single.bytesPerSecond, dualSpeed);
                 boolean recommendDual = ParallelBenchmarkDecision.recommendTwoStreams(single.bytesPerSecond, dualSpeed);
-                routeStore.recordParallelBenchmark(single.bytesPerSecond, dualSpeed);
+                routeStore.recordParallelBenchmark(single.bytesPerSecond, dualSpeed, fingerprint);
                 String summary = "1 stream " + formatSpeed(single.bytesPerSecond)
                         + " • 2 streams " + formatSpeed(dualSpeed)
                         + " • " + (gain >= 0 ? "+" : "") + gain + "% • "
@@ -874,6 +980,7 @@ public final class TransferService extends Service {
         }
         int p = percent(latestBatchDone, activeManifest.totalBytes());
         running.set(false);
+        if (stripedActive && activeStripedEngine != null) activeStripedEngine.cancel();
         closeSocket();
         broadcast("paused", "Paused safely • confirmed progress kept for resume", p, latestSpeed,
                 activeManifest.getSessionId());
@@ -888,14 +995,19 @@ public final class TransferService extends Service {
         if (userCancelled && senderStore != null) senderStore.clear();
         if (lanDiscovery != null) lanDiscovery.stopAdvertising();
         closeSocket();
+        if (activeStripedEngine != null) activeStripedEngine.cancel();
         try {
             if (serverSocket != null) serverSocket.close();
         } catch (Exception ignored) { }
         try {
             if (benchmarkServerSocket != null) benchmarkServerSocket.close();
         } catch (Exception ignored) { }
+        try {
+            if (stripedServerSocket != null) stripedServerSocket.close();
+        } catch (Exception ignored) { }
         serverSocket = null;
         benchmarkServerSocket = null;
+        stripedServerSocket = null;
         stopForeground(true);
         stopSelf();
     }
@@ -912,11 +1024,15 @@ public final class TransferService extends Service {
         IncomingApproval.cancel();
         if (lanDiscovery != null) lanDiscovery.close();
         closeSocket();
+        if (activeStripedEngine != null) activeStripedEngine.cancel();
         try {
             if (serverSocket != null) serverSocket.close();
         } catch (Exception ignored) { }
         try {
             if (benchmarkServerSocket != null) benchmarkServerSocket.close();
+        } catch (Exception ignored) { }
+        try {
+            if (stripedServerSocket != null) stripedServerSocket.close();
         } catch (Exception ignored) { }
         executor.shutdownNow();
         super.onDestroy();
