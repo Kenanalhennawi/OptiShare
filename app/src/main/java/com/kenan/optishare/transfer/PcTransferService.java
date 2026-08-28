@@ -28,7 +28,6 @@ import java.io.DataOutputStream;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,7 +48,6 @@ public final class PcTransferService extends Service {
 
     private static final String CHANNEL = "optishare_pc_transfer";
     private static final int NOTIFICATION_ID = 2203;
-    private static final byte[] MAGIC = "OPTISHARE-PC-1\n".getBytes(StandardCharsets.US_ASCII);
     private static final int BUFFER = 1024 * 1024;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -108,8 +106,8 @@ public final class PcTransferService extends Service {
 
             try (DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream(), BUFFER));
                  DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream(), BUFFER))) {
-                out.write(MAGIC);
-                writeString(out, token, 512);
+                out.write(PcWire.MAGIC);
+                PcWire.writeString(out, token, 512);
                 out.writeInt(items.size());
                 out.flush();
 
@@ -120,9 +118,9 @@ public final class PcTransferService extends Service {
                 byte[] buffer = new byte[BUFFER];
                 for (Item item : items) {
                     if (!running.get()) throw new InterruptedException("Transfer cancelled");
-                    writeString(out, item.name, 4096);
-                    writeString(out, item.relativePath == null ? "" : item.relativePath, 8192);
-                    writeString(out, item.mime, 1024);
+                    PcWire.writeString(out, item.name, 4096);
+                    PcWire.writeString(out, item.relativePath == null ? "" : item.relativePath, 8192);
+                    PcWire.writeString(out, item.mime, 1024);
                     out.writeLong(item.size);
                     out.flush();
 
@@ -163,7 +161,7 @@ public final class PcTransferService extends Service {
                     broadcast("file_done", item.name + " verified on Windows", total <= 0 ? 0 : (int) Math.min(100L, batchDone * 100L / total),
                             0d, batchDone, total, 0L, 0d, 0L, 0, 0, 0L);
                 }
-                out.writeInt(0x0F7152E2);
+                out.writeInt(PcWire.COMPLETION_MARKER);
                 out.flush();
                 if (in.readUnsignedByte() != 1) throw new IllegalStateException("Windows did not confirm completion");
 
@@ -231,13 +229,6 @@ public final class PcTransferService extends Service {
         String mime = getContentResolver().getType(uri);
         if (mime == null || mime.trim().isEmpty()) mime = "application/octet-stream";
         return new Item(uri, name, mime, size, null);
-    }
-
-    private static void writeString(DataOutputStream out, String value, int maxBytes) throws Exception {
-        byte[] bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
-        if (bytes.length > maxBytes) throw new IllegalArgumentException("Metadata too long");
-        out.writeInt(bytes.length);
-        out.write(bytes);
     }
 
     private void broadcast(String event, String message, int progress, double speed,
