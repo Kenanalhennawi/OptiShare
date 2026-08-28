@@ -114,6 +114,7 @@ public class V2Activity extends ComponentActivity implements
     private TextView transferDetail;
     private ProgressBar transferProgress;
     private Button transferPauseButton;
+    private Button transferCancelButton;
     private boolean transferPaused;
 
     private DeviceIdentity identity;
@@ -327,6 +328,8 @@ public class V2Activity extends ComponentActivity implements
                 transferStarted = false;
                 pcTransferMode=false;
                 transferPaused=false;
+                if(transferPauseButton!=null)transferPauseButton.setVisibility(View.GONE);
+                if(transferCancelButton!=null){transferCancelButton.setText("Done");transferCancelButton.setOnClickListener(v->showHome());}
                 updatePauseButton(false);
             } else if ("error".equals(event)) {
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
@@ -657,9 +660,10 @@ public class V2Activity extends ComponentActivity implements
             LinearLayout.LayoutParams pbtn=new LinearLayout.LayoutParams(-1,dp(50));pbtn.setMargins(0,dp(12),0,0);root.addView(transferPauseButton,pbtn);
         }else transferPauseButton=null;
         if(benchmarkMode){
+            transferCancelButton=null;
             Button back=secondaryButton("Back to nearby devices");back.setOnClickListener(v->{stopTransferService();benchmarkMode=false;pcTransferMode=false;transferStarted=false;showDiscovery();});LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(back,cp);
         }else{
-            Button cancel=secondaryButton("Cancel transfer");cancel.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(cancel,cp);
+            transferCancelButton=secondaryButton("Cancel transfer");transferCancelButton.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(transferCancelButton,cp);
         }
         setContentView(scroll);
     }
@@ -936,7 +940,7 @@ public class V2Activity extends ComponentActivity implements
         ContextCompat.startForegroundService(this,i);
     }
 
-    private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null)return;transferPauseButton.setText(paused?"Resume transfer":"Pause transfer");transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
+    private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null||transferPauseButton.getVisibility()!=View.VISIBLE)return;transferPauseButton.setText(paused?"Resume transfer":"Pause transfer");transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
 
     private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));try{startService(new Intent(this,PcTransferService.class).setAction(PcTransferService.ACTION_STOP_PC));}catch(Exception ignored){}}
 

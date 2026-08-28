@@ -92,6 +92,7 @@ public final class TransferService extends Service {
     private volatile String currentRoute = RoutePerformanceStore.ROUTE_DIRECT;
     private volatile String activePeerFingerprint;
     private volatile long activeTransferStartedNanos;
+    private volatile long dataTransferStartedNanos;
     private volatile int reconnectCount;
     private volatile long latestBatchDone;
     private volatile double latestSpeed;
@@ -161,6 +162,7 @@ public final class TransferService extends Service {
 
     private void resetMetrics() {
         activeTransferStartedNanos = System.nanoTime();
+        dataTransferStartedNanos = 0L;
         reconnectCount = 0;
         latestBatchDone = 0L;
         latestSpeed = 0d;
@@ -169,6 +171,7 @@ public final class TransferService extends Service {
     private void startReceiver() {
         if (!running.compareAndSet(false, true)) return;
         activeTransferStartedNanos = 0L;
+        dataTransferStartedNanos = 0L;
         reconnectCount = 0;
         latestBatchDone = 0L;
         latestSpeed = 0d;
@@ -360,6 +363,7 @@ public final class TransferService extends Service {
             @Override public void onProgress(String sessionId, String fileId, String fileName,
                                              long done, long total, long batchDone,
                                              long batchTotal, double bytesPerSecond) {
+                if (dataTransferStartedNanos == 0L && batchDone > 0L) dataTransferStartedNanos = System.nanoTime();
                 latestBatchDone = batchDone;
                 latestSpeed = bytesPerSecond;
                 int p = percent(batchDone, batchTotal);
@@ -611,6 +615,7 @@ public final class TransferService extends Service {
             @Override public void onProgress(String sessionId, String fileId, String fileName,
                                              long done, long total, long batchDone,
                                              long batchTotal, double bytesPerSecond) {
+                if (dataTransferStartedNanos == 0L && batchDone > 0L) dataTransferStartedNanos = System.nanoTime();
                 latestBatchDone = batchDone;
                 latestSpeed = bytesPerSecond;
                 int p = percent(batchDone, batchTotal);
@@ -805,8 +810,9 @@ public final class TransferService extends Service {
         long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
         int fileCount = activeManifest == null ? 0 : activeManifest.getEntries().size();
         double average = averageBytesPerSecond();
-        long durationMs = activeTransferStartedNanos == 0L ? 0L
-                : Math.max(0L, Math.round((System.nanoTime() - activeTransferStartedNanos) / 1_000_000.0));
+        long timingStart = dataTransferStartedNanos != 0L ? dataTransferStartedNanos : activeTransferStartedNanos;
+        long durationMs = timingStart == 0L ? 0L
+                : Math.max(0L, Math.round((System.nanoTime() - timingStart) / 1_000_000.0));
         Intent intent = new Intent(ACTION_EVENT);
         intent.setPackage(getPackageName());
         intent.putExtra(EXTRA_EVENT, "completed");
@@ -939,7 +945,8 @@ public final class TransferService extends Service {
 
     private double averageBytesPerSecond() {
         long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
-        double seconds = activeTransferStartedNanos == 0L ? 0d : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);
+        long timingStart = dataTransferStartedNanos != 0L ? dataTransferStartedNanos : activeTransferStartedNanos;
+        double seconds = timingStart == 0L ? 0d : Math.max(0.001, (System.nanoTime() - timingStart) / 1_000_000_000.0);
         return total <= 0 || seconds <= 0 ? latestSpeed : total / seconds;
     }
 
@@ -947,8 +954,9 @@ public final class TransferService extends Service {
 
     private String benchmarkSummary(String verb) {
         long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
-        double seconds = activeTransferStartedNanos == 0L ? 0d
-                : Math.max(0.001, (System.nanoTime() - activeTransferStartedNanos) / 1_000_000_000.0);
+        long timingStart = dataTransferStartedNanos != 0L ? dataTransferStartedNanos : activeTransferStartedNanos;
+        double seconds = timingStart == 0L ? 0d
+                : Math.max(0.001, (System.nanoTime() - timingStart) / 1_000_000_000.0);
         double average = averageBytesPerSecond();
         StringBuilder value = new StringBuilder();
         value.append(verb).append(" ").append(formatBytes(total))
