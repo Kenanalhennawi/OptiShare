@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Random;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -122,4 +123,30 @@ public class SessionWireTest {
             // expected
         }
     }
+
+    @Test public void malformedMetadataCorpusFailsClosedWithoutUncheckedParserCrash() {
+        Random random = new Random(0x052F22L);
+        for (int i = 0; i < 5_000; i++) {
+            byte[] payload = new byte[random.nextInt(4097)];
+            random.nextBytes(payload);
+            assertParserFailsClosed(() -> SessionWire.decodeManifest(payload));
+            assertParserFailsClosed(() -> SessionWire.decodeOffsets(payload));
+            assertParserFailsClosed(() -> SessionWire.decodeChunk(payload));
+            assertParserFailsClosed(() -> SessionWire.decodeIdentity(payload));
+        }
+    }
+
+    private static void assertParserFailsClosed(ParserCall call) {
+        try {
+            call.run();
+        } catch (IOException expected) {
+            return;
+        } catch (RuntimeException unchecked) {
+            fail("Parser leaked unchecked exception: " + unchecked.getClass().getName());
+        } catch (Exception checked) {
+            fail("Unexpected checked exception: " + checked.getClass().getName());
+        }
+    }
+
+    private interface ParserCall { void run() throws Exception; }
 }

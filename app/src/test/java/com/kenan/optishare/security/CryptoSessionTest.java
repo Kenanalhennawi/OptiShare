@@ -80,4 +80,21 @@ public class CryptoSessionTest {
             // expected
         }
     }
+
+    @Test public void authenticatedFrameReplayIsRejectedWithinSession() throws Exception {
+        CryptoSession sender = CryptoSession.create();
+        CryptoSession receiver = CryptoSession.create();
+        byte[] salt = new byte[32];
+        new SecureRandom().nextBytes(salt);
+        sender.establish(receiver.publicKeyEncoded(), salt);
+        receiver.establish(sender.publicKeyEncoded(), salt);
+        byte[] encrypted = sender.encrypt("one-time".getBytes("UTF-8"), new byte[]{3});
+        assertArrayEquals("one-time".getBytes("UTF-8"), receiver.decrypt(encrypted, new byte[]{3}));
+        try {
+            receiver.decrypt(encrypted, new byte[]{3});
+            fail("Authenticated frame replay must be rejected");
+        } catch (GeneralSecurityException expected) {
+            // expected
+        }
+    }
 }

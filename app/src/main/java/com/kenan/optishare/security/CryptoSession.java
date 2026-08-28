@@ -6,11 +6,14 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
+import java.security.GeneralSecurityException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyAgreement;
@@ -20,12 +23,14 @@ import javax.crypto.spec.SecretKeySpec;
 
 /** Per-transfer ephemeral ECDH + HKDF-SHA256 + AES-256-GCM, compatible with Android 5+. */
 public final class CryptoSession {
+    private static final int MAX_RECEIVED_FRAMES_PER_KEY = 131_072;
     private static final SecureRandom RNG = new SecureRandom();
     private static final byte[] HKDF_INFO = "OptiShare-2.0-session".getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
     private final KeyPair keyPair;
     private SecretKeySpec aesKey;
     private byte[] fingerprint;
+    private final Set<Nonce> receivedNonces = new HashSet<>();
 
     private CryptoSession(KeyPair keyPair) { this.keyPair = keyPair; }
 
@@ -79,19 +84,28 @@ public final class CryptoSession {
         return out.array();
     }
 
-    public byte[] decrypt(byte[] frame, byte[] aad) throws Exception {
+    public synchronized byte[] decrypt(byte[] frame, byte[] aad) throws Exception {
         ensureReady();
         ByteBuffer in = ByteBuffer.wrap(frame);
         int ivLength = in.get() & 0xff;
         if (ivLength != 12 || in.remaining() <= ivLength) throw new IllegalArgumentException("Invalid encrypted frame");
         byte[] iv = new byte[ivLength];
         in.get(iv);
+        Nonce nonce = new Nonce(iv);
+        if (receivedNonces.contains(nonce)) {
+            throw new GeneralSecurityException("Replayed encrypted frame");
+        }
         byte[] ciphertext = new byte[in.remaining()];
         in.get(ciphertext);
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, aesKey, new GCMParameterSpec(128, iv));
         if (aad != null) cipher.updateAAD(aad);
-        return cipher.doFinal(ciphertext);
+        byte[] plaintext = cipher.doFinal(ciphertext);
+        if (receivedNonces.size() >= MAX_RECEIVED_FRAMES_PER_KEY) {
+            throw new GeneralSecurityException("Encrypted session frame limit exceeded; reconnect required");
+        }
+        receivedNonces.add(nonce);
+        return plaintext;
     }
 
     public String shortCode() {
@@ -132,5 +146,21 @@ public final class CryptoSession {
         }
         java.util.Arrays.fill(prk, (byte) 0);
         return out.toByteArray();
+    }
+
+    private static final class Nonce {
+        final long high;
+        final int low;
+        Nonce(byte[] iv) {
+            ByteBuffer bytes = ByteBuffer.wrap(iv);
+            high = bytes.getLong();
+            low = bytes.getInt();
+        }
+        @Override public boolean equals(Object other) {
+            return other instanceof Nonce && ((Nonce) other).high == high && ((Nonce) other).low == low;
+        }
+        @Override public int hashCode() {
+            return 31 * Long.hashCode(high) + low;
+        }
     }
 }

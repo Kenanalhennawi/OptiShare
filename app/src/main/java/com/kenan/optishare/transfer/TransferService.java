@@ -100,6 +100,7 @@ public final class TransferService extends Service {
     private LanDiscovery lanDiscovery;
     private RoutePerformanceStore routeStore;
     private TrustedDeviceStore trustedStore;
+    private final HandshakeRateLimiter handshakeLimiter = new HandshakeRateLimiter();
     private volatile String currentRoute = RoutePerformanceStore.ROUTE_DIRECT;
     private volatile String activePeerFingerprint;
     private volatile long activeTransferStartedNanos;
@@ -211,6 +212,7 @@ public final class TransferService extends Service {
                 server.bind(new InetSocketAddress(PORT));
                 while (running.get()) {
                     Socket socket = server.accept();
+                    if (!allowIncomingHandshake(socket)) continue;
                     activeSocket = socket;
                     try {
                         broadcast("connected", "Sender connected — verifying secure session", 0, 0, null);
@@ -250,6 +252,7 @@ public final class TransferService extends Service {
                 server.bind(new InetSocketAddress(STRIPED_TRANSFER_PORT));
                 while (running.get()) {
                     Socket socket = server.accept();
+                    if (!allowIncomingHandshake(socket)) continue;
                     executor.execute(() -> {
                         try {
                             new StripedTransferEngine(this).receive(socket, trustedStore, new StripedTransferEngine.Listener() {
@@ -298,6 +301,7 @@ public final class TransferService extends Service {
                 server.bind(new InetSocketAddress(PARALLEL_BENCHMARK_PORT));
                 while (running.get()) {
                     Socket socket = server.accept();
+                    if (!allowIncomingHandshake(socket)) continue;
                     executor.execute(() -> receiveTrustedBenchmark(socket));
                 }
             } catch (Exception ignored) {
@@ -326,6 +330,16 @@ public final class TransferService extends Service {
                 @Override public void onError(String sessionId, Throwable error, boolean resumable) { }
             });
         } catch (Exception ignored) { }
+    }
+
+    private boolean allowIncomingHandshake(Socket socket) {
+        String address = socket == null || socket.getInetAddress() == null
+                ? null : socket.getInetAddress().getHostAddress();
+        boolean allowed = handshakeLimiter.allow(address, System.nanoTime() / 1_000_000L);
+        if (!allowed && socket != null) {
+            try { socket.close(); } catch (Exception ignored) { }
+        }
+        return allowed;
     }
 
     private static final class BenchmarkSample {
