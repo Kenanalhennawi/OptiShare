@@ -451,6 +451,11 @@ public final class TransferService extends Service {
                         "Verified ✓ • saved to Download/OptiShare");
             }
 
+            @Override public void onFileFailed(String sessionId, String fileId,
+                                               String fileName, String reason) {
+                broadcastFileFailed(sessionId, fileId, fileName, entryIndex(fileId), reason);
+            }
+
             @Override public void onCompleted(String sessionId) {
                 String summary = benchmarkSummary("Received");
                 updateNotification("Transfer complete", summary, 100, false);
@@ -759,6 +764,11 @@ public final class TransferService extends Service {
                         "Sent and verified ✓");
             }
 
+            @Override public void onFileFailed(String sessionId, String fileId,
+                                               String fileName, String reason) {
+                broadcastFileFailed(sessionId, fileId, fileName, entryIndex(fileId), reason);
+            }
+
             @Override public void onCompleted(String sessionId) {
                 routeStore.recordSuccess(currentRoute, averageBytesPerSecond());
                 String summary = benchmarkSummary("Sent") + " • " + routeLabel(currentRoute);
@@ -1003,6 +1013,19 @@ public final class TransferService extends Service {
         intent.setPackage(getPackageName());
         intent.putExtra(EXTRA_EVENT, "file_done");
         intent.putExtra(EXTRA_MESSAGE, message);
+        intent.putExtra(EXTRA_SESSION, session);
+        intent.putExtra(EXTRA_FILE_ID, fileId);
+        intent.putExtra(EXTRA_FILE_NAME, fileName);
+        intent.putExtra(EXTRA_FILE_INDEX, fileIndex);
+        sendBroadcast(intent);
+    }
+
+    private void broadcastFileFailed(String session, String fileId, String fileName,
+                                     int fileIndex, String reason) {
+        Intent intent = new Intent(ACTION_EVENT);
+        intent.setPackage(getPackageName());
+        intent.putExtra(EXTRA_EVENT, "file_failed");
+        intent.putExtra(EXTRA_MESSAGE, reason == null ? "File failed" : reason);
         intent.putExtra(EXTRA_SESSION, session);
         intent.putExtra(EXTRA_FILE_ID, fileId);
         intent.putExtra(EXTRA_FILE_NAME, fileName);

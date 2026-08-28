@@ -48,6 +48,8 @@ public final class TransferEngine {
         void onProgress(String sessionId, String fileId, String fileName, long done, long total,
                         long batchDone, long batchTotal, double bytesPerSecond);
         void onFileCompleted(String sessionId, String fileId, Uri publishedUri);
+        default void onFileFailed(String sessionId, String fileId, String fileName,
+                                  String reason) { }
         void onCompleted(String sessionId);
         void onError(String sessionId, Throwable error, boolean resumable);
         default void onBenchmarkCompleted(long bytes, long durationMs, double bytesPerSecond) { }
@@ -109,10 +111,11 @@ public final class TransferEngine {
                 int chunksAwaitingCheckpoint = 0;
                 int checkpointChunks = ResumableProtocol.checkpointChunksForFile(entry.size);
 
-                if (offset < entry.size) {
-                    InputStream raw = context.getContentResolver().openInputStream(item.getUri());
-                    if (raw == null) throw new IOException("Cannot open source file: " + entry.name);
-                    try (BufferedInputStream source = new BufferedInputStream(raw, STREAM_BUFFER)) {
+                try {
+                    if (offset < entry.size) {
+                        InputStream raw = context.getContentResolver().openInputStream(item.getUri());
+                        if (raw == null) throw new IOException("Cannot open source file: " + entry.name);
+                        try (BufferedInputStream source = new BufferedInputStream(raw, STREAM_BUFFER)) {
                         skipFully(source, offset);
                         byte[] buffer = new byte[CHUNK];
                         while (sent < entry.size) {
@@ -148,20 +151,38 @@ public final class TransferEngine {
                                     sent, entry.size, batchBase + sent - offset, batchTotal,
                                     (sent - offset) / seconds);
                         }
+                        }
                     }
-                }
 
-                SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_FILE_DONE,
-                        SessionWire.encodeText(entry.id));
-                SessionWire.Frame verifiedFrame = SessionWire.readFrame(in, handshake.crypto);
-                if (verifiedFrame.type != SessionWire.TYPE_ACK) {
-                    throw new IOException("Receiver did not verify completed file");
+                    SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_FILE_DONE,
+                            SessionWire.encodeText(entry.id));
+                    SessionWire.Frame verifiedFrame = SessionWire.readFrame(in, handshake.crypto);
+                    if (verifiedFrame.type == SessionWire.TYPE_FILE_FAILED) {
+                        listener.onFileFailed(manifest.getSessionId(), entry.id, entry.name,
+                                new String(verifiedFrame.payload, java.nio.charset.StandardCharsets.UTF_8));
+                        confirmedBefore = batchBase;
+                        continue;
+                    }
+                    if (verifiedFrame.type != SessionWire.TYPE_ACK) {
+                        throw new IOException("Receiver did not verify completed file");
+                    }
+                    SessionWire.Ack verified = SessionWire.decodeAck(verifiedFrame.payload);
+                    if (!entry.id.equals(verified.fileId) || verified.offset != entry.size) {
+                        throw new IOException("Invalid file completion acknowledgement");
+                    }
+                    confirmedBefore = batchBase + entry.size - offset;
+                } catch (IOException sourceError) {
+                    // Transport failures must resume the session. Only local content read failures
+                    // can be isolated without risking encrypted stream desynchronisation.
+                    if (!isLocalSourceFailure(sourceError)) throw sourceError;
+                    SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_FILE_SKIPPED,
+                            SessionWire.encodeText(entry.id));
+                    SessionWire.Frame skippedAck = SessionWire.readFrame(in, handshake.crypto);
+                    if (skippedAck.type != SessionWire.TYPE_ACK) throw sourceError;
+                    listener.onFileFailed(manifest.getSessionId(), entry.id, entry.name,
+                            sourceError.getMessage());
+                    confirmedBefore = batchBase;
                 }
-                SessionWire.Ack verified = SessionWire.decodeAck(verifiedFrame.payload);
-                if (!entry.id.equals(verified.fileId) || verified.offset != entry.size) {
-                    throw new IOException("Invalid file completion acknowledgement");
-                }
-                confirmedBefore = batchBase + entry.size - offset;
             }
 
             SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_BATCH_DONE,
@@ -407,7 +428,12 @@ public final class TransferEngine {
                             received.put(fileId, 0L);
                             resumeStore.save(new ResumeState(sessionId,
                                     System.currentTimeMillis(), confirmed));
-                            throw new IOException("SHA-256 verification failed: " + entry.name);
+                            String reason = "SHA-256 verification failed";
+                            listener.onFileFailed(sessionId, fileId, entry.name, reason);
+                            SessionWire.writeFrame(out, handshake.crypto,
+                                    SessionWire.TYPE_FILE_FAILED,
+                                    SessionWire.encodeText(reason));
+                            continue;
                         }
                         Uri published = downloadStore.publishVerified(sessionId, fileId,
                                 entry.name, entry.mime, entry.category, entry.relativePath);
@@ -418,6 +444,29 @@ public final class TransferEngine {
                         listener.onFileCompleted(sessionId, fileId, published);
                         SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
                                 SessionWire.encodeAck(fileId, entry.size));
+                    } else if (frame.type == SessionWire.TYPE_FILE_SKIPPED) {
+                        String fileId = new String(frame.payload,
+                                java.nio.charset.StandardCharsets.UTF_8);
+                        BatchManifest.Entry entry = byId.get(fileId);
+                        if (entry == null) throw new IOException("Unknown skipped file id");
+                        if (activeTarget != null) {
+                            if (!fileId.equals(activeFileId)) {
+                                throw new IOException("Skipped file does not match active stream");
+                            }
+                            activeTarget.close();
+                            activeTarget = null;
+                            activeFileId = null;
+                            chunksSinceCheckpoint = 0;
+                        }
+                        downloadStore.discard(sessionId, fileId);
+                        confirmed.put(fileId, 0L);
+                        received.put(fileId, 0L);
+                        resumeStore.save(new ResumeState(sessionId,
+                                System.currentTimeMillis(), confirmed));
+                        listener.onFileFailed(sessionId, fileId, entry.name,
+                                "Sender could not read this file");
+                        SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_ACK,
+                                SessionWire.encodeAck(fileId, 0L));
                     } else if (frame.type == SessionWire.TYPE_BATCH_DONE) {
                         if (activeTarget != null) {
                             throw new IOException("Batch completed with an open file stream");
@@ -444,6 +493,12 @@ public final class TransferEngine {
             listener.onError(sessionId, e, isResumable(e));
             throw e;
         }
+    }
+
+    private static boolean isLocalSourceFailure(IOException error) {
+        String message = error.getMessage();
+        return message != null && (message.startsWith("Cannot open source file:")
+                || message.startsWith("Unexpected end of source file:"));
     }
 
 

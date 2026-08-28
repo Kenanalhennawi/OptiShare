@@ -27,6 +27,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
+import android.util.SparseArray;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -115,6 +116,13 @@ public class V2Activity extends ComponentActivity implements
     private ProgressBar transferProgress;
     private LinearLayout transferQueueList;
     private final Set<Integer> completedQueueIndexes = new HashSet<>();
+    private final Set<Integer> failedQueueIndexes = new HashSet<>();
+    private final Set<Integer> removedQueueIndexes = new HashSet<>();
+    private final SparseArray<String> failedQueueReasons = new SparseArray<>();
+    private int liveQueueIndex = -1;
+    private String liveQueueName;
+    private long liveQueueDone;
+    private long liveQueueTotal;
     private Button transferPauseButton;
     private Button transferCancelButton;
     private boolean transferPaused;
@@ -301,6 +309,7 @@ public class V2Activity extends ComponentActivity implements
                 setConnectionUi("PAUSED", Color.rgb(255,188,70));
                 setTransferUi("Transfer paused", message, progress);
                 updatePauseButton(true);
+                renderLiveQueue(liveQueueIndex, liveQueueName, liveQueueDone, liveQueueTotal);
             } else if ("pause_unavailable".equals(event)) {
                 setTransferUi("Finishing secure setup", message, -1);
             } else if ("reconnecting".equals(event)) {
@@ -325,21 +334,36 @@ public class V2Activity extends ComponentActivity implements
             } else if ("file_done".equals(event)) {
                 setTransferUi("File verified ✓", message, -1);
                 updateLiveQueue(activeFileIndex, activeFileName, activeFileTotal, activeFileTotal, true);
+            } else if ("file_failed".equals(event)) {
+                if(activeFileIndex>=0){
+                    completedQueueIndexes.remove(activeFileIndex);
+                    failedQueueIndexes.add(activeFileIndex);
+                    failedQueueReasons.put(activeFileIndex,message);
+                }
+                setTransferUi("One file failed — continuing",
+                        (activeFileName==null?"File "+(activeFileIndex+1):activeFileName)+" • "+message, -1);
+                renderLiveQueue(activeFileIndex,activeFileName,0L,activeFileTotal);
             } else if ("completed".equals(event)) {
-                setConnectionUi("COMPLETED ✓", Color.rgb(65, 225, 151));
+                boolean partial=!failedQueueIndexes.isEmpty();
+                setConnectionUi(partial?"COMPLETED WITH FAILED FILES":"COMPLETED ✓",
+                        partial?Color.rgb(255,188,70):Color.rgb(65, 225, 151));
                 TextView screenTitle=findViewByTag("transfer_screen_title");
-                if(screenTitle!=null)screenTitle.setText("Transfer complete");
-                setTransferUi("Transfer complete ✓", message, 100);
+                if(screenTitle!=null)screenTitle.setText(partial?"Queue finished":"Transfer complete");
+                setTransferUi(partial?"Other files completed":"Transfer complete ✓",
+                        partial?failedQueueIndexes.size()+" file(s) need retry • "+message:message,100);
                 historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
-                        connectedPeerName, completedFileCount > 0 ? completedFileCount : selected.size(),
-                        completedTotalBytes > 0 ? completedTotalBytes : selectedTotalBytes(), true,
+                        connectedPeerName, Math.max(0,(completedFileCount > 0 ? completedFileCount : selected.size())-failedQueueIndexes.size()),
+                        completedTotalBytes > 0 ? completedTotalBytes : selectedTotalBytes(), !partial,
                         durationMs, averageSpeed, completedRoute, reconnects));
                 transferStarted = false;
                 pcTransferMode=false;
                 transferPaused=false;
                 if(transferPauseButton!=null)transferPauseButton.setVisibility(View.GONE);
-                if(transferCancelButton!=null){transferCancelButton.setText("Done");transferCancelButton.setOnClickListener(v->showHome());}
+                if(transferCancelButton!=null){
+                    transferCancelButton.setText(partial&&!receiverMode?"Retry failed files →":"Done");
+                    transferCancelButton.setOnClickListener(v->{if(partial&&!receiverMode)retryFailedFiles();else showHome();});
+                }
                 updatePauseButton(false);
             } else if ("error".equals(event)) {
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
@@ -614,6 +638,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void updateLiveQueue(int index,String name,long done,long total,boolean complete){
+        liveQueueIndex=index;liveQueueName=name;liveQueueDone=done;liveQueueTotal=total;
         if(index>=0&&complete)completedQueueIndexes.add(index);
         renderLiveQueue(index,name,done,total);
     }
@@ -625,13 +650,42 @@ public class V2Activity extends ComponentActivity implements
         if(count==0&&activeIndex>=0)count=activeIndex+1;
         int show=Math.min(count,20);
         for(int i=0;i<show;i++){
+            if(removedQueueIndexes.contains(i))continue;
             boolean completed=completedQueueIndexes.contains(i);boolean active=i==activeIndex&&!completed;
+            boolean failed=failedQueueIndexes.contains(i);
             String name=(!receiverMode&&i<selected.size())?displayName(selected.get(i)):(active&&activeName!=null?activeName:"File "+(i+1));
-            String state=completed?"✓ Verified":active?"↗ "+(activeTotal>0?formatBytes(activeDone)+" / "+formatBytes(activeTotal):"Transferring…"):"• Pending";
-            int color=completed?Color.rgb(65,225,151):active?Color.rgb(89,205,255):Color.rgb(151,181,205);
-            transferQueueList.addView(text((i+1)+". "+name+"   "+state,11,color,active||completed));
+            String state=failed?"Failed • "+failedQueueReasons.get(i,"Retry available"):completed?"✓ Completed":active?(transferPaused?"Paused":"Sending")+" • "+(activeTotal>0?formatBytes(activeDone)+" / "+formatBytes(activeTotal):"Starting…"):"Waiting";
+            int color=failed?Color.rgb(255,92,102):completed?Color.rgb(65,225,151):active?Color.rgb(89,205,255):Color.rgb(151,181,205);
+            if(failed&&!receiverMode&&i<selected.size())transferQueueList.addView(failedQueueRow(i,name,state,color));
+            else transferQueueList.addView(text((i+1)+". "+name+"   "+state,11,color,active||completed));
         }
         if(count>show)transferQueueList.addView(text("+ "+(count-show)+" more files",11,Color.rgb(122,158,185),false));
+    }
+
+    private View failedQueueRow(int index,String name,String state,int color){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label=text((index+1)+". "+name+"   "+state,11,color,true);
+        row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        Button retry=smallButton("Retry");retry.setOnClickListener(v->retryQueueFile(index));
+        row.addView(retry,new LinearLayout.LayoutParams(dp(72),dp(40)));
+        Button remove=smallButton("×");remove.setOnClickListener(v->{removedQueueIndexes.add(index);renderLiveQueue(liveQueueIndex,liveQueueName,liveQueueDone,liveQueueTotal);});
+        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(42),dp(40));rp.setMargins(dp(5),0,0,0);row.addView(remove,rp);
+        return row;
+    }
+
+    private void retryQueueFile(int index){
+        if(index<0||index>=selected.size())return;
+        Uri retry=selected.get(index);selected.clear();selected.add(retry);
+        List<com.kenan.optishare.model.TransferItem> rich=FolderTransferQueue.snapshot();
+        FolderTransferQueue.clear();
+        for(com.kenan.optishare.model.TransferItem item:rich)if(retry.equals(item.getUri()))FolderTransferQueue.add(item);
+        showSendSelection();
+    }
+
+    private void retryFailedFiles(){
+        List<Uri> retry=new ArrayList<>();
+        for(int i=0;i<selected.size();i++)if(failedQueueIndexes.contains(i)&&!removedQueueIndexes.contains(i))retry.add(selected.get(i));
+        selected.clear();selected.addAll(retry);showSendSelection();
     }
 
     private void openInternalGallery(String type) {
@@ -712,7 +766,8 @@ public class V2Activity extends ComponentActivity implements
             LinearLayout queueCard=card();
             TextView queueTitle=text(receiverMode?"Receiving files":"Transfer queue",15,Color.WHITE,true);queueCard.addView(queueTitle);
             transferQueueList=new LinearLayout(this);transferQueueList.setOrientation(LinearLayout.VERTICAL);transferQueueList.setPadding(0,dp(8),0,0);queueCard.addView(transferQueueList);
-            completedQueueIndexes.clear();renderLiveQueue(-1,null,0L,0L);
+            completedQueueIndexes.clear();failedQueueIndexes.clear();removedQueueIndexes.clear();failedQueueReasons.clear();
+            liveQueueIndex=-1;liveQueueName=null;liveQueueDone=0L;liveQueueTotal=0L;renderLiveQueue(-1,null,0L,0L);
             LinearLayout.LayoutParams qlp=new LinearLayout.LayoutParams(-1,-2);qlp.setMargins(0,dp(12),0,0);root.addView(queueCard,qlp);
         }else transferQueueList=null;
         if(!receiverMode&&!pcTransferMode){

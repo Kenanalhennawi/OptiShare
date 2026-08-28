@@ -33,6 +33,10 @@ public final class SessionWire {
     public static final int TYPE_STRIPE_BEGIN = 12;
     public static final int TYPE_STRIPE_DATA = 13;
     public static final int TYPE_STRIPE_DONE = 14;
+    /** Sender cannot read this item; receiver discards only that item's partial data. */
+    public static final int TYPE_FILE_SKIPPED = 15;
+    /** Receiver rejected one completed item (for example, SHA-256 mismatch). */
+    public static final int TYPE_FILE_FAILED = 16;
     public static final int MAX_FRAME = 2 * 1024 * 1024;
     public static final int BENCHMARK_BLOCK_BYTES = 512 * 1024;
     public static final long BENCHMARK_TOTAL_BYTES = 8L * 1024L * 1024L;
@@ -377,7 +381,7 @@ public final class SessionWire {
     }
 
     private static void validateFrameType(int type) throws IOException {
-        if (type < TYPE_MANIFEST || type > TYPE_STRIPE_DONE) {
+        if (type < TYPE_MANIFEST || type > TYPE_FILE_FAILED) {
             throw new IOException("Invalid frame type: " + type);
         }
     }
