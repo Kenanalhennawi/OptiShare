@@ -120,6 +120,7 @@ jobs:
             echo 'checkpoint_chunks=4'
             echo 'checkpoint_window_bytes=6291456'
             echo 'pc_route_protocol=1'
+            echo 'transfer_queue=per-file-status-reorder-resume'
             echo "commit=${GITHUB_SHA}"
             echo "signer_sha256=${EXPECTED_CERT_SHA256}"
           } > release-output/BUILD_INFO.txt
@@ -157,14 +158,19 @@ jobs:
           retention-days: 14
 
   windows-companion:
-    name: Validate Windows companion
+    name: Build Windows companion EXE
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Parse PowerShell companion and receiver
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Parse embedded PowerShell receiver sources
         shell: powershell
         run: |
           foreach ($file in @('windows/OptiShare-Companion.ps1','windows/OptiShare-PC-Receiver.ps1')) {
@@ -179,15 +185,39 @@ jobs:
               exit 1
             }
           }
-          if (-not (Test-Path 'windows/Start-OptiShare-Companion.bat')) { throw 'Missing Windows launcher' }
+
+      - name: Build self-contained x64 EXE
+        shell: powershell
+        run: |
+          dotnet publish windows/launcher/OptiShareLauncher.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o windows/publish
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = 'windows/publish/OptiShare-Companion.exe'
+          if (-not (Test-Path $exe)) { throw 'Windows companion EXE was not produced' }
+          if ((Get-Item $exe).Length -lt 1000000) { throw 'Windows companion EXE looks unexpectedly small' }
+          Get-FileHash $exe -Algorithm SHA256 | Format-List
 
       - name: Package Windows companion
         shell: powershell
         run: |
-          Compress-Archive -Path windows/OptiShare-Companion.ps1,windows/OptiShare-PC-Receiver.ps1,windows/Start-OptiShare-Companion.bat,windows/README.md -DestinationPath OptiShare-2.2-Windows-Companion.zip -Force
-          if ((Get-Item OptiShare-2.2-Windows-Companion.zip).Length -le 0) { throw 'Windows companion package is empty' }
+          New-Item -ItemType Directory -Force -Path windows/release | Out-Null
+          Copy-Item windows/publish/OptiShare-Companion.exe windows/release/OptiShare-2.2-Windows-Companion.exe
+          Copy-Item windows/README.md windows/release/README.md
+          $hash = (Get-FileHash windows/release/OptiShare-2.2-Windows-Companion.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content windows/release/SHA256SUMS.txt "$hash  OptiShare-2.2-Windows-Companion.exe"
+          Compress-Archive -Path windows/release/* -DestinationPath OptiShare-2.2-Windows-Companion.zip -Force
 
-      - name: Upload Windows companion
+      - name: Upload Windows companion EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.2-Windows-Companion-EXE
+          path: |
+            windows/release/OptiShare-2.2-Windows-Companion.exe
+            windows/release/SHA256SUMS.txt
+            windows/release/README.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Windows companion package
         uses: actions/upload-artifact@v4
         with:
           name: OptiShare-2.2-Windows-Companion
