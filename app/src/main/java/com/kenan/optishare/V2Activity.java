@@ -57,6 +57,7 @@ import com.kenan.optishare.storage.FolderSelection;
 import com.kenan.optishare.storage.FolderTransferQueue;
 import com.kenan.optishare.storage.TextTransferStore;
 import com.kenan.optishare.transfer.LanDiscovery;
+import com.kenan.optishare.transfer.BrowserReceiveService;
 import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
 import com.kenan.optishare.transfer.TransferService;
@@ -95,6 +96,7 @@ public class V2Activity extends ComponentActivity implements
     private String connectedPeerName = "Nearby device";
     private boolean receiverMode;
     private boolean transferStarted;
+    private boolean browserMode;
 
     private WifiP2pManager manager;
     private WifiP2pManager.Channel channel;
@@ -290,6 +292,32 @@ public class V2Activity extends ComponentActivity implements
                 historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
                         connectedPeerName, selected.size(), selectedTotalBytes(), false));
+            }
+        }
+    };
+
+    private final BroadcastReceiver browserReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            String event=intent.getStringExtra(BrowserReceiveService.EXTRA_EVENT);
+            String message=intent.getStringExtra(BrowserReceiveService.EXTRA_MESSAGE);
+            String url=intent.getStringExtra(BrowserReceiveService.EXTRA_URL);
+            int progress=intent.getIntExtra(BrowserReceiveService.EXTRA_PROGRESS,0);
+            if(event==null)return;
+            if("ready".equals(event)){
+                browserMode=true;
+                setConnectionUi("BROWSER READY",Color.rgb(89,205,255));
+                setDiscoveryText("Browser receive ready • same local network");
+                TextView label=findViewByTag("receiver_identity");if(label!=null)label.setText(url+"\nOne-time local session • phone approval required");
+                ImageView qr=findViewByTag("receiver_qr");if(qr!=null&&url!=null)try{qr.setImageBitmap(makeQr(url,720));}catch(Exception ignored){}
+            }else if("progress".equals(event)){
+                setDiscoveryText(message+" • "+progress+"%");
+            }else if("completed".equals(event)){
+                setDiscoveryText(message);
+                setConnectionUi("BROWSER FILE SAVED ✓",Color.rgb(65,225,151));
+            }else if("error".equals(event)){
+                setDiscoveryText(message);setConnectionUi("BROWSER ERROR",Color.rgb(255,92,102));
+            }else if("stopped".equals(event)){
+                browserMode=false;refreshReceiverIdentity();
             }
         }
     };
@@ -516,7 +544,9 @@ public class V2Activity extends ComponentActivity implements
         TextView identityLabel=text(identity.name(),14,Color.rgb(88,202,255),true);identityLabel.setGravity(Gravity.CENTER);identityLabel.setTag("receiver_identity");receiveCard.addView(identityLabel);
         ImageView qr=new ImageView(this);qr.setTag("receiver_qr");qr.setAdjustViewBounds(true);receiveCard.addView(qr,new LinearLayout.LayoutParams(-1,dp(260)));
         root.addView(receiveCard);
-        Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{stopTransferService();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
+        Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);
+        root.addView(text("Browser mode works on the same local network with a temporary link and phone approval. App-to-app transfers remain the encrypted ECDH/AES-GCM mode.",11,Color.rgb(150,179,202),false));
+        Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
         setContentView(scroll);startReceiverService();startReceiverMode();
     }
 
@@ -647,6 +677,17 @@ public class V2Activity extends ComponentActivity implements
         else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){activeRoute=RoutePerformanceStore.ROUTE_DIRECT;transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();showTransferScreen("Sending");setConnectionUi("SMART ROUTE • WI-FI DIRECT ✓",Color.rgb(65,225,151));startSenderService(info.groupOwnerAddress.getHostAddress());}
     }
 
+    private void startBrowserReceive(){
+        Intent i=new Intent(this,BrowserReceiveService.class).setAction(BrowserReceiveService.ACTION_START);
+        ContextCompat.startForegroundService(this,i);
+        setDiscoveryText("Starting local browser receiver…");
+    }
+
+    private void stopBrowserReceive(){
+        try{startService(new Intent(this,BrowserReceiveService.class).setAction(BrowserReceiveService.ACTION_STOP));}catch(Exception ignored){}
+        browserMode=false;
+    }
+
     private void startReceiverService() {
         Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_START_RECEIVER);ContextCompat.startForegroundService(this,i);
     }
@@ -695,7 +736,7 @@ public class V2Activity extends ComponentActivity implements
     private String formatEta(long seconds){if(seconds<=0)return"ETA —";if(seconds<60)return"ETA "+seconds+"s";long minutes=seconds/60;long remain=seconds%60;return"ETA "+minutes+"m "+remain+"s";}
 
     private void refreshReceiverIdentity() {
-        if(currentScreen!=SCREEN_RECEIVE)return;TextView label=findViewByTag("receiver_identity");ImageView qr=findViewByTag("receiver_qr");String p2pName=thisDevice==null?identity.name():deviceName(thisDevice);if(label!=null)label.setText(p2pName+" • "+identity.name());if(qr!=null&&thisDevice!=null&&thisDevice.deviceAddress!=null){try{qr.setImageBitmap(makeQr("OPTISHARE2|"+thisDevice.deviceAddress+"|"+p2pName,720));}catch(Exception ignored){}}
+        if(currentScreen!=SCREEN_RECEIVE||browserMode)return;TextView label=findViewByTag("receiver_identity");ImageView qr=findViewByTag("receiver_qr");String p2pName=thisDevice==null?identity.name():deviceName(thisDevice);if(label!=null)label.setText(p2pName+" • "+identity.name());if(qr!=null&&thisDevice!=null&&thisDevice.deviceAddress!=null){try{qr.setImageBitmap(makeQr("OPTISHARE2|"+thisDevice.deviceAddress+"|"+p2pName,720));}catch(Exception ignored){}}
     }
 
     @SuppressWarnings("unchecked") private <T extends View>T findViewByTag(String tag){View v=getWindow().getDecorView().findViewWithTag(tag);return(T)v;}
@@ -813,8 +854,8 @@ public class V2Activity extends ComponentActivity implements
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK",null).show());}
 
-    @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);}
-    @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}}
+    @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
+    @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}try{unregisterReceiver(browserReceiver);}catch(Exception ignored){}}
     @Override protected void onDestroy(){if(lanDiscovery!=null)lanDiscovery.close();super.onDestroy();}
     @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else if(currentScreen==SCREEN_GALLERY||currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
 }

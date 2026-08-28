@@ -124,6 +124,18 @@ public final class DownloadStore {
         return published;
     }
 
+    public Uri publishBrowserFile(File source, String name, String mime) throws IOException {
+        if (source == null || !source.exists() || !source.isFile()) {
+            throw new IOException("Browser upload temp file missing");
+        }
+        String safeName = TransferItem.safeName(name);
+        String safeMime = mime == null || mime.trim().isEmpty()
+                ? "application/octet-stream" : mime.trim();
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                ? publishMediaStore(source, safeName, safeMime, "Browser")
+                : publishLegacy(source, safeName, "Browser");
+    }
+
     private void writeVerifiedMarker(String sessionId, String fileId, long size)
             throws IOException {
         File marker = verifiedMarker(sessionId, fileId);
