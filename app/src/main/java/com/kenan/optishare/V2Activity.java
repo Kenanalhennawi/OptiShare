@@ -61,6 +61,7 @@ import com.kenan.optishare.transfer.LanDiscovery;
 import com.kenan.optishare.transfer.PcDiscovery;
 import com.kenan.optishare.transfer.PcTransferService;
 import com.kenan.optishare.transfer.BrowserReceiveService;
+import com.kenan.optishare.transfer.AdaptiveRouteOrchestrator;
 import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
 import com.kenan.optishare.transfer.TransferService;
@@ -315,6 +316,10 @@ public class V2Activity extends ComponentActivity implements
             } else if ("reconnecting".equals(event)) {
                 setConnectionUi("RECONNECTING…", Color.rgb(255, 188, 70));
                 setTransferUi("Reconnecting automatically", message, -1);
+            } else if ("route_switched".equals(event)) {
+                activeRoute=RoutePerformanceStore.ROUTE_LAN;
+                setConnectionUi("SMART ROUTE • SAME WI-FI ✓", Color.rgb(65,225,151));
+                setTransferUi("Route changed safely", message, -1);
             } else if ("benchmark_started".equals(event)) {
                 setConnectionUi("ENCRYPTED SPEED TEST", Color.rgb(89,205,255));
                 setTransferUi("Measuring Android route", message, 0);
@@ -1043,7 +1048,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void startSenderService(String host) {
-        ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);
+        ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);String fallback=AdaptiveRouteOrchestrator.verifiedLanFallback(activeRoute,pendingLanHost);if(fallback!=null)i.putExtra(TransferService.EXTRA_FALLBACK_HOST,fallback);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);
     }
 
     private void pauseOrResumeTransfer(){

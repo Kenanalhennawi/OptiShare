@@ -24,15 +24,17 @@ public final class SenderSessionStore {
         public final String host;
         public final String peerAddress;
         public final String route;
+        public final String fallbackHost;
         public final List<TransferItem> items;
         public final BatchManifest manifest;
         public final long elapsedDataMs;
 
-        Pending(String host, String peerAddress, String route, List<TransferItem> items,
+        Pending(String host, String peerAddress, String route, String fallbackHost, List<TransferItem> items,
                 BatchManifest manifest, long elapsedDataMs) {
             this.host = host;
             this.peerAddress = peerAddress;
             this.route = route;
+            this.fallbackHost = fallbackHost;
             this.items = items;
             this.manifest = manifest;
             this.elapsedDataMs = Math.max(0L, elapsedDataMs);
@@ -51,16 +53,22 @@ public final class SenderSessionStore {
 
     public synchronized void save(String host, List<TransferItem> items,
                                   BatchManifest manifest) throws Exception {
-        save(host, null, RoutePerformanceStore.ROUTE_DIRECT, items, manifest);
+        save(host, null, RoutePerformanceStore.ROUTE_DIRECT, null, items, manifest);
     }
 
     public synchronized void save(String host, String peerAddress,
                                   List<TransferItem> items,
                                   BatchManifest manifest) throws Exception {
-        save(host, peerAddress, RoutePerformanceStore.ROUTE_DIRECT, items, manifest);
+        save(host, peerAddress, RoutePerformanceStore.ROUTE_DIRECT, null, items, manifest);
     }
 
     public synchronized void save(String host, String peerAddress, String route,
+                                  List<TransferItem> items,
+                                  BatchManifest manifest) throws Exception {
+        save(host, peerAddress, route, null, items, manifest);
+    }
+
+    public synchronized void save(String host, String peerAddress, String route, String fallbackHost,
                                   List<TransferItem> items,
                                   BatchManifest manifest) throws Exception {
         if (host == null || items == null || manifest == null
@@ -72,6 +80,7 @@ public final class SenderSessionStore {
         root.put("host", host);
         root.put("peerAddress", peerAddress == null ? JSONObject.NULL : peerAddress);
         root.put("route", RoutePerformanceStore.ROUTE_LAN.equals(route) ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT);
+        root.put("fallbackHost", fallbackHost == null ? JSONObject.NULL : fallbackHost);
         root.put("sessionId", manifest.getSessionId());
         root.put("createdAt", manifest.getCreatedAt());
         root.put("elapsedDataMs", 0L);
@@ -122,6 +131,8 @@ public final class SenderSessionStore {
                     ? null : root.optString("peerAddress", null);
             String route = root.optString("route", RoutePerformanceStore.ROUTE_DIRECT);
             if (!RoutePerformanceStore.ROUTE_LAN.equals(route)) route = RoutePerformanceStore.ROUTE_DIRECT;
+            String fallbackHost = root.isNull("fallbackHost")
+                    ? null : root.optString("fallbackHost", null);
             String sessionId = root.getString("sessionId");
             long createdAt = root.getLong("createdAt");
             long elapsedDataMs = Math.max(0L, root.optLong("elapsedDataMs", 0L));
@@ -153,7 +164,7 @@ public final class SenderSessionStore {
                 entries.add(new BatchManifest.Entry(id, name, mime, size, category,
                         relativePath, sha));
             }
-            return new Pending(host, peerAddress, route, items,
+            return new Pending(host, peerAddress, route, fallbackHost, items,
                     new BatchManifest(sessionId, createdAt, entries), elapsedDataMs);
         } catch (Exception corrupted) {
             clear();
@@ -196,6 +207,34 @@ public final class SenderSessionStore {
             if (!temp.renameTo(file)) throw new IllegalStateException("Could not commit pending session metrics");
         } catch (Exception ignored) {
             // Transfer remains resumable even if timing telemetry cannot be persisted.
+        }
+    }
+
+    /** Updates routing without resetting the manifest, hashes or accumulated transfer time. */
+    public synchronized void updateConnection(String host, String peerAddress, String route,
+                                              String fallbackHost) {
+        if (!file.exists() || host == null) return;
+        try {
+            StringBuilder raw = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                String line;
+                while ((line = reader.readLine()) != null) raw.append(line);
+            }
+            JSONObject root = new JSONObject(raw.toString());
+            root.put("host", host);
+            root.put("peerAddress", peerAddress == null ? JSONObject.NULL : peerAddress);
+            root.put("route", RoutePerformanceStore.ROUTE_LAN.equals(route)
+                    ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT);
+            root.put("fallbackHost", fallbackHost == null ? JSONObject.NULL : fallbackHost);
+            File temp = new File(file.getParentFile(), file.getName() + ".tmp");
+            try (FileWriter writer = new FileWriter(temp, false)) {
+                writer.write(root.toString());
+                writer.flush();
+            }
+            if (file.exists() && !file.delete()) throw new IllegalStateException("Could not replace pending route");
+            if (!temp.renameTo(file)) throw new IllegalStateException("Could not commit pending route");
+        } catch (Exception ignored) {
+            // Existing checkpoint remains usable if routing telemetry cannot be updated.
         }
     }
 

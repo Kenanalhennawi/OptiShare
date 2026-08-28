@@ -55,6 +55,7 @@ public final class TransferService extends Service {
     public static final String ACTION_EVENT = "com.kenan.optishare.TRANSFER_EVENT";
     public static final String EXTRA_HOST = "host";
     public static final String EXTRA_ROUTE = "route";
+    public static final String EXTRA_FALLBACK_HOST = "fallback_host";
     public static final String EXTRA_URIS = "uris";
     public static final String EXTRA_EVENT = "event";
     public static final String EXTRA_MESSAGE = "message";
@@ -482,6 +483,8 @@ public final class TransferService extends Service {
         final String initialHost = intent.getStringExtra(EXTRA_HOST);
         String requestedRoute = intent.getStringExtra(EXTRA_ROUTE);
         currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(requestedRoute) ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;
+        final String fallbackHost = AdaptiveRouteOrchestrator.verifiedLanFallback(
+                currentRoute, intent.getStringExtra(EXTRA_FALLBACK_HOST));
         final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);
         if (initialHost == null || rawUris == null || rawUris.isEmpty()) {
             broadcast("error", "Missing receiver or files", 0, 0, null);
@@ -500,7 +503,7 @@ public final class TransferService extends Service {
                         ? wifiRecovery.capture(2500) : null;
                 String host = peer != null && peer.host != null ? peer.host : initialHost;
                 String peerAddress = peer == null ? null : peer.deviceAddress;
-                senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
+                senderStore.save(host, peerAddress, currentRoute, fallbackHost, activeItems, activeManifest);
                 if (shouldUseStripedTransfer()) {
                     try {
                         runStripedSender(host);
@@ -518,7 +521,7 @@ public final class TransferService extends Service {
                         updateNotification("Using reliable fallback", "Continuing with the normal encrypted resumable stream", 0, true);
                     }
                 }
-                runSenderLoop(host, peerAddress, engine);
+                runSenderLoop(host, peerAddress, fallbackHost, engine);
             } catch (Exception error) {
                 failSender(error);
             }
@@ -647,17 +650,19 @@ public final class TransferService extends Service {
                 activeManifest = pending.manifest;
                 broadcast("reconnecting", "Restoring interrupted session…", 0, 0,
                         activeManifest.getSessionId());
-                runSenderLoop(pending.host, pending.peerAddress, new TransferEngine(this));
+                runSenderLoop(pending.host, pending.peerAddress, pending.fallbackHost,
+                        new TransferEngine(this));
             } catch (Exception error) {
                 failSender(error);
             }
         });
     }
 
-    private void runSenderLoop(String initialHost, String peerAddress,
+    private void runSenderLoop(String initialHost, String initialPeerAddress, String fallbackHost,
                                TransferEngine engine) throws Exception {
         int attempt = 0;
         String host = initialHost;
+        String peerAddress = initialPeerAddress;
         try {
             while (running.get() && attempt < MAX_SOCKET_RETRIES) {
                 attempt++;
@@ -685,15 +690,32 @@ public final class TransferService extends Service {
                                 activeManifest.getSessionId());
                         return;
                     }
-                    if (peerAddress != null && wifiRecovery.available()) {
+                    boolean directRecovered = false;
+                    if (RoutePerformanceStore.ROUTE_DIRECT.equals(currentRoute)
+                            && peerAddress != null && wifiRecovery.available()) {
                         String recoveredHost = wifiRecovery.recover(peerAddress, 12_000);
                         if (recoveredHost != null) {
+                            directRecovered = true;
                             host = recoveredHost;
-                            senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
+                            senderStore.updateConnection(host, peerAddress, currentRoute, fallbackHost);
                             broadcast("reconnecting",
                                     "Direct link restored — resuming encrypted session",
                                     0, 0, activeManifest.getSessionId());
                         }
+                    }
+                    if (AdaptiveRouteOrchestrator.shouldSwitchToLan(
+                            currentRoute, fallbackHost, directRecovered)) {
+                        routeStore.recordFailure(RoutePerformanceStore.ROUTE_DIRECT);
+                        host = fallbackHost.trim();
+                        peerAddress = null;
+                        fallbackHost = null;
+                        currentRoute = RoutePerformanceStore.ROUTE_LAN;
+                        senderStore.updateConnection(host, null, currentRoute, null);
+                        broadcast("route_switched",
+                                "Direct link unavailable — continuing from verified checkpoint over same Wi-Fi",
+                                0, 0, activeManifest.getSessionId());
+                        updateNotification("Switching to same Wi-Fi",
+                                "Keeping verified progress and reconnecting securely", 0, true);
                     }
                     if (attempt >= MAX_SOCKET_RETRIES) throw transferError;
                 }
