@@ -57,6 +57,8 @@ import com.kenan.optishare.storage.FolderSelection;
 import com.kenan.optishare.storage.FolderTransferQueue;
 import com.kenan.optishare.storage.TextTransferStore;
 import com.kenan.optishare.transfer.LanDiscovery;
+import com.kenan.optishare.transfer.PcDiscovery;
+import com.kenan.optishare.transfer.PcTransferService;
 import com.kenan.optishare.transfer.BrowserReceiveService;
 import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
@@ -89,6 +91,7 @@ public class V2Activity extends ComponentActivity implements
 
     private final List<Uri> selected = new ArrayList<>();
     private final List<WifiP2pDevice> peers = new ArrayList<>();
+    private final List<PcDiscovery.Peer> pcPeers = new ArrayList<>();
     private int currentScreen = SCREEN_HOME;
     private String pendingGalleryType;
     private String pendingQrAddress;
@@ -97,6 +100,7 @@ public class V2Activity extends ComponentActivity implements
     private boolean receiverMode;
     private boolean transferStarted;
     private boolean browserMode;
+    private boolean pcTransferMode;
 
     private WifiP2pManager manager;
     private WifiP2pManager.Channel channel;
@@ -117,6 +121,7 @@ public class V2Activity extends ComponentActivity implements
     private RoutePerformanceStore routeStore;
     private SenderSessionStore senderSessionStore;
     private LanDiscovery lanDiscovery;
+    private PcDiscovery pcDiscovery;
     private String activeRoute = RoutePerformanceStore.ROUTE_DIRECT;
     private String pendingLanHost;
     private String pendingLanName;
@@ -284,6 +289,7 @@ public class V2Activity extends ComponentActivity implements
                         completedTotalBytes > 0 ? completedTotalBytes : selectedTotalBytes(), true,
                         durationMs, averageSpeed, completedRoute, reconnects));
                 transferStarted = false;
+                pcTransferMode=false;
                 transferPaused=false;
                 updatePauseButton(false);
             } else if ("error".equals(event)) {
@@ -330,6 +336,7 @@ public class V2Activity extends ComponentActivity implements
         routeStore = new RoutePerformanceStore(this);
         senderSessionStore = new SenderSessionStore(this);
         lanDiscovery = new LanDiscovery(this);
+        pcDiscovery = new PcDiscovery(this);
         manager = (WifiP2pManager) getSystemService(WIFI_P2P_SERVICE);
         if (manager != null) {
             channel = manager.initialize(this, getMainLooper(), () -> setDiscoveryText("Nearby service restarted. Try again."));
@@ -339,6 +346,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void showHome() {
+        stopPcDiscovery();
         currentScreen = SCREEN_HOME;
         receiverMode = false;
         transferStarted = false;
@@ -525,7 +533,7 @@ public class V2Activity extends ComponentActivity implements
         connectionPill=connectionBadge("SEARCHING",Color.rgb(255,194,73));root.addView(connectionPill);
         LinearLayout radar=card();TextView icon=text("◎",76,Color.rgb(80,198,255),true);icon.setGravity(Gravity.CENTER);radar.addView(icon);
         discoveryState=text("Searching for receiving phones…",16,Color.WHITE,true);discoveryState.setGravity(Gravity.CENTER);radar.addView(discoveryState);
-        TextView hint=text("SmartRoute chooses Wi-Fi Direct or same-Wi-Fi automatically. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
+        TextView hint=text("SmartRoute finds Android receivers and OptiShare Windows Companion on the local network. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
         LinearLayout qrRow=new LinearLayout(this);qrRow.setOrientation(LinearLayout.HORIZONTAL);
         Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());qrRow.addView(scan,new LinearLayout.LayoutParams(0,dp(50),1));
         Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(8),0,0,0);qrRow.addView(retry,rr);
@@ -562,7 +570,7 @@ public class V2Activity extends ComponentActivity implements
         TextView speedView=text("— MB/s",13,Color.rgb(89,205,255),true);speedView.setTag("transfer_speed");speedView.setGravity(Gravity.CENTER);metrics.addView(speedView,new LinearLayout.LayoutParams(0,-2,1));
         TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.RIGHT);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
         card.addView(metrics);root.addView(card);
-        if(!receiverMode){
+        if(!receiverMode&&!pcTransferMode){
             transferPauseButton=secondaryButton("Pause transfer");
             transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());
             LinearLayout.LayoutParams pbtn=new LinearLayout.LayoutParams(-1,dp(50));pbtn.setMargins(0,dp(12),0,0);root.addView(transferPauseButton,pbtn);
@@ -576,6 +584,7 @@ public class V2Activity extends ComponentActivity implements
         discoveryHandler.removeCallbacks(lanFallbackConnect);
         pendingLanHost=null;pendingLanName=null;
         startLanDiscovery();
+        startPcDiscovery();
         if(!ensureNearbyReady())return;
         discoveryAttempt=0;
         peers.clear();
@@ -608,6 +617,43 @@ public class V2Activity extends ComponentActivity implements
     private void stopLanDiscovery(){
         discoveryHandler.removeCallbacks(lanFallbackConnect);
         if(lanDiscovery!=null)lanDiscovery.stopDiscovery();
+    }
+
+    private void startPcDiscovery(){
+        if(pcDiscovery==null||!pcDiscovery.available())return;
+        pcPeers.clear();
+        pcDiscovery.discover(new PcDiscovery.Listener(){
+            @Override public void onPc(PcDiscovery.Peer peer){
+                runOnUiThread(()->{
+                    if(currentScreen!=SCREEN_DISCOVERY||transferStarted)return;
+                    for(PcDiscovery.Peer existing:pcPeers)if(existing.id().equals(peer.id()))return;
+                    pcPeers.add(peer);
+                    renderPeers();
+                    setDiscoveryText("Found "+peer.name+" • Windows Companion ready");
+                });
+            }
+            @Override public void onStatus(String message){
+                if(currentScreen==SCREEN_DISCOVERY&&peers.isEmpty()&&pcPeers.isEmpty()&&pendingLanHost==null)setDiscoveryText(message);
+            }
+        });
+    }
+
+    private void stopPcDiscovery(){if(pcDiscovery!=null)pcDiscovery.stop();}
+
+    private void connectToPc(PcDiscovery.Peer peer){
+        if(peer==null||transferStarted)return;
+        transferStarted=true;pcTransferMode=true;receiverMode=false;
+        activeRoute="pc-local";activeTransferStartedAt=System.currentTimeMillis();
+        connectedPeerName=peer.name+" • Windows PC";
+        discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();stopPcDiscovery();
+        showTransferScreen("Sending to Windows");
+        setConnectionUi("PC LOCAL ROUTE ✓",Color.rgb(89,205,255));
+        setTransferUi("Connecting to "+peer.name,"Local PC route • session token + SHA-256 verification",0);
+        ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());
+        Intent i=new Intent(this,PcTransferService.class).setAction(PcTransferService.ACTION_SEND_PC);
+        i.putExtra(PcTransferService.EXTRA_HOST,peer.host);i.putExtra(PcTransferService.EXTRA_PORT,peer.port);
+        i.putExtra(PcTransferService.EXTRA_TOKEN,peer.token);i.putStringArrayListExtra(PcTransferService.EXTRA_URIS,uris);
+        ContextCompat.startForegroundService(this,i);
     }
 
     private void connectViaLan(String name,String host){
@@ -663,10 +709,31 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void renderPeers() {
-        runOnUiThread(()->{if(peerList==null)return;peerList.removeAllViews();if(peers.isEmpty()){LinearLayout empty=card();empty.addView(text("Searching…",14,Color.WHITE,true));empty.addView(text("OptiShare refreshes the nearby list whenever Android reports a change.",12,Color.rgb(147,173,196),false));peerList.addView(empty);return;}for(WifiP2pDevice device:peers){LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);TextView avatar=text(firstLetter(deviceName(device)),18,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(38,151,232),Color.rgb(62,91,220),18));line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);names.addView(text(deviceName(device),15,Color.WHITE,true));names.addView(text(deviceStatus(device.status),12,Color.rgb(151,182,205),false));line.addView(names,new LinearLayout.LayoutParams(0,-2,1));Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectTo(device));line.addView(connect,new LinearLayout.LayoutParams(dp(112),dp(46)));row.addView(line);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);}});
+        runOnUiThread(()->{
+            if(peerList==null)return;
+            peerList.removeAllViews();
+            if(peers.isEmpty()&&pcPeers.isEmpty()){
+                LinearLayout empty=card();empty.addView(text("Searching…",14,Color.WHITE,true));
+                empty.addView(text("Looking for Android receivers and OptiShare Windows Companion on this network.",12,Color.rgb(147,173,196),false));
+                peerList.addView(empty);return;
+            }
+            for(PcDiscovery.Peer pc:pcPeers){
+                LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+                TextView avatar=text("PC",14,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(39,178,255),Color.rgb(84,82,222),18));
+                line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
+                names.addView(text(pc.name,15,Color.WHITE,true));names.addView(text("Windows Companion • same network",12,Color.rgb(151,182,205),false));
+                line.addView(names,new LinearLayout.LayoutParams(0,-2,1));Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectToPc(pc));
+                line.addView(connect,new LinearLayout.LayoutParams(dp(112),dp(46)));row.addView(line);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
+            }
+            for(WifiP2pDevice device:peers){
+                LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);TextView avatar=text(firstLetter(deviceName(device)),18,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(38,151,232),Color.rgb(62,91,220),18));line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);names.addView(text(deviceName(device),15,Color.WHITE,true));names.addView(text(deviceStatus(device.status),12,Color.rgb(151,182,205),false));line.addView(names,new LinearLayout.LayoutParams(0,-2,1));Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectTo(device));line.addView(connect,new LinearLayout.LayoutParams(dp(112),dp(46)));row.addView(line);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
+            }
+        });
     }
 
     private void connectTo(WifiP2pDevice device) {
+        pcTransferMode=false;stopPcDiscovery();
         if(!ensureNearbyReady())return;discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();connectedPeerName=deviceName(device);setConnectionUi("CONNECTING…",Color.rgb(255,194,73));setDiscoveryText("Connecting to "+connectedPeerName+"…");WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
         try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Connection request sent. Waiting for the direct link…");}@Override public void onFailure(int reason){setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Connection failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}
     }
@@ -713,7 +780,7 @@ public class V2Activity extends ComponentActivity implements
 
     private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null)return;transferPauseButton.setText(paused?"Resume transfer":"Pause transfer");transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
 
-    private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));}
+    private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));try{startService(new Intent(this,PcTransferService.class).setAction(PcTransferService.ACTION_STOP_PC));}catch(Exception ignored){}}
 
     private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(title);if(transferDetail!=null)transferDetail.setText(detail);if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);if(progress>=0){TextView percent=findViewByTag("transfer_percent");if(percent!=null)percent.setText(progress+"%");}});}
 
@@ -728,6 +795,7 @@ public class V2Activity extends ComponentActivity implements
     private String historyRouteLabel(String route){
         if(RoutePerformanceStore.ROUTE_DIRECT.equals(route))return "Wi-Fi Direct";
         if(RoutePerformanceStore.ROUTE_LAN.equals(route))return "same Wi-Fi";
+        if("pc-local".equals(route))return "Windows PC";
         if("incoming".equals(route))return "received";
         return route;
     }
