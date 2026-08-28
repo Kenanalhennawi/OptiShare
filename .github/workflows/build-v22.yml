@@ -119,6 +119,7 @@ jobs:
             echo 'chunk_bytes=1572864'
             echo 'checkpoint_chunks=4'
             echo 'checkpoint_window_bytes=6291456'
+            echo 'pc_route_protocol=1'
             echo "commit=${GITHUB_SHA}"
             echo "signer_sha256=${EXPECTED_CERT_SHA256}"
           } > release-output/BUILD_INFO.txt
@@ -163,25 +164,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Parse PowerShell companion
+      - name: Parse PowerShell companion and receiver
         shell: powershell
         run: |
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path 'windows/OptiShare-Companion.ps1'),
-            [ref]$null,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          foreach ($file in @('windows/OptiShare-Companion.ps1','windows/OptiShare-PC-Receiver.ps1')) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$null,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error ("$file : " + $_.Message) }
+              exit 1
+            }
           }
           if (-not (Test-Path 'windows/Start-OptiShare-Companion.bat')) { throw 'Missing Windows launcher' }
 
       - name: Package Windows companion
         shell: powershell
         run: |
-          Compress-Archive -Path windows/OptiShare-Companion.ps1,windows/Start-OptiShare-Companion.bat,windows/README.md -DestinationPath OptiShare-2.2-Windows-Companion.zip -Force
+          Compress-Archive -Path windows/OptiShare-Companion.ps1,windows/OptiShare-PC-Receiver.ps1,windows/Start-OptiShare-Companion.bat,windows/README.md -DestinationPath OptiShare-2.2-Windows-Companion.zip -Force
           if ((Get-Item OptiShare-2.2-Windows-Companion.zip).Length -le 0) { throw 'Windows companion package is empty' }
 
       - name: Upload Windows companion
