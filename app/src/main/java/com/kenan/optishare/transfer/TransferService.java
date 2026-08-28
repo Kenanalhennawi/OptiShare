@@ -674,8 +674,21 @@ public final class TransferService extends Service {
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setContentIntent(pending)
                 .setOnlyAlertOnce(true)
-                .setOngoing(ongoingProgress)
-                .addAction(0, "Cancel", stopPending);
+                .setOngoing(ongoingProgress);
+
+        if (ongoingProgress && activeManifest != null && activeItems != null) {
+            Intent pause = new Intent(this, TransferService.class).setAction(ACTION_PAUSE);
+            PendingIntent pausePending = PendingIntent.getService(this, 2, pause,
+                    PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+            builder.addAction(0, "Pause", pausePending);
+        } else if (!ongoingProgress && "Transfer paused".equals(title)
+                && senderStore != null && senderStore.exists()) {
+            Intent resume = new Intent(this, TransferService.class).setAction(ACTION_RESUME_PENDING);
+            PendingIntent resumePending = PendingIntent.getService(this, 3, resume,
+                    PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+            builder.addAction(0, "Resume", resumePending);
+        }
+        builder.addAction(0, "Cancel", stopPending);
         if (ongoingProgress) builder.setProgress(100, progress, false);
         return builder.build();
     }
