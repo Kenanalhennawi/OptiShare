@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 public final class RoutePerformanceStore {
     public static final String ROUTE_DIRECT = "wifi-direct";
     public static final String ROUTE_LAN = "lan";
+    public static final String ROUTE_PC = "pc-local";
     private static final String PREFS = "optishare_route_performance_v1";
     private final SharedPreferences prefs;
 
@@ -40,7 +41,7 @@ public final class RoutePerformanceStore {
 
     public int score(String route) {
         if (!valid(route)) return 0;
-        int base = ROUTE_DIRECT.equals(route) ? 70 : 60;
+        int base = ROUTE_DIRECT.equals(route) ? 70 : (ROUTE_LAN.equals(route) ? 60 : 55);
         double mbps = averageSpeed(route) / (1024d * 1024d);
         int speed = (int) Math.min(35, Math.round(mbps * 1.5));
         int ok = successes(route);
@@ -60,10 +61,10 @@ public final class RoutePerformanceStore {
     }
 
     public String summary() {
-        return "Direct " + score(ROUTE_DIRECT) + " • LAN " + score(ROUTE_LAN);
+        return "Direct " + score(ROUTE_DIRECT) + " • LAN " + score(ROUTE_LAN) + " • PC " + score(ROUTE_PC);
     }
 
     private static boolean valid(String route) {
-        return ROUTE_DIRECT.equals(route) || ROUTE_LAN.equals(route);
+        return ROUTE_DIRECT.equals(route) || ROUTE_LAN.equals(route) || ROUTE_PC.equals(route);
     }
 }

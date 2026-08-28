@@ -165,7 +165,14 @@ function Receive-Client([Net.Sockets.TcpClient]$Client) {
                 $stream.WriteByte(0)
                 throw "SHA-256 verification failed for $name"
             }
-            Move-Item -LiteralPath $temp -Destination $fullDestination -Force
+            $isClipboardText = ($mime -eq 'text/plain' -and $name.StartsWith('OptiShare Text') -and $size -le 262144)
+            if ($isClipboardText) {
+                $clipboardText = [IO.File]::ReadAllText($temp,[Text.Encoding]::UTF8)
+                [System.Windows.Forms.Clipboard]::SetText($clipboardText)
+                Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+            } else {
+                Move-Item -LiteralPath $temp -Destination $fullDestination -Force
+            }
             $stream.WriteByte(1)
         }
         $marker = Read-Int32BE $stream

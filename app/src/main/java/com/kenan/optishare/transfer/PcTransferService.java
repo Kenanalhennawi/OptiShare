@@ -55,9 +55,11 @@ public final class PcTransferService extends Service {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Socket activeSocket;
+    private RoutePerformanceStore routeStore;
 
     @Override public void onCreate() {
         super.onCreate();
+        routeStore = new RoutePerformanceStore(this);
         createChannel();
     }
 
@@ -167,11 +169,13 @@ public final class PcTransferService extends Service {
 
                 long durationMs = Math.max(1L, (System.nanoTime() - started) / 1_000_000L);
                 double average = total <= 0 ? 0d : total / Math.max(0.001, durationMs / 1000d);
+                routeStore.recordSuccess(RoutePerformanceStore.ROUTE_PC, average);
                 broadcast("completed", "Saved on Windows • SHA-256 verified", 100, 0d,
                         total, total, 0L, average, durationMs, 0, items.size(), total);
                 updateNotification("Transfer complete", 100);
             }
         } catch (Exception error) {
+            routeStore.recordFailure(RoutePerformanceStore.ROUTE_PC);
             broadcast("error", safe(error), 0, 0d, 0L, 0L, 0L, 0d, 0L, 0, 0, 0L);
         } finally {
             running.set(false);
@@ -252,7 +256,7 @@ public final class PcTransferService extends Service {
         intent.putExtra(TransferService.EXTRA_RECONNECTS, reconnects);
         intent.putExtra(TransferService.EXTRA_FILE_COUNT, fileCount);
         intent.putExtra(TransferService.EXTRA_TOTAL_BYTES, totalBytes);
-        intent.putExtra(TransferService.EXTRA_ROUTE, "pc-local");
+        intent.putExtra(TransferService.EXTRA_ROUTE, RoutePerformanceStore.ROUTE_PC);
         sendBroadcast(intent);
     }
 

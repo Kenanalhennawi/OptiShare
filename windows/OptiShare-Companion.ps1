@@ -29,7 +29,7 @@ function Stop-Receiver {
     }
 }
 
-function Get-UploadUri([string]$sessionUrl) {
+function Get-SessionEndpointUri([string]$sessionUrl,[string]$endpoint) {
     $sessionUrl = $sessionUrl.Trim()
     if ([string]::IsNullOrWhiteSpace($sessionUrl)) { throw 'Paste the Browser Receive address shown by OptiShare.' }
     $uri = [Uri]$sessionUrl
@@ -38,10 +38,12 @@ function Get-UploadUri([string]$sessionUrl) {
     $token = $query['token']
     if ([string]::IsNullOrWhiteSpace($token)) { throw 'The OptiShare session link is missing its one-time token.' }
     $builder = New-Object System.UriBuilder($uri)
-    $builder.Path = '/upload'
+    $builder.Path = $endpoint
     $builder.Query = 'token=' + [Uri]::EscapeDataString($token)
     return $builder.Uri
 }
+
+function Get-UploadUri([string]$sessionUrl) { return Get-SessionEndpointUri $sessionUrl '/upload' }
 
 function Get-MimeType([string]$path) {
     switch ([IO.Path]::GetExtension($path).ToLowerInvariant()) {
@@ -141,14 +143,26 @@ $form.Controls.Add($addButton)
 $clearButton = New-Object System.Windows.Forms.Button
 $clearButton.Text = 'Clear'
 $clearButton.Location = New-Object Drawing.Point(160,218)
-$clearButton.Size = New-Object Drawing.Size(100,38)
+$clearButton.Size = New-Object Drawing.Size(90,38)
 $form.Controls.Add($clearButton)
 
+$clipboardButton = New-Object System.Windows.Forms.Button
+$clipboardButton.Text = 'Send clipboard'
+$clipboardButton.Location = New-Object Drawing.Point(260,218)
+$clipboardButton.Size = New-Object System.Drawing.Size(135,38)
+$form.Controls.Add($clipboardButton)
+
+$benchmarkButton = New-Object System.Windows.Forms.Button
+$benchmarkButton.Text = 'Speed test'
+$benchmarkButton.Location = New-Object Drawing.Point(405,218)
+$benchmarkButton.Size = New-Object System.Drawing.Size(115,38)
+$form.Controls.Add($benchmarkButton)
+
 $dropHint = New-Object System.Windows.Forms.Label
-$dropHint.Text = 'Tip: drag and drop files anywhere on this window.'
+$dropHint.Text = 'Drag & drop files anywhere.'
 $dropHint.AutoSize = $true
 $dropHint.ForeColor = [Drawing.Color]::FromArgb(110,185,225)
-$dropHint.Location = New-Object Drawing.Point(285,228)
+$dropHint.Location = New-Object Drawing.Point(535,228)
 $form.Controls.Add($dropHint)
 
 $list = New-Object System.Windows.Forms.ListBox
@@ -249,6 +263,33 @@ $clearButton.Add_Click({
     $list.Items.Clear()
     $progress.Value = 0
     $status.Text = 'Ready'
+})
+
+$clipboardButton.Add_Click({
+    try {
+        if (-not [System.Windows.Forms.Clipboard]::ContainsText()) { throw 'Windows clipboard has no text to send.' }
+        $bytes=[Text.Encoding]::UTF8.GetBytes([System.Windows.Forms.Clipboard]::GetText())
+        if ($bytes.Length -le 0 -or $bytes.Length -gt 262144) { throw 'Clipboard text must be between 1 B and 256 KB.' }
+        $uri=Get-SessionEndpointUri $urlBox.Text '/clipboard'
+        $status.Text='Waiting for phone approval to copy clipboard...'; [System.Windows.Forms.Application]::DoEvents()
+        $request=[System.Net.HttpWebRequest]::Create($uri); $request.Method='POST'; $request.ContentType='text/plain; charset=utf-8'; $request.ContentLength=$bytes.Length; $request.Timeout=120000; $request.ReadWriteTimeout=120000
+        $stream=$request.GetRequestStream(); try{$stream.Write($bytes,0,$bytes.Length)}finally{$stream.Dispose()}
+        $response=$request.GetResponse(); try{$reader=New-Object IO.StreamReader($response.GetResponseStream());try{[void]$reader.ReadToEnd()}finally{$reader.Dispose()}}finally{$response.Dispose()}
+        $status.Text='Clipboard copied to Android successfully'
+    } catch { $status.Text='Clipboard transfer failed'; [System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'OptiShare clipboard',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)|Out-Null }
+})
+
+$benchmarkButton.Add_Click({
+    try {
+        $uri=Get-SessionEndpointUri $urlBox.Text '/benchmark'; $bytes=New-Object byte[] (8*1024*1024)
+        $status.Text='Running real 8 MB LAN upload test...'; $benchmarkButton.Enabled=$false; [System.Windows.Forms.Application]::DoEvents()
+        $request=[System.Net.HttpWebRequest]::Create($uri); $request.Method='POST'; $request.ContentType='application/octet-stream'; $request.ContentLength=$bytes.Length; $request.Timeout=120000; $request.ReadWriteTimeout=120000; $request.AllowWriteStreamBuffering=$false
+        $sw=[Diagnostics.Stopwatch]::StartNew(); $stream=$request.GetRequestStream(); try{$stream.Write($bytes,0,$bytes.Length)}finally{$stream.Dispose()}
+        $response=$request.GetResponse(); try{$reader=New-Object IO.StreamReader($response.GetResponseStream());try{$reply=$reader.ReadToEnd()}finally{$reader.Dispose()}}finally{$response.Dispose()}; $sw.Stop()
+        $speed=($bytes.Length/[Math]::Max(0.001,$sw.Elapsed.TotalSeconds))/1MB
+        $status.Text=('Real LAN test: {0:N1} MB/s • 8 MB in {1:N2}s' -f $speed,$sw.Elapsed.TotalSeconds)
+    } catch { $status.Text='Speed test failed'; [System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'OptiShare speed test',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)|Out-Null }
+    finally { $benchmarkButton.Enabled=$true }
 })
 
 $sendButton.Add_Click({

@@ -4,6 +4,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -124,15 +126,65 @@ public final class BrowserReceiveService extends Service {
                 if (!validToken(supplied)) return text(Response.Status.UNAUTHORIZED,
                         "This OptiShare browser link is invalid or expired.");
                 if (Method.GET.equals(session.getMethod())) return page(supplied);
-                if (!Method.POST.equals(session.getMethod()) || !"/upload".equals(session.getUri())) {
-                    return text(Response.Status.NOT_FOUND, "Not found");
-                }
-                return receiveUpload(session, supplied);
+                if (!Method.POST.equals(session.getMethod())) return text(Response.Status.NOT_FOUND, "Not found");
+                if ("/clipboard".equals(session.getUri())) return receiveClipboard(session, supplied);
+                if ("/benchmark".equals(session.getUri())) return receiveBenchmark(session, supplied);
+                if ("/upload".equals(session.getUri())) return receiveUpload(session, supplied);
+                return text(Response.Status.NOT_FOUND, "Not found");
             } catch (Exception error) {
                 broadcast("error", safe(error), null, 0);
                 return text(Response.Status.INTERNAL_ERROR, "Upload failed: " + html(safe(error)));
             }
         }
+    }
+
+    private Response receiveClipboard(NanoHTTPD.IHTTPSession session, String supplied) throws Exception {
+        Map<String, String> headers = session.getHeaders();
+        long length = parseLength(headers.get("content-length"));
+        if (length <= 0 || length > 256L * 1024L) return text(Response.Status.BAD_REQUEST, "Clipboard text must be 1 B to 256 KB");
+        String approvalKey = "browser-clipboard:" + supplied + ":" + System.nanoTime();
+        IncomingApproval.begin(approvalKey, "Clipboard from Windows",
+                "Copy " + human(length) + " of text into this phone's clipboard?\nAccept only if you started this transfer.");
+        if (!IncomingApproval.await(approvalKey, APPROVAL_TIMEOUT_MS)) return text(Response.Status.FORBIDDEN, "Clipboard transfer declined on the phone");
+        if (!validToken(supplied)) return text(Response.Status.UNAUTHORIZED, "Session expired");
+        byte[] data = new byte[(int) length];
+        int done = 0;
+        try (InputStream in = session.getInputStream()) {
+            while (done < data.length) {
+                int n = in.read(data, done, data.length - done);
+                if (n < 0) break;
+                if (n == 0) continue;
+                done += n;
+            }
+        }
+        if (done != data.length) throw new IllegalStateException("Clipboard connection ended early");
+        String value = new String(data, StandardCharsets.UTF_8);
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard == null) throw new IllegalStateException("Android clipboard service unavailable");
+        clipboard.setPrimaryClip(ClipData.newPlainText("OptiShare clipboard", value));
+        broadcast("clipboard", "Windows clipboard copied to this phone ✓", null, 100);
+        return text(Response.Status.OK, "Clipboard copied successfully");
+    }
+
+    private Response receiveBenchmark(NanoHTTPD.IHTTPSession session, String supplied) throws Exception {
+        long length = parseLength(session.getHeaders().get("content-length"));
+        if (length < 1024L || length > 32L * 1024L * 1024L) return text(Response.Status.BAD_REQUEST, "Benchmark payload must be 1 KB to 32 MB");
+        long started = System.nanoTime();
+        long done = 0L;
+        byte[] buffer = new byte[1024 * 1024];
+        try (InputStream in = session.getInputStream()) {
+            while (done < length) {
+                int n = in.read(buffer, 0, (int)Math.min(buffer.length, length - done));
+                if (n < 0) break;
+                if (n == 0) continue;
+                done += n;
+            }
+        }
+        if (done != length) throw new IllegalStateException("Benchmark connection ended early");
+        long elapsedMs = Math.max(1L, (System.nanoTime() - started) / 1_000_000L);
+        double speed = done / Math.max(0.001d, elapsedMs / 1000d);
+        broadcast("benchmark", "LAN benchmark • " + human((long)speed) + "/s", null, 100);
+        return text(Response.Status.OK, "bytes=" + done + ";elapsed_ms=" + elapsedMs + ";bytes_per_second=" + Math.round(speed));
     }
 
     private Response receiveUpload(NanoHTTPD.IHTTPSession session, String supplied) throws Exception {
