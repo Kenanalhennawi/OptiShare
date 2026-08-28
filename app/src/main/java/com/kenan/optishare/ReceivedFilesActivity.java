@@ -18,12 +18,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.activity.ComponentActivity;
+import androidx.annotation.RequiresApi;
 
 import java.io.File;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -167,6 +167,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private List<Item> loadMediaStore() {
         List<Item> result = new ArrayList<>();
         Uri collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
