@@ -26,14 +26,16 @@ public final class SenderSessionStore {
         public final String route;
         public final List<TransferItem> items;
         public final BatchManifest manifest;
+        public final long elapsedDataMs;
 
         Pending(String host, String peerAddress, String route, List<TransferItem> items,
-                BatchManifest manifest) {
+                BatchManifest manifest, long elapsedDataMs) {
             this.host = host;
             this.peerAddress = peerAddress;
             this.route = route;
             this.items = items;
             this.manifest = manifest;
+            this.elapsedDataMs = Math.max(0L, elapsedDataMs);
         }
     }
 
@@ -72,6 +74,7 @@ public final class SenderSessionStore {
         root.put("route", RoutePerformanceStore.ROUTE_LAN.equals(route) ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT);
         root.put("sessionId", manifest.getSessionId());
         root.put("createdAt", manifest.getCreatedAt());
+        root.put("elapsedDataMs", 0L);
         JSONArray array = new JSONArray();
 
         for (int i = 0; i < items.size(); i++) {
@@ -121,6 +124,7 @@ public final class SenderSessionStore {
             if (!RoutePerformanceStore.ROUTE_LAN.equals(route)) route = RoutePerformanceStore.ROUTE_DIRECT;
             String sessionId = root.getString("sessionId");
             long createdAt = root.getLong("createdAt");
+            long elapsedDataMs = Math.max(0L, root.optLong("elapsedDataMs", 0L));
             JSONArray array = root.getJSONArray("files");
             if (array.length() <= 0 || array.length() > BatchManifest.MAX_ENTRIES) {
                 throw new IllegalStateException("Invalid saved file count");
@@ -150,7 +154,7 @@ public final class SenderSessionStore {
                         relativePath, sha));
             }
             return new Pending(host, peerAddress, route, items,
-                    new BatchManifest(sessionId, createdAt, entries));
+                    new BatchManifest(sessionId, createdAt, entries), elapsedDataMs);
         } catch (Exception corrupted) {
             clear();
             return null;
@@ -170,6 +174,28 @@ public final class SenderSessionStore {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } catch (SecurityException | UnsupportedOperationException ignored) {
             // Provider did not offer a persistable grant; normal permission model remains in effect.
+        }
+    }
+
+    public synchronized void updateElapsedDataMs(long elapsedDataMs) {
+        if (!file.exists()) return;
+        try {
+            StringBuilder raw = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                String line;
+                while ((line = reader.readLine()) != null) raw.append(line);
+            }
+            JSONObject root = new JSONObject(raw.toString());
+            root.put("elapsedDataMs", Math.max(0L, elapsedDataMs));
+            File temp = new File(file.getParentFile(), file.getName() + ".tmp");
+            try (FileWriter writer = new FileWriter(temp, false)) {
+                writer.write(root.toString());
+                writer.flush();
+            }
+            if (file.exists() && !file.delete()) throw new IllegalStateException("Could not replace pending session metrics");
+            if (!temp.renameTo(file)) throw new IllegalStateException("Could not commit pending session metrics");
+        } catch (Exception ignored) {
+            // Transfer remains resumable even if timing telemetry cannot be persisted.
         }
     }
 

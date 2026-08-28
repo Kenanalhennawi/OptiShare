@@ -97,6 +97,8 @@ public final class TransferService extends Service {
     private volatile String activePeerFingerprint;
     private volatile long activeTransferStartedNanos;
     private volatile long dataTransferStartedNanos;
+    private volatile long accumulatedDataTransferMs;
+    private volatile boolean resumedSession;
     private volatile int reconnectCount;
     private volatile long latestBatchDone;
     private volatile double latestSpeed;
@@ -167,6 +169,8 @@ public final class TransferService extends Service {
     private void resetMetrics() {
         activeTransferStartedNanos = System.nanoTime();
         dataTransferStartedNanos = 0L;
+        accumulatedDataTransferMs = 0L;
+        resumedSession = false;
         reconnectCount = 0;
         latestBatchDone = 0L;
         latestSpeed = 0d;
@@ -176,6 +180,8 @@ public final class TransferService extends Service {
         if (!running.compareAndSet(false, true)) return;
         activeTransferStartedNanos = 0L;
         dataTransferStartedNanos = 0L;
+        accumulatedDataTransferMs = 0L;
+        resumedSession = false;
         reconnectCount = 0;
         latestBatchDone = 0L;
         latestSpeed = 0d;
@@ -622,6 +628,8 @@ public final class TransferService extends Service {
         currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(pending.route)
                 ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;
         resetMetrics();
+        accumulatedDataTransferMs = Math.max(0L, pending.elapsedDataMs);
+        resumedSession = accumulatedDataTransferMs > 0L;
         executor.execute(() -> {
             try {
                 activeItems = pending.items;
@@ -692,6 +700,9 @@ public final class TransferService extends Service {
             senderStore.clear();
             broadcast("declined", safe(error), 0, 0, session);
         } else {
+            accumulatedDataTransferMs = currentAccumulatedDataMs();
+            dataTransferStartedNanos = 0L;
+            senderStore.updateElapsedDataMs(accumulatedDataTransferMs);
             routeStore.recordFailure(currentRoute);
             broadcast("error", safe(error) + " — session kept for resume", 0, 0, session);
             updateNotification("Transfer paused",
@@ -917,9 +928,7 @@ public final class TransferService extends Service {
         long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
         int fileCount = activeManifest == null ? 0 : activeManifest.getEntries().size();
         double average = averageBytesPerSecond();
-        long timingStart = dataTransferStartedNanos != 0L ? dataTransferStartedNanos : activeTransferStartedNanos;
-        long durationMs = timingStart == 0L ? 0L
-                : Math.max(0L, Math.round((System.nanoTime() - timingStart) / 1_000_000.0));
+        long durationMs = dataElapsedMsForSummary();
         Intent intent = new Intent(ACTION_EVENT);
         intent.setPackage(getPackageName());
         intent.putExtra(EXTRA_EVENT, "completed");
@@ -979,6 +988,9 @@ public final class TransferService extends Service {
             return;
         }
         int p = percent(latestBatchDone, activeManifest.totalBytes());
+        accumulatedDataTransferMs = currentAccumulatedDataMs();
+        dataTransferStartedNanos = 0L;
+        senderStore.updateElapsedDataMs(accumulatedDataTransferMs);
         running.set(false);
         if (stripedActive && activeStripedEngine != null) activeStripedEngine.cancel();
         closeSocket();
@@ -1062,23 +1074,34 @@ public final class TransferService extends Service {
 
     private double averageBytesPerSecond() {
         long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
-        long timingStart = dataTransferStartedNanos != 0L ? dataTransferStartedNanos : activeTransferStartedNanos;
-        double seconds = timingStart == 0L ? 0d : Math.max(0.001, (System.nanoTime() - timingStart) / 1_000_000_000.0);
-        return total <= 0 || seconds <= 0 ? latestSpeed : total / seconds;
+        double seconds = Math.max(0.001, dataElapsedMsForSummary() / 1000.0);
+        return total <= 0 ? latestSpeed : total / seconds;
+    }
+
+    private long currentAccumulatedDataMs() {
+        long current = dataTransferStartedNanos == 0L ? 0L
+                : Math.max(0L, Math.round((System.nanoTime() - dataTransferStartedNanos) / 1_000_000.0));
+        return Math.max(0L, accumulatedDataTransferMs + current);
+    }
+
+    private long dataElapsedMsForSummary() {
+        long dataMs = currentAccumulatedDataMs();
+        if (dataMs > 0L) return dataMs;
+        return activeTransferStartedNanos == 0L ? 0L
+                : Math.max(0L, Math.round((System.nanoTime() - activeTransferStartedNanos) / 1_000_000.0));
     }
 
     private static String routeLabel(String route) { return RoutePerformanceStore.ROUTE_LAN.equals(route) ? "same Wi-Fi" : "Wi-Fi Direct"; }
 
     private String benchmarkSummary(String verb) {
         long total = activeManifest == null ? latestBatchDone : activeManifest.totalBytes();
-        long timingStart = dataTransferStartedNanos != 0L ? dataTransferStartedNanos : activeTransferStartedNanos;
-        double seconds = timingStart == 0L ? 0d
-                : Math.max(0.001, (System.nanoTime() - timingStart) / 1_000_000_000.0);
+        double seconds = Math.max(0.001, dataElapsedMsForSummary() / 1000.0);
         double average = averageBytesPerSecond();
         StringBuilder value = new StringBuilder();
         value.append(verb).append(" ").append(formatBytes(total))
                 .append(" in ").append(formatElapsed(seconds))
                 .append(" • avg ").append(formatSpeed(average));
+        if (resumedSession) value.append(" • resumed");
         if (reconnectCount > 0) {
             value.append(" • ").append(reconnectCount).append(reconnectCount == 1
                     ? " reconnect" : " reconnects");
