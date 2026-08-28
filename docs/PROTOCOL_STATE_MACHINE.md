@@ -7,7 +7,7 @@ behavioral references only; no decompiled source, resources, identifiers, or wir
 
 | Route | Discovery | Wire protocol | Security | Resume |
 |---|---|---|---|---|
-| Android ↔ Android LAN/P2P | NSD `_optishare._tcp.` or verified P2P | `OS2P` v5 framed stream | ECDH identity handshake + AES-GCM frames + six-digit SAS/pinned identity | Durable per-file chunk checkpoints |
+| Android ↔ Android LAN/P2P | NSD `_optishare._tcp.` or verified P2P | `OS2P` v6 + authenticated `OSX/2` capabilities | ECDH identity handshake + AES-GCM frames + six-digit SAS/pinned identity | Durable per-file chunk checkpoints |
 | Android → Windows | UDP `49891` | `OPTISHARE-PC-1` TCP `49890` | Rotating receiver token + SHA-256 final verification | Not yet |
 | Windows → Android browser route | UDP `49894` | HTTP upload `49889` | Rotating 128-bit token + explicit phone approval | Not yet |
 
@@ -38,9 +38,9 @@ references the previous session/checkpoints; it never mutates a terminal attempt
 6. Capability negotiation and its selected result are included in the authenticated transcript.
 7. A downgrade, replay, unknown mandatory capability, or identity mismatch fails closed.
 
-## Planned `OSX/2` capability envelope
+## Implemented `OSX/2` capability envelope
 
-The first authenticated control message will carry bounded numeric capability IDs, not class names:
+The first authenticated control message now carries bounded numeric capability IDs, not class names:
 
 - protocol major/minor and minimum compatible minor;
 - transport: LAN TCP, P2P TCP, local-only hotspot, optional QUIC;
@@ -49,8 +49,9 @@ The first authenticated control message will carry bounded numeric capability ID
 - maximum chunk, stream count, file count, metadata bytes, and folder depth;
 - resume, per-file retry, clipboard, folder manifest, and atomic publish flags.
 
-Unknown optional capabilities are ignored. Unknown mandatory capabilities abort negotiation. The selected
-values are the intersection of both peers and local safety limits, then committed into the transcript hash.
+Unknown bit values and unknown mandatory capabilities abort negotiation. The selected values are the
+intersection of both peers and local safety limits, then committed with both ordered offers into a SHA-256
+transcript. Both peers compare the same AEAD-protected confirmation before any manifest or benchmark data.
 
 ## Interoperability gates
 
@@ -58,4 +59,3 @@ values are the intersection of both peers and local safety limits, then committe
 - Android tests lock manifest/chunk/resume bounds and authenticated frame types.
 - Windows CI compiles a self-contained native EXE and rejects any PowerShell runtime dependency.
 - The next migration step adds the same golden vectors to .NET and a loopback Android/.NET transcript test.
-
