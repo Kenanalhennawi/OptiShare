@@ -15,11 +15,17 @@ public final class ResumableProtocol {
      * v2.2 fast-transfer chunk size.
      *
      * 1536 KiB keeps each encrypted SessionWire frame comfortably below the existing 2 MiB frame
-     * ceiling while reducing per-frame AES-GCM, allocation and socket overhead by roughly one third
-     * compared with the previous 1 MiB chunks. Four-chunk durable checkpoints now cover up to
-     * 6 MiB, which also reduces fsync/ACK stalls without making resume granularity too coarse.
+     * ceiling while reducing per-frame AES-GCM, allocation and socket overhead compared with the
+     * previous 1 MiB chunks.
      */
     public static final int DEFAULT_CHUNK_BYTES = 1536 * 1024;
+
+    /** Small/normal files keep the tighter 6 MiB resume window. */
+    public static final int DEFAULT_CHECKPOINT_CHUNKS = 4;
+
+    /** Large files trade a little resume granularity for fewer fsync/network stalls. */
+    public static final int LARGE_FILE_CHECKPOINT_CHUNKS = 8;
+    public static final long LARGE_FILE_THRESHOLD_BYTES = 64L * 1024L * 1024L;
 
     private ResumableProtocol() {}
 
@@ -67,5 +73,16 @@ public final class ResumableProtocol {
     public static long alignToChunkBoundary(long offset, int chunkBytes) {
         if (offset < 0 || chunkBytes <= 0) throw new IllegalArgumentException();
         return (offset / chunkBytes) * chunkBytes;
+    }
+
+    /**
+     * Both peers derive the same durable checkpoint cadence from the manifest file size. This does
+     * not change the wire format. Files below 64 MiB keep the existing 4-chunk (~6 MiB) window,
+     * while larger files use 8 chunks (~12 MiB) to cut fsync/ACK stalls roughly in half.
+     */
+    public static int checkpointChunksForFile(long fileSize) {
+        if (fileSize < 0) throw new IllegalArgumentException("fileSize must be >= 0");
+        return fileSize >= LARGE_FILE_THRESHOLD_BYTES
+                ? LARGE_FILE_CHECKPOINT_CHUNKS : DEFAULT_CHECKPOINT_CHUNKS;
     }
 }
