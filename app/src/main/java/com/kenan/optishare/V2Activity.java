@@ -160,7 +160,7 @@ public class V2Activity extends ComponentActivity implements
         }
     };
     private final Runnable lanFallbackConnect = () -> {
-        if (currentScreen == SCREEN_DISCOVERY && !transferStarted && peers.isEmpty()
+        if (currentScreen == SCREEN_DISCOVERY && !transferStarted
                 && pendingLanHost != null) {
             connectViaLan(pendingLanName, pendingLanHost);
         }
@@ -686,11 +686,10 @@ public class V2Activity extends ComponentActivity implements
                 runOnUiThread(()->{
                     if(currentScreen!=SCREEN_DISCOVERY||transferStarted)return;
                     pendingLanName=name;pendingLanHost=host;
-                    if(peers.isEmpty()){
-                        setDiscoveryText("Found "+name+" on the same Wi-Fi • giving Wi-Fi Direct a moment…");
-                        discoveryHandler.removeCallbacks(lanFallbackConnect);
-                        discoveryHandler.postDelayed(lanFallbackConnect,routeStore.lanFallbackDelayMillis());
-                    }
+                    renderPeers();
+                    setDiscoveryText("Verified OptiShare receiver found on the same Wi-Fi • connecting securely…");
+                    discoveryHandler.removeCallbacks(lanFallbackConnect);
+                    discoveryHandler.postDelayed(lanFallbackConnect,450L);
                 });
             }
             @Override public void onStatus(String message){
@@ -739,6 +738,18 @@ public class V2Activity extends ComponentActivity implements
         i.putExtra(PcTransferService.EXTRA_HOST,peer.host);i.putExtra(PcTransferService.EXTRA_PORT,peer.port);
         i.putExtra(PcTransferService.EXTRA_TOKEN,peer.token);i.putStringArrayListExtra(PcTransferService.EXTRA_URIS,uris);
         ContextCompat.startForegroundService(this,i);
+    }
+
+    private void benchmarkViaLan(String name,String host){
+        if(host==null||host.trim().isEmpty())return;
+        benchmarkMode=true;pcTransferMode=true;transferStarted=true;receiverMode=false;
+        discoveryHandler.removeCallbacks(p2pConnectTimeout);pendingP2pDevice=null;
+        connectedPeerName=(name==null||name.trim().isEmpty())?"OptiShare device":name;
+        activeRoute=RoutePerformanceStore.ROUTE_LAN;activeTransferStartedAt=System.currentTimeMillis();
+        stopPcDiscovery();stopLanDiscovery();
+        showTransferScreen("Android speed test");setConnectionUi("SAME WI-FI SPEED TEST",Color.rgb(89,205,255));
+        setTransferUi("Preparing 8 MB encrypted speed test","Using the verified OptiShare same-Wi-Fi route. No test file is saved.",0);
+        startBenchmarkService(host);
     }
 
     private void connectViaLan(String name,String host){
@@ -809,6 +820,22 @@ public class V2Activity extends ComponentActivity implements
                 empty.addView(text("Looking for Android receivers and OptiShare Windows Companion on this network.",12,Color.rgb(147,173,196),false));
                 peerList.addView(empty);return;
             }
+            if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){
+                LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+                TextView avatar=text("OS",13,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(43,196,126),Color.rgb(31,137,213),18));
+                line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
+                String lanName=(pendingLanName==null||pendingLanName.trim().isEmpty())?"OptiShare device":pendingLanName;
+                names.addView(text(lanName,15,Color.WHITE,true));
+                names.addView(text("Verified OptiShare • encrypted same-Wi-Fi route",12,Color.rgb(151,205,184),false));
+                line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
+                LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
+                Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkViaLan(lanName,pendingLanHost));
+                Button send=secondaryButton("Send here");send.setOnClickListener(v->connectViaLan(lanName,pendingLanHost));
+                actions.addView(test,new LinearLayout.LayoutParams(0,dp(46),1));
+                LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(8),0,0,0);actions.addView(send,sendLp);
+                row.addView(actions);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
+            }
             for(PcDiscovery.Peer pc:pcPeers){
                 LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView avatar=text("PC",14,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(39,178,255),Color.rgb(84,82,222),18));
@@ -827,12 +854,8 @@ public class V2Activity extends ComponentActivity implements
                 names.addView(text(deviceName(device),15,Color.WHITE,true));
                 names.addView(text(deviceStatus(device.status)+" • Wi-Fi Direct candidate",12,Color.rgb(151,182,205),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
-                LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
-                Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkDevice(device));
-                Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectTo(device));
-                actions.addView(test,new LinearLayout.LayoutParams(0,dp(46),1));
-                LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(8),0,0,0);actions.addView(connect,sendLp);
-                row.addView(actions);
+                TextView note=text("Not verified as OptiShare • use the verified OptiShare card above or scan the receiver QR",11,Color.rgb(142,166,187),false);
+                note.setPadding(0,dp(10),0,0);row.addView(note);
                 LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
             }
         });
@@ -846,14 +869,14 @@ public class V2Activity extends ComponentActivity implements
         connectedPeerName=deviceName(device);setConnectionUi("CONNECTING FOR TEST…",Color.rgb(89,205,255));
         setDiscoveryText("Connecting to "+connectedPeerName+" for encrypted speed test…");
         WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
-        Runnable go=()->{try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Speed-test request sent. Waiting up to 12 seconds for the direct link…");discoveryHandler.removeCallbacks(p2pConnectTimeout);discoveryHandler.postDelayed(p2pConnectTimeout,12000);}@Override public void onFailure(int reason){pendingP2pDevice=null;benchmarkMode=false;pcTransferMode=false;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Speed-test connection failed",reason));}});}catch(SecurityException e){benchmarkMode=false;pcTransferMode=false;showNearbyPermissionHelp();}};
+        Runnable go=()->{try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Speed-test request sent. Waiting up to 12 seconds for the direct link…");discoveryHandler.removeCallbacks(p2pConnectTimeout);discoveryHandler.postDelayed(p2pConnectTimeout,12000);}@Override public void onFailure(int reason){pendingP2pDevice=null;if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){benchmarkViaLan(pendingLanName,pendingLanHost);return;}benchmarkMode=false;pcTransferMode=false;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Speed-test connection failed",reason));}});}catch(SecurityException e){benchmarkMode=false;pcTransferMode=false;showNearbyPermissionHelp();}};
         try{manager.cancelConnect(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){go.run();}@Override public void onFailure(int reason){go.run();}});}catch(Exception e){go.run();}
     }
 
     private void connectTo(WifiP2pDevice device) {
         benchmarkMode=false;pcTransferMode=false;stopPcDiscovery();
         if(!ensureNearbyReady())return;discoveryHandler.removeCallbacks(discoveryRetry);pendingP2pDevice=device;connectedPeerName=deviceName(device);setConnectionUi("CONNECTING…",Color.rgb(255,194,73));setDiscoveryText("Connecting to "+connectedPeerName+"…");WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
-        Runnable go=()->{try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Connection request sent. Waiting up to 12 seconds for the direct link…");discoveryHandler.removeCallbacks(p2pConnectTimeout);discoveryHandler.postDelayed(p2pConnectTimeout,12000);}@Override public void onFailure(int reason){pendingP2pDevice=null;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Connection failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}};
+        Runnable go=()->{try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Connection request sent. Waiting up to 12 seconds for the direct link…");discoveryHandler.removeCallbacks(p2pConnectTimeout);discoveryHandler.postDelayed(p2pConnectTimeout,12000);}@Override public void onFailure(int reason){pendingP2pDevice=null;if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){connectViaLan(pendingLanName,pendingLanHost);return;}setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Connection failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}};
         try{manager.cancelConnect(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){go.run();}@Override public void onFailure(int reason){go.run();}});}catch(Exception e){go.run();}
     }
 
