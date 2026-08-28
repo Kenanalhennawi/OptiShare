@@ -25,7 +25,7 @@ The receiving peer necessarily receives the content and metadata selected for tr
 
 - Android-to-Android: authenticated key agreement, application-level encrypted frames, integrity verification.
 - Android-to-Windows native companion: local direct connection; verify the release behavior before selecting universal encryption.
-- Browser Receive: local HTTP with an unguessable session path/token; it prevents casual unsolicited upload but is not equivalent to encrypted transport.
+- Browser Receive: local HTTP with a short-lived token and explicit phone approval. The token is kept in the URL fragment and removed from browser history after page load; responses prohibit caching, referrers and framing. This hardening is not equivalent to encrypted transport.
 - Therefore the conservative and accurate Play answer is currently **not all data is encrypted in transit**.
 
 ## Permissions declaration notes

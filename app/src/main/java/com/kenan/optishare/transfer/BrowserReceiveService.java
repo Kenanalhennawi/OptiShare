@@ -173,7 +173,8 @@ public final class BrowserReceiveService extends Service {
             broadcast("error", "Connect this phone to Wi-Fi or a local hotspot first", null, 0);
             return;
         }
-        String url = "http://" + ip + ":" + PORT + "/?token=" + token;
+        // A URL fragment is not sent in the initial HTTP request or stored in server access logs.
+        String url = "http://" + ip + ":" + PORT + "/#token=" + token;
         broadcast("ready", "Open this address on a device connected to the same local network", url, 0);
     }
 
@@ -182,10 +183,13 @@ public final class BrowserReceiveService extends Service {
 
         @Override public Response serve(IHTTPSession session) {
             try {
+                if (Method.GET.equals(session.getMethod()) && "/".equals(session.getUri())) return page();
+                if (!BrowserRequestPolicy.allowedOrigin(session.getHeaders())) {
+                    return text(Response.Status.FORBIDDEN, "Cross-origin request rejected");
+                }
                 String supplied = queryToken(session);
                 if (!validToken(supplied)) return text(Response.Status.UNAUTHORIZED,
                         "This OptiShare browser link is invalid or expired.");
-                if (Method.GET.equals(session.getMethod())) return page(supplied);
                 if (!Method.POST.equals(session.getMethod())) return text(Response.Status.NOT_FOUND, "Not found");
                 if ("/clipboard".equals(session.getUri())) return receiveClipboard(session, supplied);
                 if ("/benchmark".equals(session.getUri())) return receiveBenchmark(session, supplied);
@@ -313,7 +317,7 @@ public final class BrowserReceiveService extends Service {
         return text(Response.Status.OK, published == null ? "Saved" : "Saved successfully");
     }
 
-    private Response page(String supplied) {
+    private Response page() {
         String body = "<!doctype html><html><head><meta charset='utf-8'>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                 + "<title>OptiShare Browser Receive</title><style>body{font-family:system-ui;background:#071a32;color:#fff;max-width:720px;margin:auto;padding:28px}"
@@ -322,12 +326,13 @@ public final class BrowserReceiveService extends Service {
                 + "<h1>OptiShare</h1><p>Send files to this phone over the local network.</p>"
                 + "<small>The phone must approve every file. This browser route is local HTTP and is not the encrypted app-to-app mode.</small>"
                 + "<input id='files' type='file' multiple><button onclick='send()'>Send selected files</button><div id='status'></div>"
-                + "</div><script>const token='" + supplied + "';async function send(){const fs=document.getElementById('files').files;"
+                + "</div><script>const token=new URLSearchParams(location.hash.slice(1)).get('token')||'';history.replaceState(null,'',location.pathname);"
+                + "async function send(){if(!token){document.getElementById('status').textContent='Invalid or expired receive link';return;}const fs=document.getElementById('files').files;"
                 + "for(const f of fs){const s=document.getElementById('status');s.innerHTML+='<div class=item>Waiting for phone approval: '+esc(f.name)+'</div>';"
                 + "try{const r=await fetch('/upload?token='+encodeURIComponent(token),{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream','X-OptiShare-Name':encodeURIComponent(f.name)},body:f});"
                 + "const t=await r.text();s.innerHTML+='<div class=item>'+esc(f.name)+': '+esc(t)+'</div>';}catch(e){s.innerHTML+='<div class=item>'+esc(f.name)+': failed</div>';}}}"
                 + "function esc(v){return String(v).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));}</script></body></html>";
-        return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body);
+        return protect(NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body));
     }
 
     private String queryToken(NanoHTTPD.IHTTPSession session) {
@@ -418,7 +423,18 @@ public final class BrowserReceiveService extends Service {
     }
 
     private static Response text(Response.IStatus status, String value) {
-        return NanoHTTPD.newFixedLengthResponse(status, "text/plain; charset=utf-8", value);
+        return protect(NanoHTTPD.newFixedLengthResponse(status, "text/plain; charset=utf-8", value));
+    }
+
+    private static Response protect(Response response) {
+        response.addHeader("Cache-Control", "no-store, max-age=0");
+        response.addHeader("Pragma", "no-cache");
+        response.addHeader("Referrer-Policy", "no-referrer");
+        response.addHeader("X-Content-Type-Options", "nosniff");
+        response.addHeader("X-Frame-Options", "DENY");
+        response.addHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'");
+        response.addHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+        return response;
     }
 
     private static String human(long bytes) {
