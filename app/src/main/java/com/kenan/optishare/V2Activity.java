@@ -458,6 +458,12 @@ public class V2Activity extends ComponentActivity implements
 
         addHistory(root);
 
+        Button receivedFiles = primary("Received files center →");
+        receivedFiles.setOnClickListener(v -> startActivity(new Intent(this, ReceivedFilesActivity.class)));
+        LinearLayout.LayoutParams receivedLp = new LinearLayout.LayoutParams(-1, dp(50));
+        receivedLp.setMargins(0, dp(12), 0, 0);
+        root.addView(receivedFiles, receivedLp);
+
         LinearLayout security = card();
         security.addView(text("Privacy by design",15,Color.WHITE,true));
         security.addView(text("• No account or cloud required\n• Ephemeral ECDH key exchange\n• AES-256-GCM authenticated transfer\n• SHA-256 verification before publishing files",12,Color.rgb(156,185,209),false));
