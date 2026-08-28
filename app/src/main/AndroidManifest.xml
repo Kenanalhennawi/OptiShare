@@ -54,6 +54,12 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
+        <service
+            android:name=".transfer.PcTransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
+
         <activity
             android:name=".ApprovalActivity"
             android:screenOrientation="portrait"
