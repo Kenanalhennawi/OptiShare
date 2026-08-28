@@ -687,9 +687,9 @@ public class V2Activity extends ComponentActivity implements
                     if(currentScreen!=SCREEN_DISCOVERY||transferStarted)return;
                     pendingLanName=name;pendingLanHost=host;
                     renderPeers();
-                    setDiscoveryText("Verified OptiShare receiver found on the same Wi-Fi • connecting securely…");
+                    setConnectionUi("OPTISHARE FOUND",Color.rgb(65,225,151));
+                    setDiscoveryText("Verified OptiShare receiver found • choose Speed test or Send here below.");
                     discoveryHandler.removeCallbacks(lanFallbackConnect);
-                    discoveryHandler.postDelayed(lanFallbackConnect,450L);
                 });
             }
             @Override public void onStatus(String message){
