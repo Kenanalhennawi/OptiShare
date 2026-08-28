@@ -154,3 +154,40 @@ jobs:
             app/build/reports/lint-results-release.*
           if-no-files-found: ignore
           retention-days: 14
+
+  windows-companion:
+    name: Validate Windows companion
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse PowerShell companion
+        shell: powershell
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'windows/OptiShare-Companion.ps1'),
+            [ref]$null,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          if (-not (Test-Path 'windows/Start-OptiShare-Companion.bat')) { throw 'Missing Windows launcher' }
+
+      - name: Package Windows companion
+        shell: powershell
+        run: |
+          Compress-Archive -Path windows/OptiShare-Companion.ps1,windows/Start-OptiShare-Companion.bat,windows/README.md -DestinationPath OptiShare-2.2-Windows-Companion.zip -Force
+          if ((Get-Item OptiShare-2.2-Windows-Companion.zip).Length -le 0) { throw 'Windows companion package is empty' }
+
+      - name: Upload Windows companion
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.2-Windows-Companion
+          path: OptiShare-2.2-Windows-Companion.zip
+          if-no-files-found: error
+          retention-days: 30
