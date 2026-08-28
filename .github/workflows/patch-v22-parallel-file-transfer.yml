@@ -29,7 +29,7 @@ jobs:
         with:
           gradle-version: '8.11.1'
       - name: Apply adaptive parallel file transfer
-        run: python tools/patch_v22_parallel_file_transfer.py
+        run: python tools/run_parallel_patch_v2.py
       - name: Verify adaptive parallel transfer
         run: |
           git diff --check
