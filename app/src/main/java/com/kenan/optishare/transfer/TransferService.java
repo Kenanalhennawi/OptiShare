@@ -486,6 +486,7 @@ public final class TransferService extends Service {
                 double dualSpeed = dualBytes / Math.max(0.001, dualDurationMs / 1000.0);
                 int gain = ParallelBenchmarkDecision.improvementPercent(single.bytesPerSecond, dualSpeed);
                 boolean recommendDual = ParallelBenchmarkDecision.recommendTwoStreams(single.bytesPerSecond, dualSpeed);
+                routeStore.recordParallelBenchmark(single.bytesPerSecond, dualSpeed);
                 String summary = "1 stream " + formatSpeed(single.bytesPerSecond)
                         + " • 2 streams " + formatSpeed(dualSpeed)
                         + " • " + (gain >= 0 ? "+" : "") + gain + "% • "
