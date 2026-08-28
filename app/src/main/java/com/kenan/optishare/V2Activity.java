@@ -113,6 +113,8 @@ public class V2Activity extends ComponentActivity implements
     private TextView transferState;
     private TextView transferDetail;
     private ProgressBar transferProgress;
+    private LinearLayout transferQueueList;
+    private final Set<Integer> completedQueueIndexes = new HashSet<>();
     private Button transferPauseButton;
     private Button transferCancelButton;
     private boolean transferPaused;
@@ -263,6 +265,10 @@ public class V2Activity extends ComponentActivity implements
             long etaSeconds = intent.getLongExtra(TransferService.EXTRA_ETA_SECONDS, 0L);
             double averageSpeed = intent.getDoubleExtra(TransferService.EXTRA_AVG_SPEED, 0d);
             long durationMs = intent.getLongExtra(TransferService.EXTRA_DURATION_MS, 0L);
+            String activeFileName = intent.getStringExtra(TransferService.EXTRA_FILE_NAME);
+            long activeFileDone = intent.getLongExtra(TransferService.EXTRA_FILE_DONE, 0L);
+            long activeFileTotal = intent.getLongExtra(TransferService.EXTRA_FILE_TOTAL, 0L);
+            int activeFileIndex = intent.getIntExtra(TransferService.EXTRA_FILE_INDEX, -1);
             int reconnects = intent.getIntExtra(TransferService.EXTRA_RECONNECTS, 0);
             int completedFileCount = intent.getIntExtra(TransferService.EXTRA_FILE_COUNT, 0);
             long completedTotalBytes = intent.getLongExtra(TransferService.EXTRA_TOTAL_BYTES, 0L);
@@ -289,6 +295,7 @@ public class V2Activity extends ComponentActivity implements
                 updatePauseButton(false);
                 setTransferUi(receiverMode ? "Receiving…" : "Sending…", message, progress);
                 setTransferMetrics(progress, done, total, speed, etaSeconds);
+                updateLiveQueue(activeFileIndex, activeFileName, activeFileDone, activeFileTotal, false);
             } else if ("paused".equals(event)) {
                 transferPaused=true;
                 setConnectionUi("PAUSED", Color.rgb(255,188,70));
@@ -317,6 +324,7 @@ public class V2Activity extends ComponentActivity implements
                 setTransferUi("Text received & copied ✓","The received text is now in your clipboard.",-1);
             } else if ("file_done".equals(event)) {
                 setTransferUi("File verified ✓", message, -1);
+                updateLiveQueue(activeFileIndex, activeFileName, activeFileTotal, activeFileTotal, true);
             } else if ("completed".equals(event)) {
                 setConnectionUi("COMPLETED ✓", Color.rgb(65, 225, 151));
                 TextView screenTitle=findViewByTag("transfer_screen_title");
@@ -336,6 +344,10 @@ public class V2Activity extends ComponentActivity implements
             } else if ("error".equals(event)) {
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
                 setTransferUi("Transfer could not continue", message, -1);
+                if (!receiverMode && senderSessionStore.exists() && transferCancelButton != null) {
+                    transferCancelButton.setText("Retry / resume →");
+                    transferCancelButton.setOnClickListener(v -> resumePendingTransfer());
+                }
                 historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
                         connectedPeerName, selected.size(), selectedTotalBytes(), false));
@@ -569,9 +581,10 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout selection=card();
         if(selected.isEmpty()) selection.addView(text("Nothing selected yet. Photos and Videos open inside OptiShare; Files opens Android's document picker.",13,Color.rgb(156,181,202),false));
         else {
-            int show=Math.min(selected.size(),10);
-            for(int i=0;i<show;i++) selection.addView(text("✓ "+displayName(selected.get(i)),13,Color.WHITE,false));
-            if(selected.size()>show) selection.addView(text("+ "+(selected.size()-show)+" more",12,Color.rgb(82,196,255),true));
+            selection.addView(text("Transfer queue • drag-free controls keep ordering predictable",12,Color.rgb(115,196,255),true));
+            int show=Math.min(selected.size(),40);
+            for(int i=0;i<show;i++) selection.addView(queueSelectionRow(i));
+            if(selected.size()>show) selection.addView(text("+ "+(selected.size()-show)+" more queued",12,Color.rgb(82,196,255),true));
             Button clear=secondaryButton("Clear selection");clear.setOnClickListener(v->{selected.clear();FolderTransferQueue.clear();showSendSelection();});
             LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,dp(46));cl.setMargins(0,dp(10),0,0);selection.addView(clear,cl);
         }
@@ -580,6 +593,45 @@ public class V2Activity extends ComponentActivity implements
         find.setEnabled(!selected.isEmpty());find.setAlpha(selected.isEmpty()?.45f:1f);find.setOnClickListener(v->showDiscovery());
         LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(58));fl.setMargins(0,dp(14),0,0);root.addView(find,fl);
         setContentView(scroll);
+    }
+
+    private View queueSelectionRow(int index){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(5),0,dp(5));
+        TextView label=text((index+1)+". "+displayName(selected.get(index)),12,Color.WHITE,false);label.setMaxLines(2);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        Button up=smallButton("↑");up.setEnabled(index>0);up.setAlpha(index>0?1f:.35f);up.setOnClickListener(v->moveQueueItem(index,index-1));row.addView(up,new LinearLayout.LayoutParams(dp(42),dp(40)));
+        Button down=smallButton("↓");down.setEnabled(index<selected.size()-1);down.setAlpha(index<selected.size()-1?1f:.35f);down.setOnClickListener(v->moveQueueItem(index,index+1));LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(dp(42),dp(40));dl.setMargins(dp(5),0,0,0);row.addView(down,dl);
+        Button remove=smallButton("×");remove.setOnClickListener(v->removeQueueItem(index));LinearLayout.LayoutParams rl=new LinearLayout.LayoutParams(dp(42),dp(40));rl.setMargins(dp(5),0,0,0);row.addView(remove,rl);
+        return row;
+    }
+
+    private void moveQueueItem(int from,int to){
+        if(from<0||to<0||from>=selected.size()||to>=selected.size()||from==to)return;
+        Uri item=selected.remove(from);selected.add(to,item);showSendSelection();
+    }
+
+    private void removeQueueItem(int index){
+        if(index<0||index>=selected.size())return;selected.remove(index);showSendSelection();
+    }
+
+    private void updateLiveQueue(int index,String name,long done,long total,boolean complete){
+        if(index>=0&&complete)completedQueueIndexes.add(index);
+        renderLiveQueue(index,name,done,total);
+    }
+
+    private void renderLiveQueue(int activeIndex,String activeName,long activeDone,long activeTotal){
+        if(transferQueueList==null)return;transferQueueList.removeAllViews();
+        if(receiverMode&&selected.isEmpty()&&activeIndex<0){transferQueueList.addView(text("Waiting for incoming manifest…",12,Color.rgb(151,181,205),false));return;}
+        int count=receiverMode?Math.max(activeIndex+1,completedQueueIndexes.isEmpty()?0:(Collections.max(completedQueueIndexes)+1)):selected.size();
+        if(count==0&&activeIndex>=0)count=activeIndex+1;
+        int show=Math.min(count,20);
+        for(int i=0;i<show;i++){
+            boolean completed=completedQueueIndexes.contains(i);boolean active=i==activeIndex&&!completed;
+            String name=(!receiverMode&&i<selected.size())?displayName(selected.get(i)):(active&&activeName!=null?activeName:"File "+(i+1));
+            String state=completed?"✓ Verified":active?"↗ "+(activeTotal>0?formatBytes(activeDone)+" / "+formatBytes(activeTotal):"Transferring…"):"• Pending";
+            int color=completed?Color.rgb(65,225,151):active?Color.rgb(89,205,255):Color.rgb(151,181,205);
+            transferQueueList.addView(text((i+1)+". "+name+"   "+state,11,color,active||completed));
+        }
+        if(count>show)transferQueueList.addView(text("+ "+(count-show)+" more files",11,Color.rgb(122,158,185),false));
     }
 
     private void openInternalGallery(String type) {
@@ -656,6 +708,13 @@ public class V2Activity extends ComponentActivity implements
         TextView speedView=text("— MB/s",13,Color.rgb(89,205,255),true);speedView.setTag("transfer_speed");speedView.setGravity(Gravity.CENTER);metrics.addView(speedView,new LinearLayout.LayoutParams(0,-2,1));
         TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.RIGHT);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
         card.addView(metrics);root.addView(card);
+        if(!benchmarkMode){
+            LinearLayout queueCard=card();
+            TextView queueTitle=text(receiverMode?"Receiving files":"Transfer queue",15,Color.WHITE,true);queueCard.addView(queueTitle);
+            transferQueueList=new LinearLayout(this);transferQueueList.setOrientation(LinearLayout.VERTICAL);transferQueueList.setPadding(0,dp(8),0,0);queueCard.addView(transferQueueList);
+            completedQueueIndexes.clear();renderLiveQueue(-1,null,0L,0L);
+            LinearLayout.LayoutParams qlp=new LinearLayout.LayoutParams(-1,-2);qlp.setMargins(0,dp(12),0,0);root.addView(queueCard,qlp);
+        }else transferQueueList=null;
         if(!receiverMode&&!pcTransferMode){
             transferPauseButton=secondaryButton("Pause transfer");
             transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());

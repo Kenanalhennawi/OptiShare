@@ -69,6 +69,11 @@ public final class TransferService extends Service {
     public static final String EXTRA_RECONNECTS = "reconnects";
     public static final String EXTRA_FILE_COUNT = "file_count";
     public static final String EXTRA_TOTAL_BYTES = "total_bytes";
+    public static final String EXTRA_FILE_ID = "file_id";
+    public static final String EXTRA_FILE_NAME = "file_name";
+    public static final String EXTRA_FILE_DONE = "file_done_bytes";
+    public static final String EXTRA_FILE_TOTAL = "file_total_bytes";
+    public static final String EXTRA_FILE_INDEX = "file_index";
     public static final int PORT = 49888;
     public static final int PARALLEL_BENCHMARK_PORT = 49891;
     public static final int STRIPED_TRANSFER_PORT = 49892;
@@ -431,7 +436,7 @@ public final class TransferService extends Service {
                         + formatProgress(batchDone, batchTotal, bytesPerSecond, eta);
                 updateNotification("Receiving files", message, p, true);
                 broadcastProgress(message, p, bytesPerSecond, sessionId,
-                        batchDone, batchTotal, eta);
+                        batchDone, batchTotal, eta, fileId, fileName, done, total, entryIndex(fileId));
             }
 
             @Override public void onFileCompleted(String sessionId, String fileId,
@@ -441,8 +446,9 @@ public final class TransferService extends Service {
                     String text=readSmallText(publishedUri);
                     if(text!=null)broadcast("text_received",text,0,0,sessionId);
                 }
-                broadcast("file_done", "Verified ✓ • saved to Download/OptiShare",
-                        0, 0, sessionId);
+                String completedName = entry == null ? "Received file" : entry.name;
+                broadcastFileDone(sessionId, fileId, completedName, entryIndex(fileId),
+                        "Verified ✓ • saved to Download/OptiShare");
             }
 
             @Override public void onCompleted(String sessionId) {
@@ -742,11 +748,16 @@ public final class TransferService extends Service {
                         + formatProgress(batchDone, batchTotal, bytesPerSecond, eta);
                 updateNotification("Sending files", message, p, true);
                 broadcastProgress(message, p, bytesPerSecond, sessionId,
-                        batchDone, batchTotal, eta);
+                        batchDone, batchTotal, eta, fileId, fileName, done, total, entryIndex(fileId));
             }
 
             @Override public void onFileCompleted(String sessionId, String fileId,
-                                                  Uri publishedUri) { }
+                                                  Uri publishedUri) {
+                BatchManifest.Entry entry = findEntry(fileId);
+                String completedName = entry == null ? "Sent file" : entry.name;
+                broadcastFileDone(sessionId, fileId, completedName, entryIndex(fileId),
+                        "Sent and verified ✓");
+            }
 
             @Override public void onCompleted(String sessionId) {
                 routeStore.recordSuccess(currentRoute, averageBytesPerSecond());
@@ -963,6 +974,12 @@ public final class TransferService extends Service {
 
     private void broadcastProgress(String message, int progress, double speed, String session,
                                    long done, long total, long etaSeconds) {
+        broadcastProgress(message, progress, speed, session, done, total, etaSeconds, null, null, 0L, 0L, -1);
+    }
+
+    private void broadcastProgress(String message, int progress, double speed, String session,
+                                   long done, long total, long etaSeconds, String fileId, String fileName,
+                                   long fileDone, long fileTotal, int fileIndex) {
         Intent intent = new Intent(ACTION_EVENT);
         intent.setPackage(getPackageName());
         intent.putExtra(EXTRA_EVENT, "progress");
@@ -973,7 +990,31 @@ public final class TransferService extends Service {
         intent.putExtra(EXTRA_DONE, done);
         intent.putExtra(EXTRA_TOTAL, total);
         intent.putExtra(EXTRA_ETA_SECONDS, etaSeconds);
+        if (fileId != null) intent.putExtra(EXTRA_FILE_ID, fileId);
+        if (fileName != null) intent.putExtra(EXTRA_FILE_NAME, fileName);
+        intent.putExtra(EXTRA_FILE_DONE, fileDone);
+        intent.putExtra(EXTRA_FILE_TOTAL, fileTotal);
+        intent.putExtra(EXTRA_FILE_INDEX, fileIndex);
         sendBroadcast(intent);
+    }
+
+    private void broadcastFileDone(String session, String fileId, String fileName, int fileIndex, String message) {
+        Intent intent = new Intent(ACTION_EVENT);
+        intent.setPackage(getPackageName());
+        intent.putExtra(EXTRA_EVENT, "file_done");
+        intent.putExtra(EXTRA_MESSAGE, message);
+        intent.putExtra(EXTRA_SESSION, session);
+        intent.putExtra(EXTRA_FILE_ID, fileId);
+        intent.putExtra(EXTRA_FILE_NAME, fileName);
+        intent.putExtra(EXTRA_FILE_INDEX, fileIndex);
+        sendBroadcast(intent);
+    }
+
+    private int entryIndex(String fileId) {
+        if (activeManifest == null || fileId == null) return -1;
+        List<BatchManifest.Entry> entries = activeManifest.getEntries();
+        for (int i = 0; i < entries.size(); i++) if (fileId.equals(entries.get(i).id)) return i;
+        return -1;
     }
 
     private void pauseOutgoingTransfer() {
