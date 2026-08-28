@@ -70,6 +70,7 @@ public final class TransferService extends Service {
     public static final String EXTRA_FILE_COUNT = "file_count";
     public static final String EXTRA_TOTAL_BYTES = "total_bytes";
     public static final int PORT = 49888;
+    public static final int PARALLEL_BENCHMARK_PORT = 49891;
 
     private static final String CHANNEL = "optishare_transfers";
     private static final int NOTIFICATION_ID = 2200;
@@ -79,6 +80,7 @@ public final class TransferService extends Service {
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ServerSocket serverSocket;
+    private volatile ServerSocket benchmarkServerSocket;
     private volatile Socket activeSocket;
     private volatile BatchManifest activeManifest;
     private volatile List<TransferItem> activeItems;
@@ -179,6 +181,7 @@ public final class TransferService extends Service {
         });
         updateNotification("Ready to receive", "Waiting via Wi-Fi Direct or the same Wi-Fi network", 0, false);
         broadcast("receiver_ready", "Waiting via Wi-Fi Direct or same Wi-Fi…", 0, 0, null);
+        startParallelBenchmarkReceiver();
         executor.execute(() -> {
             try (ServerSocket server = new ServerSocket()) {
                 serverSocket = server;
@@ -215,6 +218,94 @@ public final class TransferService extends Service {
                 stopSelf();
             }
         });
+    }
+
+    private void startParallelBenchmarkReceiver() {
+        executor.execute(() -> {
+            try (ServerSocket server = new ServerSocket()) {
+                benchmarkServerSocket = server;
+                server.setReuseAddress(true);
+                server.bind(new InetSocketAddress(PARALLEL_BENCHMARK_PORT));
+                while (running.get()) {
+                    Socket socket = server.accept();
+                    executor.execute(() -> receiveTrustedBenchmark(socket));
+                }
+            } catch (Exception ignored) {
+                // The normal transfer listener remains available even if the optional parallel
+                // benchmark port cannot be opened on a particular OEM/network.
+            } finally {
+                benchmarkServerSocket = null;
+            }
+        });
+    }
+
+    private void receiveTrustedBenchmark(Socket socket) {
+        try (Socket local = socket) {
+            new TransferEngine(this).receive(local, new TransferEngine.Listener() {
+                @Override public boolean onPeerIdentity(String fingerprint) {
+                    return fingerprint != null && trustedStore.isTrusted(fingerprint);
+                }
+                @Override public void onSecurityCode(String code) {
+                    throw new SecurityException("Trust both devices before the 2-stream benchmark");
+                }
+                @Override public void onIncomingBatch(BatchManifest manifest) { }
+                @Override public boolean acceptIncomingBatch(BatchManifest manifest) { return false; }
+                @Override public void onProgress(String sessionId, String fileId, String fileName, long done, long total, long batchDone, long batchTotal, double bytesPerSecond) { }
+                @Override public void onFileCompleted(String sessionId, String fileId, Uri publishedUri) { }
+                @Override public void onCompleted(String sessionId) { }
+                @Override public void onError(String sessionId, Throwable error, boolean resumable) { }
+            });
+        } catch (Exception ignored) { }
+    }
+
+    private static final class BenchmarkSample {
+        final long bytes;
+        final long durationMs;
+        final double bytesPerSecond;
+        BenchmarkSample(long bytes, long durationMs, double bytesPerSecond) {
+            this.bytes = bytes;
+            this.durationMs = durationMs;
+            this.bytesPerSecond = bytesPerSecond;
+        }
+    }
+
+    private BenchmarkSample runBenchmarkSocket(String host, int port, boolean trustedOnly, String expectedFingerprint) throws Exception {
+        final long[] bytes = {0L};
+        final long[] duration = {0L};
+        final double[] speed = {0d};
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), 8000);
+            new TransferEngine(this).benchmark(socket, new TransferEngine.Listener() {
+                @Override public boolean onPeerIdentity(String fingerprint) {
+                    if (trustedOnly) {
+                        return fingerprint != null
+                                && trustedStore.isTrusted(fingerprint)
+                                && (expectedFingerprint == null || expectedFingerprint.equals(fingerprint));
+                    }
+                    activePeerFingerprint = fingerprint;
+                    boolean trusted = fingerprint != null && trustedStore.isTrusted(fingerprint);
+                    if (trusted) broadcast("trusted_peer", "Trusted device verified ✓", 0, 0, null);
+                    return trusted;
+                }
+                @Override public void onSecurityCode(String code) {
+                    if (trustedOnly) throw new SecurityException("Trust both devices before the 2-stream benchmark");
+                    requireSecurityConfirmation(code, null);
+                }
+                @Override public void onIncomingBatch(BatchManifest manifest) { }
+                @Override public boolean acceptIncomingBatch(BatchManifest manifest) { return true; }
+                @Override public void onProgress(String sessionId, String fileId, String fileName, long done, long total, long batchDone, long batchTotal, double bytesPerSecond) { }
+                @Override public void onFileCompleted(String sessionId, String fileId, Uri publishedUri) { }
+                @Override public void onCompleted(String sessionId) { }
+                @Override public void onError(String sessionId, Throwable error, boolean resumable) { }
+                @Override public void onBenchmarkCompleted(long sampleBytes, long durationMs, double bytesPerSecond) {
+                    bytes[0] = sampleBytes;
+                    duration[0] = durationMs;
+                    speed[0] = bytesPerSecond;
+                }
+            });
+        }
+        if (bytes[0] <= 0L || duration[0] <= 0L || speed[0] <= 0d) throw new java.io.IOException("Speed test returned no measurement");
+        return new BenchmarkSample(bytes[0], duration[0], speed[0]);
     }
 
     private void receiveOne(Socket socket) throws Exception {
@@ -359,54 +450,53 @@ public final class TransferService extends Service {
         activeItems = null;
         activePeerFingerprint = null;
         resetMetrics();
-        updateNotification("Android speed test", "Measuring encrypted local throughput", 0, true);
-        broadcast("benchmark_started", "Testing the encrypted Android route…", 0, 0, null);
+        updateNotification("Adaptive Android speed test", "Measuring 1 stream first", 0, true);
+        broadcast("benchmark_started", "Adaptive test: measuring 1 encrypted stream…", 0, 0, null);
         executor.execute(() -> {
             try {
-                Socket socket = new Socket();
-                activeSocket = socket;
-                socket.connect(new InetSocketAddress(host, PORT), 8000);
-                new TransferEngine(this).benchmark(socket, new TransferEngine.Listener() {
-                    @Override public boolean onPeerIdentity(String fingerprint) {
-                        activePeerFingerprint = fingerprint;
-                        boolean trusted = trustedStore.isTrusted(fingerprint);
-                        if (trusted) broadcast("trusted_peer", "Trusted device verified ✓", 0, 0, null);
-                        return trusted;
-                    }
+                BenchmarkSample single = runBenchmarkSocket(host, PORT, false, null);
+                routeStore.recordSuccess(currentRoute, single.bytesPerSecond);
+                String fingerprint = activePeerFingerprint;
+                boolean localTrusted = fingerprint != null && trustedStore.isTrusted(fingerprint);
+                if (!localTrusted) {
+                    String summary = "1 stream • " + formatSpeed(single.bytesPerSecond)
+                            + " • Trust this device on both phones, then rerun to compare 2 streams";
+                    updateNotification("Speed test complete", summary, 100, false);
+                    broadcastBenchmarkCompleted(summary, single.bytes, single.durationMs,
+                            single.bytesPerSecond, currentRoute);
+                    return;
+                }
 
-                    @Override public void onSecurityCode(String code) {
-                        requireSecurityConfirmation(code, null);
-                    }
-
-                    @Override public void onIncomingBatch(BatchManifest manifest) { }
-                    @Override public boolean acceptIncomingBatch(BatchManifest manifest) { return true; }
-                    @Override public void onProgress(String sessionId, String fileId, String fileName,
-                                                     long done, long total, long batchDone,
-                                                     long batchTotal, double bytesPerSecond) { }
-                    @Override public void onFileCompleted(String sessionId, String fileId, Uri publishedUri) { }
-                    @Override public void onCompleted(String sessionId) { }
-                    @Override public void onError(String sessionId, Throwable error, boolean resumable) { }
-
-                    @Override public void onBenchmarkCompleted(long bytes, long durationMs,
-                                                               double bytesPerSecond) {
-                        routeStore.recordSuccess(currentRoute, bytesPerSecond);
-                        String summary = "Encrypted Android speed test • " + formatBytes(bytes)
-                                + " in " + formatElapsed(durationMs / 1000.0)
-                                + " • " + formatSpeed(bytesPerSecond)
-                                + " • " + routeLabel(currentRoute);
-                        updateNotification("Speed test complete", summary, 100, false);
-                        broadcastBenchmarkCompleted(summary, bytes, durationMs,
-                                bytesPerSecond, currentRoute);
-                    }
-                });
+                updateNotification("Adaptive Android speed test", "Comparing 2 encrypted streams", 55, true);
+                broadcast("benchmark_started", "1 stream: " + formatSpeed(single.bytesPerSecond)
+                        + " • now testing 2 streams…", 55, single.bytesPerSecond, null);
+                long dualStarted = System.nanoTime();
+                java.util.concurrent.Future<BenchmarkSample> first = executor.submit(
+                        () -> runBenchmarkSocket(host, PARALLEL_BENCHMARK_PORT, true, fingerprint));
+                java.util.concurrent.Future<BenchmarkSample> second = executor.submit(
+                        () -> runBenchmarkSocket(host, PARALLEL_BENCHMARK_PORT, true, fingerprint));
+                BenchmarkSample a = first.get(20, java.util.concurrent.TimeUnit.SECONDS);
+                BenchmarkSample b = second.get(20, java.util.concurrent.TimeUnit.SECONDS);
+                long dualDurationMs = Math.max(1L, Math.round((System.nanoTime() - dualStarted) / 1_000_000.0));
+                long dualBytes = a.bytes + b.bytes;
+                double dualSpeed = dualBytes / Math.max(0.001, dualDurationMs / 1000.0);
+                int gain = ParallelBenchmarkDecision.improvementPercent(single.bytesPerSecond, dualSpeed);
+                boolean recommendDual = ParallelBenchmarkDecision.recommendTwoStreams(single.bytesPerSecond, dualSpeed);
+                String summary = "1 stream " + formatSpeed(single.bytesPerSecond)
+                        + " • 2 streams " + formatSpeed(dualSpeed)
+                        + " • " + (gain >= 0 ? "+" : "") + gain + "% • "
+                        + (recommendDual ? "2-stream recommended" : "1-stream recommended");
+                updateNotification("Adaptive speed test complete", summary, 100, false);
+                broadcastBenchmarkCompleted(summary, dualBytes, dualDurationMs, dualSpeed, currentRoute);
             } catch (Exception error) {
-                routeStore.recordFailure(currentRoute);
                 String message = safe(error);
-                if (message.toLowerCase(Locale.US).contains("invalid frame type")) {
-                    message = "The other OptiShare version does not support Android speed test yet";
+                if (message.toLowerCase(Locale.US).contains("trust both devices")) {
+                    message = "1-stream test works; trust the device on both phones before the 2-stream comparison";
+                } else if (message.toLowerCase(Locale.US).contains("invalid frame type")) {
+                    message = "The other OptiShare version does not support adaptive speed test yet";
                 }
                 broadcast("benchmark_error", message, 0, 0, null);
-                updateNotification("Speed test failed", message, 0, false);
+                updateNotification("Speed test stopped", message, 0, false);
             } finally {
                 running.set(false);
                 closeSocket();
@@ -794,7 +884,11 @@ public final class TransferService extends Service {
         try {
             if (serverSocket != null) serverSocket.close();
         } catch (Exception ignored) { }
+        try {
+            if (benchmarkServerSocket != null) benchmarkServerSocket.close();
+        } catch (Exception ignored) { }
         serverSocket = null;
+        benchmarkServerSocket = null;
         stopForeground(true);
         stopSelf();
     }
@@ -813,6 +907,9 @@ public final class TransferService extends Service {
         closeSocket();
         try {
             if (serverSocket != null) serverSocket.close();
+        } catch (Exception ignored) { }
+        try {
+            if (benchmarkServerSocket != null) benchmarkServerSocket.close();
         } catch (Exception ignored) { }
         executor.shutdownNow();
         super.onDestroy();
