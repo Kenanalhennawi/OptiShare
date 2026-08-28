@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.database.Cursor;
+import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
@@ -129,8 +130,9 @@ public final class PcTransferService extends Service {
                     MessageDigest digest = MessageDigest.getInstance("SHA-256");
                     long fileDone = 0L;
                     long fileStarted = System.nanoTime();
-                    try (InputStream source = new BufferedInputStream(getContentResolver().openInputStream(item.uri), BUFFER)) {
-                        if (source == null) throw new IllegalStateException("Cannot open " + item.name);
+                    InputStream raw = getContentResolver().openInputStream(item.uri);
+                    if (raw == null) throw new IllegalStateException("Cannot open " + item.name);
+                    try (InputStream source = new BufferedInputStream(raw, BUFFER)) {
                         while (fileDone < item.size) {
                             if (!running.get()) throw new InterruptedException("Transfer cancelled");
                             int want = (int) Math.min(buffer.length, item.size - fileDone);
@@ -195,7 +197,7 @@ public final class PcTransferService extends Service {
                     rich.getSize(), rich.getRelativePath());
         }
         String name = "file.bin";
-        long size = 0L;
+        long size = -1L;
         Cursor cursor = null;
         try {
             cursor = getContentResolver().query(uri,
@@ -204,10 +206,23 @@ public final class PcTransferService extends Service {
                 int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 int sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
                 if (nameIndex >= 0 && !cursor.isNull(nameIndex)) name = TransferItem.safeName(cursor.getString(nameIndex));
-                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = Math.max(0L, cursor.getLong(sizeIndex));
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex);
             }
         } finally {
             if (cursor != null) cursor.close();
+        }
+        if (size < 0L) {
+            AssetFileDescriptor descriptor = null;
+            try {
+                descriptor = getContentResolver().openAssetFileDescriptor(uri, "r");
+                if (descriptor != null && descriptor.getLength() >= 0L) size = descriptor.getLength();
+            } catch (Exception ignored) {
+            } finally {
+                if (descriptor != null) try { descriptor.close(); } catch (Exception ignored) { }
+            }
+        }
+        if (size < 0L) {
+            throw new IllegalArgumentException("Could not determine file size for Windows transfer: " + name);
         }
         String mime = getContentResolver().getType(uri);
         if (mime == null || mime.trim().isEmpty()) mime = "application/octet-stream";
