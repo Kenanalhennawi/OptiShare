@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace OptiShare.Windows;
@@ -18,10 +19,18 @@ internal sealed class LauncherForm : Form
 {
     private readonly Label status;
     private readonly Button startButton;
-    private readonly Button openFolderButton;
+    private readonly string runtimeDirectory;
+    private readonly string companionScript;
+    private readonly string receiverScript;
 
     public LauncherForm()
     {
+        runtimeDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "OptiShare", "Companion", "2.2");
+        companionScript = Path.Combine(runtimeDirectory, "OptiShare-Companion.ps1");
+        receiverScript = Path.Combine(runtimeDirectory, "OptiShare-PC-Receiver.ps1");
+
         Text = "OptiShare Windows Companion";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(560, 330);
@@ -61,7 +70,7 @@ internal sealed class LauncherForm : Form
 
         status = new Label
         {
-            Text = "Ready. Keep this launcher next to the OptiShare Companion scripts.",
+            Text = "Ready. The receiver is embedded in this EXE and is extracted locally when started.",
             ForeColor = Color.FromArgb(202, 224, 239),
             AutoSize = false,
             Size = new Size(458, 50),
@@ -82,7 +91,7 @@ internal sealed class LauncherForm : Form
         startButton.Click += (_, _) => StartCompanion();
         card.Controls.Add(startButton);
 
-        openFolderButton = new Button
+        var openFolderButton = new Button
         {
             Text = "Open received files",
             FlatStyle = FlatStyle.Flat,
@@ -106,30 +115,16 @@ internal sealed class LauncherForm : Form
         Controls.Add(note);
     }
 
-    private static string BaseDirectory => AppContext.BaseDirectory;
-    private static string CompanionScript => Path.Combine(BaseDirectory, "OptiShare-Companion.ps1");
-    private static string ReceiverScript => Path.Combine(BaseDirectory, "OptiShare-PC-Receiver.ps1");
-
     private void StartCompanion()
     {
-        if (!File.Exists(CompanionScript) || !File.Exists(ReceiverScript))
-        {
-            MessageBox.Show(
-                "The launcher must stay in the same folder as OptiShare-Companion.ps1 and OptiShare-PC-Receiver.ps1.",
-                "OptiShare files missing",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
-            status.Text = "Companion scripts are missing from this folder.";
-            return;
-        }
-
         try
         {
+            ExtractEmbeddedScripts();
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{CompanionScript}\"",
-                WorkingDirectory = BaseDirectory,
+                Arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{companionScript}\"",
+                WorkingDirectory = runtimeDirectory,
                 UseShellExecute = true
             };
             Process.Start(psi);
@@ -141,6 +136,21 @@ internal sealed class LauncherForm : Form
             status.Text = "Could not start the companion.";
             MessageBox.Show(ex.Message, "OptiShare launch error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private void ExtractEmbeddedScripts()
+    {
+        Directory.CreateDirectory(runtimeDirectory);
+        ExtractResource("OptiShare-Companion.ps1", companionScript);
+        ExtractResource("OptiShare-PC-Receiver.ps1", receiverScript);
+    }
+
+    private static void ExtractResource(string resourceName, string destination)
+    {
+        using Stream source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Embedded resource missing: {resourceName}");
+        using FileStream target = new(destination, FileMode.Create, FileAccess.Write, FileShare.Read);
+        source.CopyTo(target);
     }
 
     private void OpenReceivedFolder()
