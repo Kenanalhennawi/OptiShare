@@ -7,14 +7,18 @@ import android.net.wifi.WifiManager;
 
 import androidx.annotation.Nullable;
 
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Local-network discovery fallback for OptiShare.
  *
- * Wi-Fi Direct remains the preferred path. NSD/mDNS is used when both phones already share the
- * same LAN, allowing OptiShare to connect without QR codes, IP entry, cloud, or Internet access.
+ * NSD/mDNS is only used to discover a real remote OptiShare receiver on the shared LAN. Addresses
+ * belonging to this device, loopback/link-local addresses, and Android's common Wi-Fi Direct
+ * 192.168.49.0/24 range are rejected so a stale P2P group can never be mislabeled as "same Wi-Fi".
  */
 public final class LanDiscovery {
     public static final String SERVICE_TYPE = "_optishare._tcp.";
@@ -97,7 +101,10 @@ public final class LanDiscovery {
                         @Override public void onServiceResolved(NsdServiceInfo info) {
                             if (!discovering.get() || info.getHost() == null || info.getPort() != TransferService.PORT) return;
                             String host = info.getHost().getHostAddress();
-                            if (host == null || host.trim().isEmpty()) return;
+                            if (!isUsableRemoteLanHost(host)) {
+                                listener.onStatus("Ignored a stale/self network route; still searching…");
+                                return;
+                            }
                             listener.onPeer(displayName(info.getServiceName()), host);
                         }
                     });
@@ -137,6 +144,29 @@ public final class LanDiscovery {
     public void close() {
         stopDiscovery();
         stopAdvertising();
+    }
+
+    private boolean isUsableRemoteLanHost(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        String host = value.trim();
+        if (host.startsWith("192.168.49.")) return false;
+        try {
+            InetAddress candidate = InetAddress.getByName(host);
+            if (candidate.isAnyLocalAddress() || candidate.isLoopbackAddress()
+                    || candidate.isLinkLocalAddress() || candidate.isMulticastAddress()) return false;
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface network = interfaces.nextElement();
+                Enumeration<InetAddress> addresses = network.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress local = addresses.nextElement();
+                    if (candidate.equals(local)) return false;
+                }
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void acquireMulticastLock() {
