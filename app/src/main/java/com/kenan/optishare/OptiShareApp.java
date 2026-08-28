@@ -6,6 +6,7 @@ import android.content.Context;
 import android.os.Bundle;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import com.kenan.optishare.storage.DownloadStore;
 
 public final class OptiShareApp extends Application {
     private static volatile Context appContext;
@@ -14,6 +15,8 @@ public final class OptiShareApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
         appContext = getApplicationContext();
+        new Thread(() -> new DownloadStore(this).pruneStalePartials(),
+                "OptiShare-stale-partial-cleanup").start();
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityStarted(Activity activity) {
                 startedActivities.incrementAndGet();

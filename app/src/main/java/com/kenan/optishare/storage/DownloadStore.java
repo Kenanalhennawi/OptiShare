@@ -27,6 +27,7 @@ import java.io.OutputStream;
 /** Stores partial data privately, then publishes verified files into Download/OptiShare/<Category>. */
 public final class DownloadStore {
     private static final long MIN_FREE_RESERVE = 64L * 1024 * 1024;
+    private static final long STALE_PARTIAL_AGE_MS = 30L * 24L * 60L * 60L * 1000L;
     private final Context context;
 
     public DownloadStore(Context context) {
@@ -163,6 +164,28 @@ public final class DownloadStore {
     public void clearSession(String sessionId) {
         File dir = new File(context.getFilesDir(), "partial/" + sanitize(sessionId));
         deleteRecursive(dir);
+    }
+
+    /** Removes abandoned private partials only after a long grace period for offline resume. */
+    public void pruneStalePartials() {
+        File root = new File(context.getFilesDir(), "partial");
+        File[] sessions = root.listFiles();
+        if (sessions == null) return;
+        long cutoff = System.currentTimeMillis() - STALE_PARTIAL_AGE_MS;
+        for (File session : sessions) {
+            if (session != null && session.isDirectory() && newestModified(session) < cutoff) {
+                deleteRecursive(session);
+            }
+        }
+    }
+
+    private static long newestModified(File file) {
+        long newest = Math.max(0L, file.lastModified());
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) newest = Math.max(newest, newestModified(child));
+        }
+        return newest;
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
