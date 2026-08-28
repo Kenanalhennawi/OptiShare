@@ -45,10 +45,23 @@ public final class RoutePerformanceStore {
                 .putLong(PARALLEL_DUAL, Double.doubleToLongBits(dualBytesPerSecond))
                 .putInt(PARALLEL_GAIN, gain)
                 .putInt(PARALLEL_STREAMS, streams)
+                .putInt("parallel_failures", 0)
                 .putLong(PARALLEL_UPDATED, System.currentTimeMillis());
         if (peerFingerprint != null && !peerFingerprint.trim().isEmpty()) edit.putString("parallel_peer_fingerprint", peerFingerprint);
         else edit.remove("parallel_peer_fingerprint");
         edit.apply();
+    }
+
+    public void recordParallelFailure(String peerFingerprint) {
+        String benchmarkPeer = parallelPeerFingerprint();
+        if (peerFingerprint == null || benchmarkPeer == null
+                || !benchmarkPeer.equals(peerFingerprint)) return;
+        int failures = Math.min(1000, prefs.getInt("parallel_failures", 0) + 1);
+        prefs.edit()
+                .putInt("parallel_failures", failures)
+                .putInt(PARALLEL_STREAMS,
+                        ParallelFailurePolicy.recommendedStreamsAfterFailure(recommendedStreams()))
+                .apply();
     }
 
     public boolean parallelRecommended() { return recommendedStreams() == 2; }
@@ -95,7 +108,8 @@ public final class RoutePerformanceStore {
         String parallel = parallelUpdatedAt() == 0L
                 ? "Streams not tested"
                 : (recommendedStreams() + " stream" + (recommendedStreams() == 1 ? "" : "s")
-                + " recommended • " + (parallelGainPercent() >= 0 ? "+" : "") + parallelGainPercent() + "% dual gain");
+                + " recommended • " + (parallelGainPercent() >= 0 ? "+" : "") + parallelGainPercent() + "% dual gain"
+                + (prefs.getInt("parallel_failures", 0) > 0 ? " • acceleration fallback recorded" : ""));
         return "Direct " + score(ROUTE_DIRECT) + " • LAN " + score(ROUTE_LAN)
                 + " • PC " + score(ROUTE_PC) + "\n" + parallel;
     }

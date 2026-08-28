@@ -518,8 +518,13 @@ public final class TransferService extends Service {
                         stripedActive = false;
                         activeStripedEngine = null;
                         if (!running.get()) return;
-                        dataTransferStartedNanos = 0L; latestBatchDone = 0L; latestSpeed = 0d;
-                        broadcast("parallel_fallback", "2-stream acceleration unavailable — falling back safely to 1 stream", 0, 0, activeManifest.getSessionId());
+                        routeStore.recordParallelFailure(routeStore.parallelPeerFingerprint());
+                        accumulatedDataTransferMs = currentAccumulatedDataMs();
+                        dataTransferStartedNanos = 0L;
+                        resumedSession = accumulatedDataTransferMs > 0L;
+                        senderStore.updateElapsedDataMs(accumulatedDataTransferMs);
+                        latestBatchDone = 0L; latestSpeed = 0d;
+                        broadcast("parallel_fallback", "2-stream acceleration unavailable — using an isolated 1-stream session; a new benchmark is required before retrying acceleration", 0, 0, activeManifest.getSessionId());
                         updateNotification("Using reliable fallback", "Continuing with the normal encrypted resumable stream", 0, true);
                     }
                 }
@@ -541,12 +546,15 @@ public final class TransferService extends Service {
 
     private void runStripedSender(String host) throws Exception {
         String expectedFingerprint = routeStore.parallelPeerFingerprint();
+        BatchManifest parallelManifest = new BatchManifest(
+                java.util.UUID.randomUUID().toString(), activeManifest.getCreatedAt(),
+                activeManifest.getEntries());
         StripedTransferEngine engine = new StripedTransferEngine(this);
         activeStripedEngine = engine; stripedActive = true;
         broadcast("parallel_started", "SmartRoute selected 2 encrypted streams • benchmark showed a meaningful gain", 0, 0, activeManifest.getSessionId());
         updateNotification("2-stream acceleration", "Sending large file over two authenticated encrypted streams", 0, true);
         try {
-            engine.send(host, STRIPED_TRANSFER_PORT, activeManifest, activeItems.get(0), expectedFingerprint, new StripedTransferEngine.Listener() {
+            engine.send(host, STRIPED_TRANSFER_PORT, parallelManifest, activeItems.get(0), expectedFingerprint, new StripedTransferEngine.Listener() {
                 @Override public void onIncoming(String sessionId, String name, long totalBytes, String fingerprint, StripedTransferEngine.Approval approval) { }
                 @Override public void onProgress(long done, long total, double speed) {
                     if (dataTransferStartedNanos == 0L && done > 0L) dataTransferStartedNanos = System.nanoTime();
@@ -561,7 +569,7 @@ public final class TransferService extends Service {
                     routeStore.recordSuccess(currentRoute, speed);
                     String summary = "Sent " + formatBytes(activeManifest.totalBytes()) + " in " + formatElapsed(durationMs / 1000.0) + " • avg " + formatSpeed(speed) + " • 2 encrypted streams • same Wi-Fi";
                     updateNotification("Transfer complete", summary, 100, false);
-                    broadcastCompleted(summary, sessionId, currentRoute);
+                    broadcastCompleted(summary, activeManifest.getSessionId(), currentRoute);
                 }
             });
         } finally { stripedActive = false; activeStripedEngine = null; }

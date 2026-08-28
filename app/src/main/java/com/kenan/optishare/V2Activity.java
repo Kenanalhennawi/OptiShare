@@ -320,6 +320,12 @@ public class V2Activity extends ComponentActivity implements
                 activeRoute=RoutePerformanceStore.ROUTE_LAN;
                 setConnectionUi("SMART ROUTE • SAME WI-FI ✓", Color.rgb(65,225,151));
                 setTransferUi("Route changed safely", message, -1);
+            } else if ("parallel_started".equals(event)) {
+                setConnectionUi("SMART ROUTE • 2 STREAMS", Color.rgb(89,205,255));
+                setTransferUi("Accelerated encrypted transfer", message, -1);
+            } else if ("parallel_fallback".equals(event)) {
+                setConnectionUi("SMART ROUTE • RELIABLE STREAM", Color.rgb(255,188,70));
+                setTransferUi("Acceleration fallback", message, -1);
             } else if ("benchmark_started".equals(event)) {
                 setConnectionUi("ENCRYPTED SPEED TEST", Color.rgb(89,205,255));
                 setTransferUi("Measuring Android route", message, 0);

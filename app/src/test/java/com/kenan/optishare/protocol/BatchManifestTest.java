@@ -36,6 +36,19 @@ public class BatchManifestTest {
         }
     }
 
+    @Test public void allowsDuplicateNamesWhenIdsAreDistinctForKeepBothPublishing() {
+        BatchManifest.Entry first = new BatchManifest.Entry(
+                "first", "holiday.jpg", "image/jpeg", 10,
+                TransferItem.Category.PHOTO, new byte[32]);
+        BatchManifest.Entry second = new BatchManifest.Entry(
+                "second", "holiday.jpg", "image/jpeg", 20,
+                TransferItem.Category.PHOTO, new byte[32]);
+        BatchManifest manifest = new BatchManifest(Arrays.asList(first, second));
+        assertEquals(2, manifest.getEntries().size());
+        assertEquals("holiday.jpg", manifest.getEntries().get(0).name);
+        assertEquals("holiday.jpg", manifest.getEntries().get(1).name);
+    }
+
     @Test public void rejectsNonSha256Digest() {
         try {
             new BatchManifest.Entry(
