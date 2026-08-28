@@ -128,6 +128,29 @@ public class V2Activity extends ComponentActivity implements
     private String pendingLanName;
     private long activeTransferStartedAt;
     private final Handler discoveryHandler = new Handler(Looper.getMainLooper());
+    private WifiP2pDevice pendingP2pDevice;
+    private final Runnable p2pConnectTimeout=()->{
+        if(currentScreen!=SCREEN_DISCOVERY||transferStarted||pendingP2pDevice==null)return;
+        String name=deviceName(pendingP2pDevice);
+        try{manager.cancelConnect(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){}@Override public void onFailure(int reason){}});}catch(Exception ignored){}
+        pendingP2pDevice=null;
+        if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){
+            if(benchmarkMode){
+                activeRoute=RoutePerformanceStore.ROUTE_LAN;transferStarted=true;pcTransferMode=true;
+                showTransferScreen("Android speed test");setConnectionUi("SAME WI-FI SPEED TEST",Color.rgb(89,205,255));
+                setTransferUi("Direct link timed out — testing same Wi-Fi","Still uses the encrypted OptiShare ECDH/AES-GCM transport.",0);
+                startBenchmarkService(pendingLanHost);
+            }else{
+                setDiscoveryText("Direct link timed out. Switching to same Wi-Fi…");
+                connectViaLan(pendingLanName==null?name:pendingLanName,pendingLanHost);
+            }
+        }else{
+            benchmarkMode=false;pcTransferMode=false;
+            setConnectionUi("DIRECT LINK TIMEOUT",Color.rgb(255,91,101));
+            setDiscoveryText("Could not establish Wi-Fi Direct with "+name+". Keep RECEIVE open on the other phone, then tap Search again. Same-Wi-Fi fallback will be used automatically when available.");
+            scheduleDiscoveryRetry();
+        }
+    };
     private int discoveryAttempt;
     private static final int MAX_DISCOVERY_ATTEMPTS = 8;
     private static final long DISCOVERY_RETRY_MS = 3500L;
@@ -760,8 +783,15 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void startReceiverMode() {
-        if(!ensureNearbyReady())return;safeRemoveGroup();
-        try{manager.createGroup(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("READY TO RECEIVE ✓\nWaiting for sender…");setConnectionUi("VISIBLE TO SENDERS",Color.rgb(65,222,151));try{if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.Q){manager.requestDeviceInfo(channel,device->{thisDevice=device;refreshReceiverIdentity();});}else{refreshReceiverIdentity();}manager.requestConnectionInfo(channel,V2Activity.this);}catch(SecurityException ignored){showNearbyPermissionHelp();}}@Override public void onFailure(int reason){setDiscoveryText(p2pError("Receiver could not start",reason));setConnectionUi("RECEIVER ERROR",Color.rgb(255,91,101));}});}catch(SecurityException e){showNearbyPermissionHelp();}
+        if(!ensureNearbyReady())return;
+        final Runnable[] createHolder=new Runnable[1];
+        createHolder[0]=()->{
+            try{manager.createGroup(channel,new WifiP2pManager.ActionListener(){
+                @Override public void onSuccess(){setDiscoveryText("READY TO RECEIVE ✓\nWaiting for sender…");setConnectionUi("VISIBLE TO SENDERS",Color.rgb(65,222,151));try{if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.Q){manager.requestDeviceInfo(channel,device->{thisDevice=device;refreshReceiverIdentity();});}else{refreshReceiverIdentity();}manager.requestConnectionInfo(channel,V2Activity.this);}catch(SecurityException ignored){showNearbyPermissionHelp();}}
+                @Override public void onFailure(int reason){if(reason==WifiP2pManager.BUSY&&currentScreen==SCREEN_RECEIVE&&receiverMode){discoveryHandler.postDelayed(createHolder[0],700);}else{setDiscoveryText(p2pError("Receiver could not start",reason));setConnectionUi("RECEIVER ERROR",Color.rgb(255,91,101));}}
+            });}catch(SecurityException e){showNearbyPermissionHelp();}
+        };
+        try{manager.removeGroup(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){discoveryHandler.postDelayed(createHolder[0],250);}@Override public void onFailure(int reason){discoveryHandler.postDelayed(createHolder[0],250);}});}catch(Exception ignored){discoveryHandler.postDelayed(createHolder[0],250);}
     }
 
     @Override public void onPeersAvailable(WifiP2pDeviceList list) {
@@ -795,7 +825,7 @@ public class V2Activity extends ComponentActivity implements
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
                 LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
                 names.addView(text(deviceName(device),15,Color.WHITE,true));
-                names.addView(text(deviceStatus(device.status)+" • encrypted Android peer",12,Color.rgb(151,182,205),false));
+                names.addView(text(deviceStatus(device.status)+" • Wi-Fi Direct candidate",12,Color.rgb(151,182,205),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
                 LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
                 Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkDevice(device));
@@ -812,24 +842,24 @@ public class V2Activity extends ComponentActivity implements
     private void benchmarkDevice(WifiP2pDevice device) {
         benchmarkMode=true;pcTransferMode=true;stopPcDiscovery();
         if(!ensureNearbyReady())return;
-        discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();
+        discoveryHandler.removeCallbacks(discoveryRetry);pendingP2pDevice=device;
         connectedPeerName=deviceName(device);setConnectionUi("CONNECTING FOR TEST…",Color.rgb(89,205,255));
         setDiscoveryText("Connecting to "+connectedPeerName+" for encrypted speed test…");
         WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
-        try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){
-            @Override public void onSuccess(){setDiscoveryText("Speed-test connection request sent…");}
-            @Override public void onFailure(int reason){benchmarkMode=false;pcTransferMode=false;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Speed-test connection failed",reason));}
-        });}catch(SecurityException e){benchmarkMode=false;pcTransferMode=false;showNearbyPermissionHelp();}
+        Runnable go=()->{try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Speed-test request sent. Waiting up to 12 seconds for the direct link…");discoveryHandler.removeCallbacks(p2pConnectTimeout);discoveryHandler.postDelayed(p2pConnectTimeout,12000);}@Override public void onFailure(int reason){pendingP2pDevice=null;benchmarkMode=false;pcTransferMode=false;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Speed-test connection failed",reason));}});}catch(SecurityException e){benchmarkMode=false;pcTransferMode=false;showNearbyPermissionHelp();}};
+        try{manager.cancelConnect(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){go.run();}@Override public void onFailure(int reason){go.run();}});}catch(Exception e){go.run();}
     }
 
     private void connectTo(WifiP2pDevice device) {
         benchmarkMode=false;pcTransferMode=false;stopPcDiscovery();
-        if(!ensureNearbyReady())return;discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();connectedPeerName=deviceName(device);setConnectionUi("CONNECTING…",Color.rgb(255,194,73));setDiscoveryText("Connecting to "+connectedPeerName+"…");WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
-        try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Connection request sent. Waiting for the direct link…");}@Override public void onFailure(int reason){setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Connection failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}
+        if(!ensureNearbyReady())return;discoveryHandler.removeCallbacks(discoveryRetry);pendingP2pDevice=device;connectedPeerName=deviceName(device);setConnectionUi("CONNECTING…",Color.rgb(255,194,73));setDiscoveryText("Connecting to "+connectedPeerName+"…");WifiP2pConfig config=new WifiP2pConfig();config.deviceAddress=device.deviceAddress;config.wps.setup=WpsInfo.PBC;config.groupOwnerIntent=0;
+        Runnable go=()->{try{manager.connect(channel,config,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){setDiscoveryText("Connection request sent. Waiting up to 12 seconds for the direct link…");discoveryHandler.removeCallbacks(p2pConnectTimeout);discoveryHandler.postDelayed(p2pConnectTimeout,12000);}@Override public void onFailure(int reason){pendingP2pDevice=null;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Connection failed",reason));}});}catch(SecurityException e){showNearbyPermissionHelp();}};
+        try{manager.cancelConnect(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){go.run();}@Override public void onFailure(int reason){go.run();}});}catch(Exception e){go.run();}
     }
 
     @Override public void onConnectionInfoAvailable(WifiP2pInfo info) {
-        if(info==null||!info.groupFormed||info.groupOwnerAddress==null)return;setConnectionUi("CONNECTED ✓",Color.rgb(65,225,151));
+        if(info==null||!info.groupFormed||info.groupOwnerAddress==null)return;
+        discoveryHandler.removeCallbacks(p2pConnectTimeout);pendingP2pDevice=null;setConnectionUi("CONNECTED ✓",Color.rgb(65,225,151));
         if(receiverMode&&info.isGroupOwner){setDiscoveryText("CONNECTED ✓\nSecure receiver channel is active.");startReceiverService();}
         else if(!receiverMode&&!info.isGroupOwner&&!transferStarted){
             activeRoute=RoutePerformanceStore.ROUTE_DIRECT;transferStarted=true;stopLanDiscovery();activeTransferStartedAt=System.currentTimeMillis();
@@ -1028,7 +1058,7 @@ public class V2Activity extends ComponentActivity implements
     private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK",null).show());}
 
     @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
-    @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}try{unregisterReceiver(browserReceiver);}catch(Exception ignored){}}
+    @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(p2pConnectTimeout);pendingP2pDevice=null;stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}try{unregisterReceiver(browserReceiver);}catch(Exception ignored){}}
     @Override protected void onDestroy(){if(lanDiscovery!=null)lanDiscovery.close();super.onDestroy();}
     @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else if(currentScreen==SCREEN_GALLERY||currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
 }
