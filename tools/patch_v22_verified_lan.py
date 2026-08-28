@@ -9,7 +9,6 @@ def rep(old,new,label):
         raise SystemExit(f'{label}: anchor count={c}')
     s=s.replace(old,new,1)
 
-# LAN fallback should not be blocked just because unrelated Wi-Fi Direct devices are visible.
 rep('''    private final Runnable lanFallbackConnect = () -> {
         if (currentScreen == SCREEN_DISCOVERY && !transferStarted && peers.isEmpty()
                 && pendingLanHost != null) {
@@ -22,7 +21,6 @@ rep('''    private final Runnable lanFallbackConnect = () -> {
         }
     };''','lan fallback runnable')
 
-# Once NSD resolves a real OptiShare service, surface it and prefer it quickly over unreliable generic P2P.
 rep('''                    pendingLanName=name;pendingLanHost=host;
                     if(peers.isEmpty()){
                         setDiscoveryText("Found "+name+" on the same Wi-Fi • giving Wi-Fi Direct a moment…");
@@ -34,7 +32,6 @@ rep('''                    pendingLanName=name;pendingLanHost=host;
                     discoveryHandler.removeCallbacks(lanFallbackConnect);
                     discoveryHandler.postDelayed(lanFallbackConnect,450L);''','lan discovery callback')
 
-# Render a verified same-Wi-Fi OptiShare card before generic P2P candidates.
 anchor='''            for(PcDiscovery.Peer pc:pcPeers){'''
 insert='''            if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){
                 LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
@@ -55,7 +52,6 @@ insert='''            if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty())
             for(PcDiscovery.Peer pc:pcPeers){'''
 rep(anchor,insert,'verified LAN card')
 
-# Generic P2P devices are not verified OptiShare peers: remove dangerous send/test actions.
 old='''                LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
                 Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkDevice(device));
                 Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectTo(device));
@@ -66,8 +62,7 @@ new='''                TextView note=text("Not verified as OptiShare • use the
                 note.setPadding(0,dp(10),0,0);row.addView(note);'''
 rep(old,new,'generic P2P actions')
 
-# Add direct LAN benchmark helper.
-anchor='''    private void connectViaLan(String name,String host) {'''
+anchor='''    private void connectViaLan(String name,String host){'''
 helper='''    private void benchmarkViaLan(String name,String host){
         if(host==null||host.trim().isEmpty())return;
         benchmarkMode=true;pcTransferMode=true;transferStarted=true;receiverMode=false;
@@ -80,10 +75,9 @@ helper='''    private void benchmarkViaLan(String name,String host){
         startBenchmarkService(host);
     }
 
-    private void connectViaLan(String name,String host) {'''
+    private void connectViaLan(String name,String host){'''
 rep(anchor,helper,'LAN benchmark helper')
 
-# If Android P2P itself returns ERROR/BUSY, immediately use verified LAN if already known.
 old='''@Override public void onFailure(int reason){pendingP2pDevice=null;benchmarkMode=false;pcTransferMode=false;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Speed-test connection failed",reason));}'''
 new='''@Override public void onFailure(int reason){pendingP2pDevice=null;if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){benchmarkViaLan(pendingLanName,pendingLanHost);return;}benchmarkMode=false;pcTransferMode=false;setConnectionUi("CONNECTION FAILED",Color.rgb(255,91,101));setDiscoveryText(p2pError("Speed-test connection failed",reason));}'''
 rep(old,new,'benchmark P2P failure fallback')
