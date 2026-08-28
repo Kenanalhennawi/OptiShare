@@ -5,6 +5,29 @@ Add-Type -AssemblyName System.Web
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:files = New-Object System.Collections.Generic.List[string]
+$script:allowExit = $false
+$script:receiverProcess = $null
+
+function Start-Receiver {
+    $receiverScript = Join-Path $PSScriptRoot 'OptiShare-PC-Receiver.ps1'
+    if (-not (Test-Path -LiteralPath $receiverScript)) { return }
+    try {
+        $script:receiverProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            '-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $receiverScript + '"')
+        ) -WindowStyle Hidden -PassThru
+    } catch {
+        $script:receiverProcess = $null
+    }
+}
+
+function Stop-Receiver {
+    if ($null -ne $script:receiverProcess) {
+        try {
+            if (-not $script:receiverProcess.HasExited) { $script:receiverProcess.Kill() }
+        } catch { }
+        $script:receiverProcess = $null
+    }
+}
 
 function Get-UploadUri([string]$sessionUrl) {
     $sessionUrl = $sessionUrl.Trim()
@@ -46,14 +69,25 @@ function Format-Bytes([long]$value) {
     return "$value B"
 }
 
+function Add-FileToQueue([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    if (-not $script:files.Contains($path)) {
+        $script:files.Add($path)
+        $info = Get-Item -LiteralPath $path
+        [void]$list.Items.Add("$($info.Name) - $(Format-Bytes $info.Length)")
+    }
+    $status.Text = "$($script:files.Count) file(s) queued"
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'OptiShare Windows Companion'
-$form.Size = New-Object System.Drawing.Size(780,620)
-$form.MinimumSize = New-Object System.Drawing.Size(680,520)
+$form.Size = New-Object System.Drawing.Size(780,650)
+$form.MinimumSize = New-Object System.Drawing.Size(680,550)
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = [Drawing.Color]::FromArgb(7,26,50)
 $form.ForeColor = [Drawing.Color]::White
 $form.Font = New-Object Drawing.Font('Segoe UI',10)
+$form.AllowDrop = $true
 
 $title = New-Object System.Windows.Forms.Label
 $title.Text = 'OptiShare Windows Companion'
@@ -63,20 +97,27 @@ $title.Location = New-Object Drawing.Point(26,22)
 $form.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = 'Send files from Windows to OptiShare over your local network.'
+$subtitle.Text = 'Send to Android and receive from Android over your local network.'
 $subtitle.ForeColor = [Drawing.Color]::FromArgb(170,205,230)
 $subtitle.AutoSize = $true
 $subtitle.Location = New-Object Drawing.Point(30,64)
 $form.Controls.Add($subtitle)
 
+$receiveBadge = New-Object System.Windows.Forms.Label
+$receiveBadge.Text = 'PC receiver: starting...'
+$receiveBadge.AutoSize = $true
+$receiveBadge.ForeColor = [Drawing.Color]::FromArgb(90,220,165)
+$receiveBadge.Location = New-Object Drawing.Point(30,92)
+$form.Controls.Add($receiveBadge)
+
 $urlLabel = New-Object System.Windows.Forms.Label
-$urlLabel.Text = 'Browser Receive address'
+$urlLabel.Text = 'Android Browser Receive address (for Windows to Android)'
 $urlLabel.AutoSize = $true
-$urlLabel.Location = New-Object Drawing.Point(30,106)
+$urlLabel.Location = New-Object Drawing.Point(30,122)
 $form.Controls.Add($urlLabel)
 
 $urlBox = New-Object System.Windows.Forms.TextBox
-$urlBox.Location = New-Object Drawing.Point(30,132)
+$urlBox.Location = New-Object Drawing.Point(30,148)
 $urlBox.Size = New-Object Drawing.Size(700,32)
 $urlBox.Anchor = 'Top,Left,Right'
 $urlBox.BackColor = [Drawing.Color]::FromArgb(18,47,78)
@@ -85,27 +126,34 @@ $urlBox.BorderStyle = 'FixedSingle'
 $form.Controls.Add($urlBox)
 
 $hint = New-Object System.Windows.Forms.Label
-$hint.Text = 'Android: Receive > Browser / PC > Start Browser Receive. Paste the shown http:// address here.'
+$hint.Text = 'Android to Windows: keep this Companion running. The PC appears automatically in Nearby devices.'
 $hint.ForeColor = [Drawing.Color]::FromArgb(135,175,205)
 $hint.AutoSize = $true
-$hint.Location = New-Object Drawing.Point(30,168)
+$hint.Location = New-Object Drawing.Point(30,184)
 $form.Controls.Add($hint)
 
 $addButton = New-Object System.Windows.Forms.Button
 $addButton.Text = 'Add files'
-$addButton.Location = New-Object Drawing.Point(30,205)
+$addButton.Location = New-Object Drawing.Point(30,218)
 $addButton.Size = New-Object Drawing.Size(120,38)
 $form.Controls.Add($addButton)
 
 $clearButton = New-Object System.Windows.Forms.Button
 $clearButton.Text = 'Clear'
-$clearButton.Location = New-Object Drawing.Point(160,205)
+$clearButton.Location = New-Object Drawing.Point(160,218)
 $clearButton.Size = New-Object Drawing.Size(100,38)
 $form.Controls.Add($clearButton)
 
+$dropHint = New-Object System.Windows.Forms.Label
+$dropHint.Text = 'Tip: drag and drop files anywhere on this window.'
+$dropHint.AutoSize = $true
+$dropHint.ForeColor = [Drawing.Color]::FromArgb(110,185,225)
+$dropHint.Location = New-Object Drawing.Point(285,228)
+$form.Controls.Add($dropHint)
+
 $list = New-Object System.Windows.Forms.ListBox
-$list.Location = New-Object Drawing.Point(30,255)
-$list.Size = New-Object Drawing.Size(700,190)
+$list.Location = New-Object Drawing.Point(30,270)
+$list.Size = New-Object Drawing.Size(700,200)
 $list.Anchor = 'Top,Bottom,Left,Right'
 $list.BackColor = [Drawing.Color]::FromArgb(13,40,68)
 $list.ForeColor = [Drawing.Color]::White
@@ -114,14 +162,14 @@ $form.Controls.Add($list)
 
 $status = New-Object System.Windows.Forms.Label
 $status.Text = 'Ready'
-$status.Location = New-Object Drawing.Point(30,458)
+$status.Location = New-Object Drawing.Point(30,485)
 $status.Size = New-Object Drawing.Size(700,26)
 $status.Anchor = 'Bottom,Left,Right'
 $status.ForeColor = [Drawing.Color]::FromArgb(160,205,235)
 $form.Controls.Add($status)
 
 $progress = New-Object System.Windows.Forms.ProgressBar
-$progress.Location = New-Object Drawing.Point(30,490)
+$progress.Location = New-Object Drawing.Point(30,515)
 $progress.Size = New-Object Drawing.Size(700,16)
 $progress.Anchor = 'Bottom,Left,Right'
 $progress.Minimum = 0
@@ -129,8 +177,8 @@ $progress.Maximum = 100
 $form.Controls.Add($progress)
 
 $sendButton = New-Object System.Windows.Forms.Button
-$sendButton.Text = 'Send selected files'
-$sendButton.Location = New-Object Drawing.Point(30,520)
+$sendButton.Text = 'Send selected files to Android'
+$sendButton.Location = New-Object Drawing.Point(30,545)
 $sendButton.Size = New-Object Drawing.Size(700,48)
 $sendButton.Anchor = 'Bottom,Left,Right'
 $sendButton.Font = New-Object Drawing.Font('Segoe UI Semibold',11)
@@ -140,16 +188,59 @@ $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Multiselect = $true
 $dialog.Title = 'Choose files to send with OptiShare'
 
+$trayMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$showItem = $trayMenu.Items.Add('Show OptiShare')
+$exitItem = $trayMenu.Items.Add('Exit')
+$tray = New-Object System.Windows.Forms.NotifyIcon
+$tray.Text = 'OptiShare - ready to receive'
+$tray.Icon = [Drawing.SystemIcons]::Information
+$tray.ContextMenuStrip = $trayMenu
+$tray.Visible = $true
+
+$showWindow = {
+    $form.Show()
+    $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+    $form.Activate()
+}
+$showItem.Add_Click($showWindow)
+$tray.Add_DoubleClick($showWindow)
+$exitItem.Add_Click({
+    $script:allowExit = $true
+    Stop-Receiver
+    $tray.Visible = $false
+    $form.Close()
+})
+
+$form.Add_Resize({
+    if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+        $form.Hide()
+        $tray.ShowBalloonTip(1500,'OptiShare','Still running and ready to receive from Android.',[System.Windows.Forms.ToolTipIcon]::Info)
+    }
+})
+
+$form.Add_FormClosing({
+    param($sender,$e)
+    if (-not $script:allowExit) {
+        $e.Cancel = $true
+        $form.Hide()
+        $tray.ShowBalloonTip(1500,'OptiShare','Running in the tray and ready to receive.',[System.Windows.Forms.ToolTipIcon]::Info)
+    }
+})
+
+$form.Add_DragEnter({
+    param($sender,$e)
+    if ($e.Data.GetDataPresent([System.Windows.Forms.DataFormats]::FileDrop)) {
+        $e.Effect = [System.Windows.Forms.DragDropEffects]::Copy
+    }
+})
+$form.Add_DragDrop({
+    param($sender,$e)
+    foreach ($path in [string[]]$e.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop)) { Add-FileToQueue $path }
+})
+
 $addButton.Add_Click({
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        foreach ($path in $dialog.FileNames) {
-            if (-not $script:files.Contains($path)) {
-                $script:files.Add($path)
-                $info = Get-Item -LiteralPath $path
-                [void]$list.Items.Add("$($info.Name) - $(Format-Bytes $info.Length)")
-            }
-        }
-        $status.Text = "$($script:files.Count) file(s) queued"
+        foreach ($path in $dialog.FileNames) { Add-FileToQueue $path }
     }
 })
 
@@ -234,4 +325,18 @@ $sendButton.Add_Click({
     }
 })
 
-[void]$form.ShowDialog()
+Start-Receiver
+if ($null -ne $script:receiverProcess) {
+    $receiveBadge.Text = 'PC receiver: ready - Android will discover this PC automatically'
+} else {
+    $receiveBadge.Text = 'PC receiver: could not start - check Windows firewall / PowerShell'
+    $receiveBadge.ForeColor = [Drawing.Color]::FromArgb(255,130,130)
+}
+
+try {
+    [void]$form.ShowDialog()
+} finally {
+    Stop-Receiver
+    $tray.Visible = $false
+    $tray.Dispose()
+}
