@@ -5,7 +5,7 @@ namespace OptiShare.Windows;
 
 internal static class Program
 {
-    [STAThread] private static void Main() { ApplicationConfiguration.Initialize(); Application.Run(new CompanionForm()); }
+    [STAThread] private static void Main() { SecureChannel.SelfTest(); ApplicationConfiguration.Initialize(); Application.Run(new CompanionForm()); }
 }
 
 internal sealed class CompanionForm : Form
