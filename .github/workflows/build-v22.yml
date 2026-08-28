@@ -189,6 +189,12 @@ jobs:
       - name: Build self-contained x64 EXE
         shell: powershell
         run: |
+          if (Select-String -Path windows/launcher/*.cs -Pattern 'powershell\.exe|ProcessStartInfo.*powershell' -Quiet) {
+            throw 'Native Companion must not launch PowerShell'
+          }
+          if (Select-String -Path windows/launcher/OptiShareLauncher.csproj -Pattern 'EmbeddedResource.*\.ps1' -Quiet) {
+            throw 'Native Companion must not embed PowerShell scripts'
+          }
           dotnet publish windows/launcher/OptiShareLauncher.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o windows/publish
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $exe = 'windows/publish/OptiShare-Companion.exe'

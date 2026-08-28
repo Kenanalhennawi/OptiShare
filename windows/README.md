@@ -1,5 +1,12 @@
 # OptiShare Windows Companion
 
+The release EXE is a native self-contained .NET 8 Windows application. It does not launch
+PowerShell, CMD, batch files, or a separate server window. Android discovery, sending, receiving,
+clipboard transfer, progress, SHA-256 verification, and tray mode run inside the EXE.
+
+For Windows → Android, open **Receive → Browser receive** on Android. The phone is discovered
+automatically on the same Wi-Fi network; no IP address or browser URL needs to be pasted.
+
 The Windows Companion supports local transfers in both directions:
 
 - **Windows -> Android** uses Android's Browser / PC Receive mode.

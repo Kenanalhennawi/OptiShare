@@ -14,8 +14,4 @@
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>
   </PropertyGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="..\OptiShare-Companion.ps1" LogicalName="OptiShare-Companion.ps1" />
-    <EmbeddedResource Include="..\OptiShare-PC-Receiver.ps1" LogicalName="OptiShare-PC-Receiver.ps1" />
-  </ItemGroup>
 </Project>

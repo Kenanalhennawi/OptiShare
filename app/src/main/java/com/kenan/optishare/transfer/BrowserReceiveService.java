@@ -22,7 +22,10 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.Inet4Address;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -44,6 +47,8 @@ public final class BrowserReceiveService extends Service {
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_PROGRESS = "progress";
     public static final int PORT = 49889;
+    public static final int DISCOVERY_PORT = 49894;
+    private static final String DISCOVERY_REQUEST = "OPTISHARE_ANDROID_DISCOVER_V1";
 
     private static final String CHANNEL = "optishare_browser_receive";
     private static final int NOTIFICATION_ID = 2240;
@@ -56,6 +61,8 @@ public final class BrowserReceiveService extends Service {
     private String token;
     private long expiresAt;
     private DownloadStore downloadStore;
+    private DatagramSocket discoverySocket;
+    private Thread discoveryThread;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -86,6 +93,7 @@ public final class BrowserReceiveService extends Service {
             server = new BrowserServer();
             server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
             active.set(true);
+            startDiscoveryResponder();
             broadcastReady();
         } catch (Exception error) {
             broadcast("error", "Browser receiver could not start: " + safe(error), null, 0);
@@ -95,6 +103,7 @@ public final class BrowserReceiveService extends Service {
 
     private synchronized void stopBrowser() {
         active.set(false);
+        stopDiscoveryResponder();
         IncomingApproval.cancel();
         if (server != null) {
             try { server.stop(); } catch (Exception ignored) { }
@@ -105,6 +114,57 @@ public final class BrowserReceiveService extends Service {
         broadcast("stopped", "Browser receiver stopped", null, 0);
         stopForeground(true);
         stopSelf();
+    }
+
+    private synchronized void startDiscoveryResponder() throws SocketException {
+        stopDiscoveryResponder();
+        discoverySocket = new DatagramSocket(DISCOVERY_PORT);
+        discoverySocket.setBroadcast(true);
+        discoverySocket.setSoTimeout(500);
+        discoveryThread = new Thread(() -> {
+            byte[] buffer = new byte[512];
+            while (active.get() && discoverySocket != null && !discoverySocket.isClosed()) {
+                try {
+                    DatagramPacket request = new DatagramPacket(buffer, buffer.length);
+                    discoverySocket.receive(request);
+                    String value = new String(request.getData(), request.getOffset(),
+                            request.getLength(), StandardCharsets.UTF_8).trim();
+                    if (!DISCOVERY_REQUEST.equals(value)) continue;
+                    String activeToken = ensureActiveToken();
+                    String device = android.os.Build.MODEL == null ? "Android"
+                            : android.os.Build.MODEL.replace('|', '-');
+                    String response = "OPTISHARE_ANDROID_V1|" + device + "|" + PORT
+                            + "|" + activeToken + "|1";
+                    byte[] payload = response.getBytes(StandardCharsets.UTF_8);
+                    discoverySocket.send(new DatagramPacket(payload, payload.length,
+                            request.getAddress(), request.getPort()));
+                } catch (java.net.SocketTimeoutException ignored) {
+                } catch (Exception error) {
+                    if (active.get()) broadcast("error",
+                            "Android discovery stopped: " + safe(error), null, 0);
+                    break;
+                }
+            }
+        }, "OptiShare-Android-Discovery");
+        discoveryThread.setDaemon(true);
+        discoveryThread.start();
+    }
+
+    private synchronized void stopDiscoveryResponder() {
+        DatagramSocket socket = discoverySocket;
+        discoverySocket = null;
+        if (socket != null) socket.close();
+        Thread thread = discoveryThread;
+        discoveryThread = null;
+        if (thread != null) thread.interrupt();
+    }
+
+    private synchronized String ensureActiveToken() {
+        if (token == null || System.currentTimeMillis() > expiresAt) {
+            token = randomToken();
+            expiresAt = System.currentTimeMillis() + TOKEN_LIFETIME_MS;
+        }
+        return token;
     }
 
     private void broadcastReady() {
