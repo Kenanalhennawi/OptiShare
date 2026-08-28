@@ -1,21 +1,24 @@
-name: Build OptiShare 2.0
+name: Build OptiShare 4
 
 on:
   push:
-    branches: ['update/v2.0-clean']
+    branches: ['rebuild/v4-market']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: optishare-2-${{ github.ref }}
+  group: optishare-v4-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: v4
     env:
       OPTISHARE_KEYSTORE_B64: ${{ secrets.OPTISHARE_KEYSTORE_B64 }}
       OPTISHARE_STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
@@ -33,74 +36,78 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Set up Gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 36 SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '9.5.0'
 
-      - name: Clean project
+      - name: Clean
         run: gradle --no-daemon clean
 
-      - name: Run debug unit tests
-        run: gradle --no-daemon testDebugUnitTest
+      - name: Run unit tests
+        run: gradle --no-daemon :app:test
 
-      - name: Run release unit tests
-        run: gradle --no-daemon testReleaseUnitTest
+      - name: Debug lint
+        run: gradle --no-daemon :app:lintDebug
 
-      - name: Run debug Android lint
-        run: gradle --no-daemon lintDebug
-
-      - name: Run release Android lint
-        run: gradle --no-daemon lintRelease
+      - name: Release lint
+        run: gradle --no-daemon :app:lintRelease
 
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon :app:assembleDebug
 
-      - name: Upload unit-test reports
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.0-unit-test-reports
-          path: app/build/reports/tests/
+          name: OptiShare-4-test-reports
+          path: v4/app/build/reports/tests/
           if-no-files-found: ignore
 
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.0-lint-reports
+          name: OptiShare-4-lint-reports
           path: |
-            app/build/reports/lint-results-debug.html
-            app/build/reports/lint-results-release.html
-            app/build/reports/lint-results-debug.xml
-            app/build/reports/lint-results-release.xml
+            v4/app/build/reports/lint-results-debug.html
+            v4/app/build/reports/lint-results-release.html
+            v4/app/build/reports/lint-results-debug.xml
+            v4/app/build/reports/lint-results-release.xml
           if-no-files-found: ignore
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.0-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: OptiShare-4-debug-apk
+          path: v4/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       - name: Restore release keystore
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
           echo "$OPTISHARE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/optishare-release.jks"
           test -s "$RUNNER_TEMP/optishare-release.jks"
 
-      - name: Build signed release APK and Play AAB
+      - name: Build release APK and AAB
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         env:
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_FILE: ${{ runner.temp }}/optishare-release.jks
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_PASSWORD: ${{ env.OPTISHARE_STORE_PASSWORD }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_ALIAS: ${{ env.OPTISHARE_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_OPTISHARE_KEY_PASSWORD: ${{ env.OPTISHARE_KEY_PASSWORD }}
-        run: gradle --no-daemon assembleRelease bundleRelease
+        run: gradle --no-daemon :app:assembleRelease :app:bundleRelease
 
-      - name: Create release checksums
+      - name: Create checksums
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         shell: bash
         run: |
@@ -108,35 +115,33 @@ jobs:
           cd app/build/outputs
           sha256sum apk/release/app-release.apk bundle/release/app-release.aab > SHA256SUMS.txt
 
-      - name: Verify release artifacts exist
+      - name: Verify release artifacts
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
-        shell: bash
         run: |
-          set -euo pipefail
           test -s app/build/outputs/apk/release/app-release.apk
           test -s app/build/outputs/bundle/release/app-release.aab
           test -s app/build/outputs/SHA256SUMS.txt
 
-      - name: Upload signed release APK
+      - name: Upload release APK
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.0-signed-release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: OptiShare-4-signed-release-apk
+          path: v4/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: Upload Google Play AAB
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.0-google-play-aab
-          path: app/build/outputs/bundle/release/app-release.aab
+          name: OptiShare-4-google-play-aab
+          path: v4/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
-      - name: Upload release checksums
+      - name: Upload checksums
         if: ${{ env.OPTISHARE_KEYSTORE_B64 != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.0-checksums
-          path: app/build/outputs/SHA256SUMS.txt
+          name: OptiShare-4-checksums
+          path: v4/app/build/outputs/SHA256SUMS.txt
           if-no-files-found: error
