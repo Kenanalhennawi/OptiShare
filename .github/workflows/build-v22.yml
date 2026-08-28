@@ -49,6 +49,22 @@ jobs:
           test -d "$ANDROID_HOME/platforms/android-36" || { echo '::error::Android SDK 36 is not preinstalled'; exit 1; }
           test -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" || { echo '::error::apksigner 35.0.0 is not preinstalled'; exit 1; }
 
+      - name: Verify privacy and dependency baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s docs/google-play/privacy-policy.html || { echo '::error::Missing Google Play privacy policy'; exit 1; }
+          test -s docs/google-play/data-safety.md || { echo '::error::Missing Google Play Data safety record'; exit 1; }
+          if rg -n -i \
+            'firebase-analytics|play-services-ads|appsflyer|adjust-android|facebook-android-sdk|mixpanel|amplitude' \
+            --glob '*.gradle' --glob '*.gradle.kts' --glob 'libs.versions.toml' .; then
+            echo '::error::Advertising, attribution, or analytics dependency detected'
+            exit 1
+          fi
+          MANIFEST=app/src/main/AndroidManifest.xml
+          grep -q 'android:allowBackup="false"' "$MANIFEST" || { echo '::error::Backups must remain disabled'; exit 1; }
+          grep -q 'android:usesCleartextTraffic="false"' "$MANIFEST" || { echo '::error::Internet cleartext must remain disabled'; exit 1; }
+
       - name: Quality gate and fast-transfer tests
         run: >-
           gradle --no-daemon --stacktrace clean
