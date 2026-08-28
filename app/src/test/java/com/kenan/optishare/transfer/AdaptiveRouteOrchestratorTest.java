@@ -25,4 +25,16 @@ public class AdaptiveRouteOrchestratorTest {
         assertFalse(AdaptiveRouteOrchestrator.shouldSwitchToLan(
                 RoutePerformanceStore.ROUTE_LAN, "192.168.1.24", false));
     }
+
+    @Test public void rediscoveryIsBoundedAndKeepsLastKnownHostWhenNothingIsFound() {
+        assertTrue(AdaptiveRouteOrchestrator.shouldRediscoverLan(RoutePerformanceStore.ROUTE_LAN, 1));
+        assertFalse(AdaptiveRouteOrchestrator.shouldRediscoverLan(RoutePerformanceStore.ROUTE_LAN, 2));
+        assertTrue(AdaptiveRouteOrchestrator.shouldRediscoverLan(RoutePerformanceStore.ROUTE_LAN, 4));
+        assertTrue(AdaptiveRouteOrchestrator.shouldRediscoverLan(RoutePerformanceStore.ROUTE_LAN, 7));
+        assertFalse(AdaptiveRouteOrchestrator.shouldRediscoverLan(RoutePerformanceStore.ROUTE_DIRECT, 1));
+        assertEquals("192.168.1.24", AdaptiveRouteOrchestrator.selectRecoveredLanHost(
+                "192.168.1.24", null));
+        assertEquals("192.168.1.37", AdaptiveRouteOrchestrator.selectRecoveredLanHost(
+                "192.168.1.24", " 192.168.1.37 "));
+    }
 }

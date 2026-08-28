@@ -17,4 +17,14 @@ public final class AdaptiveRouteOrchestrator {
                 && fallbackHost != null
                 && !fallbackHost.trim().isEmpty();
     }
+
+    public static boolean shouldRediscoverLan(String currentRoute, int attempt) {
+        return RoutePerformanceStore.ROUTE_LAN.equals(currentRoute)
+                && (attempt == 1 || attempt == 4 || attempt == 7);
+    }
+
+    public static String selectRecoveredLanHost(String previousHost, String discoveredHost) {
+        if (discoveredHost == null || discoveredHost.trim().isEmpty()) return previousHost;
+        return discoveredHost.trim();
+    }
 }

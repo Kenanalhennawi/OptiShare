@@ -67,4 +67,31 @@ public class ResumeStressTest {
         assertEquals(ResumableProtocol.LARGE_FILE_CHECKPOINT_CHUNKS,
                 ResumableProtocol.checkpointChunksForFile(8L * 1024L * 1024L * 1024L));
     }
+
+    @Test
+    public void fiveGigabyteTransferSurvivesFiftyDisconnectResumeCyclesWithoutAdvancing() {
+        final long fileSize = 5L * 1024L * 1024L * 1024L;
+        final int chunk = ResumableProtocol.DEFAULT_CHUNK_BYTES;
+        Random random = new Random(0x5A17E5L);
+        long confirmed = 0L;
+
+        for (int cycle = 0; cycle < 50 && confirmed < fileSize; cycle++) {
+            long attempted = Math.min(fileSize, confirmed
+                    + (1L + random.nextInt(128)) * chunk
+                    + random.nextInt(chunk));
+            long receiverDurable = Math.max(confirmed, attempted - random.nextInt(chunk));
+            long negotiated = ResumableProtocol.negotiateOffset(
+                    attempted, receiverDurable, fileSize);
+            long resume = ResumableProtocol.alignToChunkBoundary(negotiated, chunk);
+
+            assertTrue(resume >= confirmed);
+            assertTrue(resume <= attempted);
+            assertTrue(resume <= receiverDurable);
+            assertEquals(0L, resume % chunk);
+            confirmed = resume;
+        }
+
+        assertTrue(confirmed > 0L);
+        assertTrue(confirmed <= fileSize);
+    }
 }

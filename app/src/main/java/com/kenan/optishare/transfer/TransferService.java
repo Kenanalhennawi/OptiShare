@@ -96,6 +96,7 @@ public final class TransferService extends Service {
     private volatile List<TransferItem> activeItems;
     private SenderSessionStore senderStore;
     private WifiDirectRecovery wifiRecovery;
+    private LanRecovery lanRecovery;
     private LanDiscovery lanDiscovery;
     private RoutePerformanceStore routeStore;
     private TrustedDeviceStore trustedStore;
@@ -113,6 +114,7 @@ public final class TransferService extends Service {
         super.onCreate();
         senderStore = new SenderSessionStore(this);
         wifiRecovery = new WifiDirectRecovery(this);
+        lanRecovery = new LanRecovery(this);
         lanDiscovery = new LanDiscovery(this);
         routeStore = new RoutePerformanceStore(this);
         trustedStore = new TrustedDeviceStore(this);
@@ -716,6 +718,18 @@ public final class TransferService extends Service {
                                 0, 0, activeManifest.getSessionId());
                         updateNotification("Switching to same Wi-Fi",
                                 "Keeping verified progress and reconnecting securely", 0, true);
+                    }
+                    if (AdaptiveRouteOrchestrator.shouldRediscoverLan(currentRoute, attempt)) {
+                        String recoveredLanHost = lanRecovery.recover(6_000L);
+                        String selectedHost = AdaptiveRouteOrchestrator.selectRecoveredLanHost(
+                                host, recoveredLanHost);
+                        if (!selectedHost.equals(host)) {
+                            host = selectedHost;
+                            senderStore.updateConnection(host, null, currentRoute, null);
+                            broadcast("reconnecting",
+                                    "Receiver found again after network change — verifying identity and resuming",
+                                    0, 0, activeManifest.getSessionId());
+                        }
                     }
                     if (attempt >= MAX_SOCKET_RETRIES) throw transferError;
                 }
