@@ -42,3 +42,11 @@ p.write_text(s)
 '''
 patched = source[:start] + route + source[end:]
 exec(compile(patched, 'parallel_patch_v2', 'exec'))
+
+striped = Path('app/src/main/java/com/kenan/optishare/transfer/StripedTransferEngine.java')
+text = striped.read_text()
+needle = 'import com.kenan.optishare.device.DeviceIdentityKey;\n'
+if 'import com.kenan.optishare.device.TrustedDeviceStore;' not in text:
+    if needle not in text: raise SystemExit('striped import anchor missing')
+    text = text.replace(needle, needle + 'import com.kenan.optishare.device.TrustedDeviceStore;\n', 1)
+striped.write_text(text)
