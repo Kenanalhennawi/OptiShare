@@ -6,7 +6,8 @@ $TransferPort = 49890
 $Magic = [Text.Encoding]::ASCII.GetBytes("OPTISHARE-PC-1`n")
 $DownloadRoot = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\OptiShare'
 $TokenBytes = New-Object byte[] 24
-[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($TokenBytes)
+$Rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+try { $Rng.GetBytes($TokenBytes) } finally { $Rng.Dispose() }
 $SessionToken = ([BitConverter]::ToString($TokenBytes)).Replace('-','').ToLowerInvariant()
 $ComputerName = $env:COMPUTERNAME
 if ([string]::IsNullOrWhiteSpace($ComputerName)) { $ComputerName = 'Windows-PC' }
@@ -20,6 +21,13 @@ function Read-Exact([IO.Stream]$Stream, [int]$Count) {
         $offset += $read
     }
     return $buffer
+}
+
+function Bytes-Equal([byte[]]$A, [byte[]]$B) {
+    if ($null -eq $A -or $null -eq $B -or $A.Length -ne $B.Length) { return $false }
+    $diff = 0
+    for ($i=0; $i -lt $A.Length; $i++) { $diff = $diff -bor ($A[$i] -bxor $B[$i]) }
+    return $diff -eq 0
 }
 
 function Read-Int32BE([IO.Stream]$Stream) {
@@ -99,7 +107,7 @@ function Receive-Client([Net.Sockets.TcpClient]$Client) {
     $stream = $Client.GetStream()
     try {
         $gotMagic = Read-Exact $stream $Magic.Length
-        if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$gotMagic,[byte[]]$Magic)) { throw 'Invalid OptiShare PC protocol.' }
+        if (-not (Bytes-Equal $gotMagic $Magic)) { throw 'Invalid OptiShare PC protocol.' }
         $token = Read-Utf8 $stream 512
         if (-not (Constant-TimeEquals $token $SessionToken)) { $stream.WriteByte(0); return }
         $count = Read-Int32BE $stream
@@ -142,7 +150,7 @@ function Receive-Client([Net.Sockets.TcpClient]$Client) {
                     $read = $stream.Read($buffer,0,$want)
                     if ($read -le 0) { throw 'Connection ended before the file was complete.' }
                     $file.Write($buffer,0,$read)
-                    [void]$sha.TransformBlock($buffer,0,$read,$null,0)
+                    [void]$sha.TransformBlock($buffer,0,$read,$buffer,0)
                     $remaining -= $read
                 }
                 [void]$sha.TransformFinalBlock((New-Object byte[] 0),0,0)
@@ -152,7 +160,7 @@ function Receive-Client([Net.Sockets.TcpClient]$Client) {
             $expected = Read-Exact $stream 32
             $actual = $sha.Hash
             $sha.Dispose()
-            if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$actual,[byte[]]$expected)) {
+            if (-not (Bytes-Equal $actual $expected)) {
                 Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
                 $stream.WriteByte(0)
                 throw "SHA-256 verification failed for $name"
