@@ -3,7 +3,7 @@ from pathlib import Path
 
 def patch(path, old, new, count=1):
     p = Path(path)
-    text = p.read_text(encoding='utf-8')
+    text = p.read_text(encoding='utf-8').replace('\r\n','\n')
     if old not in text:
         raise SystemExit(f'anchor not found in {path}: {old[:100]!r}')
     text2 = text.replace(old, new, count)
