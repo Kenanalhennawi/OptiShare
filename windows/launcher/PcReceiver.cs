@@ -26,7 +26,7 @@ internal sealed class PcReceiver(Func<string,bool> approve, Action<string> notif
     private async Task DiscoveryLoop(CancellationToken ct)
     {
         while(!ct.IsCancellationRequested) try { var packet=await udp!.ReceiveAsync(ct); if(Encoding.UTF8.GetString(packet.Buffer).Trim()!="OPTISHARE_PC_DISCOVER_V1")continue;
-            var name=(Environment.MachineName??"Windows-PC").Replace('|','-'); var reply=Encoding.UTF8.GetBytes($"OPTISHARE_PC_V1|{name}|{TransferPort}|{token}|1"); await udp.SendAsync(reply,packet.RemoteEndPoint,ct);
+            var name=(Environment.MachineName??"Windows-PC").Replace('|','-'); var reply=Encoding.UTF8.GetBytes($"OPTISHARE_PC_V1|{name}|{TransferPort}|{token}|2"); await udp.SendAsync(reply,packet.RemoteEndPoint,ct);
         } catch(OperationCanceledException){return;} catch(SocketException) when(ct.IsCancellationRequested){return;} catch{ }
     }
 
@@ -43,7 +43,9 @@ internal sealed class PcReceiver(Func<string,bool> approve, Action<string> notif
         string? activeTemp=null;
         try
         {
-            if(!CryptographicOperations.FixedTimeEquals(await ReadExact(stream,Magic.Length,ct),Magic))throw new IOException("Invalid OptiShare PC protocol.");
+            var protocolMagic=await ReadExact(stream,Magic.Length,ct);
+            if(CryptographicOperations.FixedTimeEquals(protocolMagic,SecureChannel.Magic)){await ReceiveSecureClient(stream,client,ct);return;}
+            if(!CryptographicOperations.FixedTimeEquals(protocolMagic,Magic))throw new IOException("Invalid OptiShare PC protocol.");
             var supplied=await ReadUtf8(stream,512,ct); if(!FixedToken(supplied)){await stream.WriteAsync(new byte[]{0},ct);return;}
             var count=await ReadInt32(stream,ct); if(count is <1 or >10000){await stream.WriteAsync(new byte[]{0},ct);return;}
             if(!approve($"Accept {count} item(s) from {client.Client.RemoteEndPoint}?\r\n\r\nFiles will be saved in Downloads\\OptiShare.")){await stream.WriteAsync(new byte[]{0},ct);return;}
@@ -66,6 +68,62 @@ internal sealed class PcReceiver(Func<string,bool> approve, Action<string> notif
         }
         catch(Exception ex){if(activeTemp!=null)try{File.Delete(activeTemp);}catch{}try{await stream.WriteAsync(new byte[]{0},CancellationToken.None);}catch{}notify("Receive failed: "+ex.Message);}
         finally{client.Dispose();}
+    }
+
+    private async Task ReceiveSecureClient(Stream stream,TcpClient client,CancellationToken ct)
+    {
+        string? activeTemp=null;byte[]? key=null;
+        try
+        {
+            var supplied=await ReadUtf8(stream,512,ct);if(!FixedToken(supplied))throw new CryptographicException("Invalid discovery session token.");
+            var clientKeyLength=await ReadInt32(stream,ct);if(clientKeyLength is <64 or >512)throw new CryptographicException("Invalid Android secure key.");
+            var clientPublic=await ReadExact(stream,clientKeyLength,ct);var salt=await ReadExact(stream,32,ct);
+            using var own=ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);var serverPublic=own.ExportSubjectPublicKeyInfo();
+            using var peer=ECDiffieHellman.Create();peer.ImportSubjectPublicKeyInfo(clientPublic,out var consumed);if(consumed!=clientPublic.Length)throw new CryptographicException("Trailing Android key data.");
+            var shared=own.DeriveRawSecretAgreement(peer.PublicKey);key=SecureChannel.DeriveKey(shared,salt);CryptographicOperations.ZeroMemory(shared);
+            await WriteInt32(stream,serverPublic.Length,ct);await stream.WriteAsync(serverPublic,ct);
+            var code=SecureChannel.SecurityCode(clientPublic,serverPublic,salt);
+            var windowsAccepted=approve($"Secure Android transfer\r\n\r\nSecurity code: {code}\r\n\r\nConfirm only if Android shows exactly the same six digits.");
+            var secure=new SecureIo(stream,key);
+            var androidDecision=Encoding.ASCII.GetString(await secure.ReadClient(ct));
+            await secure.WriteServer(Encoding.ASCII.GetBytes(windowsAccepted?"ACCEPT":"DECLINE"),ct);
+            if(!windowsAccepted||androidDecision!="ACCEPT")throw new CryptographicException("Security code confirmation was declined.");
+            var countBytes=await secure.ReadClient(ct);if(countBytes.Length!=4)throw new IOException("Invalid encrypted batch header.");var count=BinaryPrimitives.ReadInt32BigEndian(countBytes);if(count is <1 or >10000)throw new IOException("Invalid encrypted item count.");
+            var root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"Downloads","OptiShare");Directory.CreateDirectory(root);
+            for(var index=0;index<count;index++)
+            {
+                var metadata=await secure.ReadClient(ct);var parsed=ParseMetadata(metadata);var name=parsed.Name;var relative=parsed.Relative;var mime=parsed.Mime;var size=parsed.Size;
+                if(size is <0 or >2199023255552L)throw new IOException("Invalid encrypted file size.");
+                EnsureCapacity(root,size);var destination=Unique(SafeDestination(root,relative,name));Directory.CreateDirectory(Path.GetDirectoryName(destination)!);var temp=destination+".optishare-part";activeTemp=temp;if(File.Exists(temp))File.Delete(temp);
+                await secure.WriteServer([1],ct);
+                await using(var output=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None,1024*1024,true))
+                using(var sha=IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+                {
+                    var remaining=size;while(remaining>0){var chunk=await secure.ReadClient(ct);if(chunk.Length<1||chunk.LongLength>remaining)throw new IOException("Invalid encrypted file chunk.");await output.WriteAsync(chunk,ct).AsTask().WaitAsync(IoTimeout,ct);sha.AppendData(chunk);remaining-=chunk.Length;}
+                    await output.FlushAsync(ct);output.Flush(true);var expected=await secure.ReadClient(ct);var actual=sha.GetHashAndReset();if(expected.Length!=32||!CryptographicOperations.FixedTimeEquals(actual,expected)){File.Delete(temp);await secure.WriteServer([0],ct);throw new IOException($"SHA-256 verification failed for {name}");}
+                }
+                if(mime=="text/plain"&&name.StartsWith("OptiShare Text",StringComparison.Ordinal)&&size<=262144){var text=await File.ReadAllTextAsync(temp,Encoding.UTF8,ct);var thread=new Thread(()=>System.Windows.Forms.Clipboard.SetText(text));thread.SetApartmentState(ApartmentState.STA);thread.Start();thread.Join();File.Delete(temp);}
+                else File.Move(temp,destination);activeTemp=null;await secure.WriteServer([1],ct);
+            }
+            var completion=await secure.ReadClient(ct);if(completion.Length!=4||BinaryPrimitives.ReadInt32BigEndian(completion)!=0x0F7152E2)throw new IOException("Invalid encrypted completion marker.");
+            await secure.WriteServer([1],ct);notify($"Encrypted transfer complete — {count} item(s) received ✓");
+        }
+        catch(Exception ex){if(activeTemp!=null)try{File.Delete(activeTemp);}catch{}notify("Secure receive failed: "+ex.Message);throw;}
+        finally{if(key!=null)CryptographicOperations.ZeroMemory(key);}
+    }
+
+    private static (string Name,string Relative,string Mime,long Size) ParseMetadata(byte[] data)
+    {
+        using var memory=new MemoryStream(data,false);var name=ReadUtf8Sync(memory,4096);var relative=ReadUtf8Sync(memory,8192);var mime=ReadUtf8Sync(memory,1024);Span<byte> sizeBytes=stackalloc byte[8];if(memory.Read(sizeBytes)!=8||memory.Position!=memory.Length)throw new IOException("Invalid encrypted metadata.");return(name,relative,mime,BinaryPrimitives.ReadInt64BigEndian(sizeBytes));
+    }
+    private static string ReadUtf8Sync(Stream stream,int max){Span<byte> lengthBytes=stackalloc byte[4];if(stream.Read(lengthBytes)!=4)throw new IOException("Invalid encrypted metadata.");var length=BinaryPrimitives.ReadInt32BigEndian(lengthBytes);if(length<0||length>max)throw new IOException("Invalid encrypted metadata length.");var bytes=new byte[length];if(stream.Read(bytes)!=length)throw new IOException("Truncated encrypted metadata.");return Encoding.UTF8.GetString(bytes);}
+    private static async Task WriteInt32(Stream stream,int value,CancellationToken ct){var bytes=new byte[4];BinaryPrimitives.WriteInt32BigEndian(bytes,value);await stream.WriteAsync(bytes,ct);}
+
+    private sealed class SecureIo(Stream stream,byte[] key)
+    {
+        private long received,sent;
+        internal async Task<byte[]> ReadClient(CancellationToken ct){var length=await ReadInt32(stream,ct);if(length is <30 or >SecureChannel.MaxRecordBytes)throw new CryptographicException("Invalid secure record length.");var record=await ReadExact(stream,length,ct);return SecureChannel.Decrypt(key,received++,true,record);}
+        internal async Task WriteServer(byte[] plaintext,CancellationToken ct){var record=SecureChannel.Encrypt(key,sent++,false,plaintext);await WriteInt32(stream,record.Length,ct);await stream.WriteAsync(record,ct);}
     }
 
     private bool FixedToken(string supplied){var a=Encoding.UTF8.GetBytes(token);var b=Encoding.UTF8.GetBytes(supplied);return a.Length==b.Length&&CryptographicOperations.FixedTimeEquals(a,b);}

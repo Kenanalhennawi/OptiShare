@@ -863,11 +863,14 @@ public class V2Activity extends ComponentActivity implements
         discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();stopPcDiscovery();
         showTransferScreen("Sending to Windows");
         setConnectionUi("PC LOCAL ROUTE ✓",Color.rgb(89,205,255));
-        setTransferUi("Connecting to "+peer.name,"Local PC route • session token + SHA-256 verification",0);
+        setTransferUi("Connecting to "+peer.name,peer.protocolVersion>=2
+                ?"Secure PC route • ECDH + AES-256-GCM + SHA-256"
+                :"Legacy local PC route • session token + SHA-256 verification",0);
         ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());
         Intent i=new Intent(this,PcTransferService.class).setAction(PcTransferService.ACTION_SEND_PC);
         i.putExtra(PcTransferService.EXTRA_HOST,peer.host);i.putExtra(PcTransferService.EXTRA_PORT,peer.port);
-        i.putExtra(PcTransferService.EXTRA_TOKEN,peer.token);i.putStringArrayListExtra(PcTransferService.EXTRA_URIS,uris);
+        i.putExtra(PcTransferService.EXTRA_TOKEN,peer.token);i.putExtra(PcTransferService.EXTRA_PROTOCOL,peer.protocolVersion);
+        i.putStringArrayListExtra(PcTransferService.EXTRA_URIS,uris);
         ContextCompat.startForegroundService(this,i);
     }
 

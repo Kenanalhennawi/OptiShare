@@ -15,14 +15,19 @@ public class PcDiscoveryTest {
         assertEquals("DESKTOP-TEST", peer.name);
         assertEquals("192.168.1.25", peer.host);
         assertEquals(49890, peer.port);
+        assertEquals(1, peer.protocolVersion);
     }
 
-    @Test public void rejectsWrongVersionAndWeakToken() throws Exception {
+    @Test public void acceptsSecureV2AndRejectsUnknownVersionOrWeakToken() throws Exception {
         assertNull(PcDiscovery.parse(
                 "OPTISHARE_PC_V1|PC|49890|short|1",
                 InetAddress.getByName("192.168.1.25")));
-        assertNull(PcDiscovery.parse(
+        PcDiscovery.Peer secure = PcDiscovery.parse(
                 "OPTISHARE_PC_V1|PC|49890|0123456789abcdef0123456789abcdef|2",
+                InetAddress.getByName("192.168.1.25"));
+        assertEquals(2, secure.protocolVersion);
+        assertNull(PcDiscovery.parse(
+                "OPTISHARE_PC_V1|PC|49890|0123456789abcdef0123456789abcdef|3",
                 InetAddress.getByName("192.168.1.25")));
     }
 

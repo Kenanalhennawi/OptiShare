@@ -29,12 +29,14 @@ public final class PcDiscovery {
         public final String host;
         public final int port;
         public final String token;
+        public final int protocolVersion;
 
-        public Peer(String name, String host, int port, String token) {
+        public Peer(String name, String host, int port, String token, int protocolVersion) {
             this.name = name;
             this.host = host;
             this.port = port;
             this.token = token;
+            this.protocolVersion = protocolVersion;
         }
 
         public String id() { return host + ":" + port + ":" + token; }
@@ -133,8 +135,8 @@ public final class PcDiscovery {
         if (port < 1024 || port > 65535) return null;
         String token = parts[3].trim();
         String version = parts[4].trim();
-        if (token.length() < 16 || token.length() > 256 || !"1".equals(version)) return null;
-        return new Peer(name, source.getHostAddress(), port, token);
+        if (token.length() < 16 || token.length() > 256 || !("1".equals(version) || "2".equals(version))) return null;
+        return new Peer(name, source.getHostAddress(), port, token, Integer.parseInt(version));
     }
 
     private static String clean(String value, String fallback) {

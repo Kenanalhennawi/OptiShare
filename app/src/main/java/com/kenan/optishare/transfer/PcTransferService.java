@@ -29,6 +29,8 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.security.MessageDigest;
+import java.security.KeyPair;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -44,6 +46,7 @@ public final class PcTransferService extends Service {
     public static final String EXTRA_HOST = "pc_host";
     public static final String EXTRA_PORT = "pc_port";
     public static final String EXTRA_TOKEN = "pc_token";
+    public static final String EXTRA_PROTOCOL = "pc_protocol";
     public static final String EXTRA_URIS = "pc_uris";
 
     private static final String CHANNEL = "optishare_pc_transfer";
@@ -73,13 +76,14 @@ public final class PcTransferService extends Service {
         String host = intent.getStringExtra(EXTRA_HOST);
         int port = intent.getIntExtra(EXTRA_PORT, 49890);
         String token = intent.getStringExtra(EXTRA_TOKEN);
+        int protocol = intent.getIntExtra(EXTRA_PROTOCOL, 1);
         ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);
         startForeground(NOTIFICATION_ID, notification("Connecting to Windows PC", 0, false));
-        executor.execute(() -> send(host, port, token, rawUris));
+        executor.execute(() -> send(host, port, token, protocol, rawUris));
         return START_NOT_STICKY;
     }
 
-    private void send(String host, int port, String token, List<String> rawUris) {
+    private void send(String host, int port, String token, int protocol, List<String> rawUris) {
         long started = System.nanoTime();
         try {
             if (host == null || host.trim().isEmpty()) throw new IllegalArgumentException("Missing PC host");
@@ -106,6 +110,10 @@ public final class PcTransferService extends Service {
 
             try (DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream(), BUFFER));
                  DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream(), BUFFER))) {
+                if (protocol >= 2) {
+                    sendSecure(in, out, token, items, total, started);
+                    return;
+                }
                 out.write(PcWire.MAGIC);
                 PcWire.writeString(out, token, 512);
                 out.writeInt(items.size());
@@ -182,6 +190,112 @@ public final class PcTransferService extends Service {
             if (socket != null) try { socket.close(); } catch (Exception ignored) { }
             stopForeground(false);
             stopSelf();
+        }
+    }
+
+    private void sendSecure(DataInputStream in, DataOutputStream out, String token,
+                            List<Item> items, long total, long started) throws Exception {
+        out.write(PcSecureWire.MAGIC);
+        PcWire.writeString(out, token, 512);
+        KeyPair keyPair = PcSecureWire.createEphemeralKeyPair();
+        byte[] clientPublic = keyPair.getPublic().getEncoded();
+        byte[] salt = new byte[32];
+        new SecureRandom().nextBytes(salt);
+        out.writeInt(clientPublic.length);
+        out.write(clientPublic);
+        out.write(salt);
+        out.flush();
+
+        int serverKeyLength = in.readInt();
+        if (serverKeyLength < 64 || serverKeyLength > 512) throw new java.security.GeneralSecurityException("Invalid Windows secure key");
+        byte[] serverPublic = new byte[serverKeyLength];
+        in.readFully(serverPublic);
+        byte[] shared = PcSecureWire.sharedSecret(keyPair, serverPublic);
+        byte[] key = PcSecureWire.deriveKey(shared, salt);
+        java.util.Arrays.fill(shared, (byte) 0);
+        String code = PcSecureWire.securityCode(clientPublic, serverPublic, salt);
+        String approvalKey = "pc-v2:" + code + ":" + System.nanoTime();
+        IncomingApproval.begin(approvalKey, "Windows security code: " + code,
+                "Confirm that Windows shows exactly " + code + ".\nDecline if any digit differs.");
+        boolean accepted = IncomingApproval.await(approvalKey, 120_000L);
+
+        SecureIo secure = new SecureIo(in, out, key);
+        secure.write(accepted ? "ACCEPT".getBytes(java.nio.charset.StandardCharsets.US_ASCII)
+                : "DECLINE".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        if (!accepted) throw new java.security.GeneralSecurityException("Windows security code was declined on Android");
+        if (!"ACCEPT".equals(new String(secure.read(), java.nio.charset.StandardCharsets.US_ASCII))) {
+            throw new java.security.GeneralSecurityException("Secure session declined on Windows");
+        }
+        secure.write(java.nio.ByteBuffer.allocate(4).putInt(items.size()).array());
+
+        long batchDone = 0L;
+        byte[] buffer = new byte[BUFFER];
+        for (Item item : items) {
+            if (!running.get()) throw new InterruptedException("Transfer cancelled");
+            secure.write(PcWire.metadataVector(item.name, item.relativePath == null ? "" : item.relativePath, item.mime, item.size));
+            if (!isOk(secure.read())) throw new IllegalStateException("Windows declined " + item.name);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            long fileDone = 0L;
+            long fileStarted = System.nanoTime();
+            InputStream raw = getContentResolver().openInputStream(item.uri);
+            if (raw == null) throw new IllegalStateException("Cannot open " + item.name);
+            try (InputStream source = new BufferedInputStream(raw, BUFFER)) {
+                while (fileDone < item.size) {
+                    if (!running.get()) throw new InterruptedException("Transfer cancelled");
+                    int want = (int) Math.min(buffer.length, item.size - fileDone);
+                    int n = source.read(buffer, 0, want);
+                    if (n < 0) break;
+                    if (n == 0) continue;
+                    secure.write(java.util.Arrays.copyOf(buffer, n));
+                    digest.update(buffer, 0, n);
+                    fileDone += n;
+                    long allDone = batchDone + fileDone;
+                    double seconds = Math.max(0.001, (System.nanoTime() - fileStarted) / 1_000_000_000.0);
+                    double speed = fileDone / seconds;
+                    int progress = total <= 0 ? 0 : (int) Math.min(100L, allDone * 100L / total);
+                    long eta = speed <= 0 ? 0 : Math.max(0L, Math.round((total - allDone) / speed));
+                    broadcast("progress", "Encrypted to Windows • " + item.name, progress, speed,
+                            allDone, total, eta, 0d, 0L, 0, 0, 0L);
+                    updateNotification("Encrypted • " + item.name, progress);
+                }
+            }
+            if (fileDone != item.size) throw new IllegalStateException("Source ended early: " + item.name);
+            secure.write(digest.digest());
+            if (!isOk(secure.read())) throw new IllegalStateException("Windows verification failed: " + item.name);
+            batchDone += item.size;
+        }
+        secure.write(java.nio.ByteBuffer.allocate(4).putInt(PcWire.COMPLETION_MARKER).array());
+        if (!isOk(secure.read())) throw new IllegalStateException("Windows did not confirm secure completion");
+        java.util.Arrays.fill(key, (byte) 0);
+        long durationMs = Math.max(1L, (System.nanoTime() - started) / 1_000_000L);
+        double average = total <= 0 ? 0d : total / Math.max(0.001, durationMs / 1000d);
+        routeStore.recordSuccess(RoutePerformanceStore.ROUTE_PC, average);
+        broadcast("completed", "Encrypted transfer saved on Windows • SHA-256 verified", 100, 0d,
+                total, total, 0L, average, durationMs, 0, items.size(), total);
+        updateNotification("Encrypted transfer complete", 100);
+    }
+
+    private static boolean isOk(byte[] value) { return value.length == 1 && value[0] == 1; }
+
+    private static final class SecureIo {
+        private final DataInputStream in;
+        private final DataOutputStream out;
+        private final byte[] key;
+        private long sent;
+        private long received;
+        SecureIo(DataInputStream in, DataOutputStream out, byte[] key) { this.in = in; this.out = out; this.key = key; }
+        void write(byte[] plaintext) throws Exception {
+            byte[] record = PcSecureWire.encrypt(key, sent++, true, plaintext);
+            out.writeInt(record.length);
+            out.write(record);
+            out.flush();
+        }
+        byte[] read() throws Exception {
+            int length = in.readInt();
+            if (length < 30 || length > PcSecureWire.MAX_RECORD_BYTES) throw new java.security.GeneralSecurityException("Invalid Windows secure record length");
+            byte[] record = new byte[length];
+            in.readFully(record);
+            return PcSecureWire.decrypt(key, received++, false, record);
         }
     }
 

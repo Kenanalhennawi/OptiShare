@@ -5,9 +5,16 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.security.SecureRandom;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.X509EncodedKeySpec;
 
 import javax.crypto.Cipher;
+import javax.crypto.KeyAgreement;
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -20,6 +27,23 @@ public final class PcSecureWire {
     private static final SecureRandom RNG = new SecureRandom();
 
     private PcSecureWire() { }
+
+    public static KeyPair createEphemeralKeyPair() throws GeneralSecurityException {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"), RNG);
+        return generator.generateKeyPair();
+    }
+
+    public static byte[] sharedSecret(KeyPair own, byte[] peerPublicKey) throws GeneralSecurityException {
+        if (own == null || peerPublicKey == null || peerPublicKey.length < 64 || peerPublicKey.length > 512) {
+            throw new GeneralSecurityException("Invalid ECDH public key");
+        }
+        PublicKey peer = KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(peerPublicKey));
+        KeyAgreement agreement = KeyAgreement.getInstance("ECDH");
+        agreement.init(own.getPrivate());
+        agreement.doPhase(peer, true);
+        return agreement.generateSecret();
+    }
 
     public static byte[] deriveKey(byte[] sharedSecret, byte[] salt) throws GeneralSecurityException {
         if (sharedSecret == null || sharedSecret.length < 16) throw new GeneralSecurityException("Shared secret is too short");
