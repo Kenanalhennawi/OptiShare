@@ -9,6 +9,11 @@ public final class RoutePerformanceStore {
     public static final String ROUTE_LAN = "lan";
     public static final String ROUTE_PC = "pc-local";
     private static final String PREFS = "optishare_route_performance_v1";
+    private static final String PARALLEL_SINGLE = "parallel_single_bps";
+    private static final String PARALLEL_DUAL = "parallel_dual_bps";
+    private static final String PARALLEL_GAIN = "parallel_gain_percent";
+    private static final String PARALLEL_STREAMS = "parallel_recommended_streams";
+    private static final String PARALLEL_UPDATED = "parallel_updated_at";
     private final SharedPreferences prefs;
 
     public RoutePerformanceStore(Context context) {
@@ -30,6 +35,27 @@ public final class RoutePerformanceStore {
         if (!valid(route)) return;
         prefs.edit().putInt("fail:" + route, Math.min(10000, failures(route) + 1)).apply();
     }
+
+    public void recordParallelBenchmark(double singleBytesPerSecond, double dualBytesPerSecond) {
+        if (singleBytesPerSecond <= 0d || dualBytesPerSecond <= 0d) return;
+        int gain = ParallelBenchmarkDecision.improvementPercent(singleBytesPerSecond, dualBytesPerSecond);
+        int streams = ParallelBenchmarkDecision.recommendTwoStreams(singleBytesPerSecond, dualBytesPerSecond) ? 2 : 1;
+        prefs.edit()
+                .putLong(PARALLEL_SINGLE, Double.doubleToLongBits(singleBytesPerSecond))
+                .putLong(PARALLEL_DUAL, Double.doubleToLongBits(dualBytesPerSecond))
+                .putInt(PARALLEL_GAIN, gain)
+                .putInt(PARALLEL_STREAMS, streams)
+                .putLong(PARALLEL_UPDATED, System.currentTimeMillis())
+                .apply();
+    }
+
+    public int recommendedStreams() {
+        int value = prefs.getInt(PARALLEL_STREAMS, 1);
+        return value == 2 ? 2 : 1;
+    }
+
+    public int parallelGainPercent() { return prefs.getInt(PARALLEL_GAIN, 0); }
+    public long parallelUpdatedAt() { return prefs.getLong(PARALLEL_UPDATED, 0L); }
 
     public double averageSpeed(String route) {
         long bits = prefs.getLong("speed:" + route, Double.doubleToLongBits(0d));
@@ -61,7 +87,12 @@ public final class RoutePerformanceStore {
     }
 
     public String summary() {
-        return "Direct " + score(ROUTE_DIRECT) + " • LAN " + score(ROUTE_LAN) + " • PC " + score(ROUTE_PC);
+        String parallel = parallelUpdatedAt() == 0L
+                ? "Streams not tested"
+                : (recommendedStreams() + " stream" + (recommendedStreams() == 1 ? "" : "s")
+                + " recommended • " + (parallelGainPercent() >= 0 ? "+" : "") + parallelGainPercent() + "% dual gain");
+        return "Direct " + score(ROUTE_DIRECT) + " • LAN " + score(ROUTE_LAN)
+                + " • PC " + score(ROUTE_PC) + "\n" + parallel;
     }
 
     private static boolean valid(String route) {
