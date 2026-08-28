@@ -1,5 +1,6 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Web
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
@@ -84,7 +85,7 @@ $urlBox.BorderStyle = 'FixedSingle'
 $form.Controls.Add($urlBox)
 
 $hint = New-Object System.Windows.Forms.Label
-$hint.Text = 'On Android: Receive → Browser / PC → Start Browser Receive, then paste the shown http:// address here.'
+$hint.Text = 'Android: Receive > Browser / PC > Start Browser Receive. Paste the shown http:// address here.'
 $hint.ForeColor = [Drawing.Color]::FromArgb(135,175,205)
 $hint.AutoSize = $true
 $hint.Location = New-Object Drawing.Point(30,168)
@@ -128,7 +129,7 @@ $progress.Maximum = 100
 $form.Controls.Add($progress)
 
 $sendButton = New-Object System.Windows.Forms.Button
-$sendButton.Text = 'Send selected files →'
+$sendButton.Text = 'Send selected files'
 $sendButton.Location = New-Object Drawing.Point(30,520)
 $sendButton.Size = New-Object Drawing.Size(700,48)
 $sendButton.Anchor = 'Bottom,Left,Right'
@@ -145,7 +146,7 @@ $addButton.Add_Click({
             if (-not $script:files.Contains($path)) {
                 $script:files.Add($path)
                 $info = Get-Item -LiteralPath $path
-                [void]$list.Items.Add("$($info.Name)  •  $(Format-Bytes $info.Length)")
+                [void]$list.Items.Add("$($info.Name) - $(Format-Bytes $info.Length)")
             }
         }
         $status.Text = "$($script:files.Count) file(s) queued"
@@ -192,10 +193,10 @@ $sendButton.Add_Click({
                     while (($read = $input.Read($buffer,0,$buffer.Length)) -gt 0) {
                         $output.Write($buffer,0,$read)
                         $sent += $read
-                        $filePct = if ($file.Length -gt 0) { [Math]::Min(100,[int](($sent * 100L) / $file.Length)) } else { 100 }
+                        $filePct = if ($file.Length -gt 0) { [Math]::Min(100,[int](($sent * 100) / $file.Length)) } else { 100 }
                         $overall = [int]((($completed + ($filePct / 100.0)) * 100.0) / $script:files.Count)
                         $progress.Value = [Math]::Min(100,[Math]::Max(0,$overall))
-                        $status.Text = "Sending $($file.Name) • $(Format-Bytes $sent) / $(Format-Bytes $file.Length)"
+                        $status.Text = "Sending $($file.Name) - $(Format-Bytes $sent) / $(Format-Bytes $file.Length)"
                         [System.Windows.Forms.Application]::DoEvents()
                     }
                 } finally { $output.Dispose() }
@@ -221,7 +222,7 @@ $sendButton.Add_Click({
             [System.Windows.Forms.Application]::DoEvents()
         }
 
-        $status.Text = "Complete ✓ • $completed file(s) sent"
+        $status.Text = "Complete - $completed file(s) sent"
         [System.Windows.Forms.MessageBox]::Show("$completed file(s) sent successfully.",'OptiShare',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
     } catch {
         $status.Text = 'Transfer failed'
