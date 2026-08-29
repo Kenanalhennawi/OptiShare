@@ -1,6 +1,9 @@
 package com.kenan.optishare;
 
 import android.Manifest;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
 
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -11,13 +14,9 @@ import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.runner.RunWith;
 
-import static androidx.test.espresso.Espresso.onView;
-import static androidx.test.espresso.action.ViewActions.click;
-import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
-import static androidx.test.espresso.assertion.ViewAssertions.matches;
-import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static androidx.test.espresso.matcher.ViewMatchers.withText;
-import static org.hamcrest.Matchers.containsString;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class AndroidOnlyUiTest {
@@ -30,16 +29,50 @@ public class AndroidOnlyUiTest {
     @Rule public final RuleChain rules = RuleChain.outerRule(permissions).around(activity);
 
     @Test public void homeAndReceiveExposeOnlyAndroidExperience() {
-        onView(withText(containsString("Fast. Private. Resumable.")))
-                .check(matches(isDisplayed()));
-        onView(withText(containsString("Windows Companion"))).check(doesNotExist());
-        onView(withText(containsString("browser / PC"))).check(doesNotExist());
+        activity.getScenario().onActivity(screen -> {
+            View root = screen.getWindow().getDecorView();
+            assertTrue(hasText(root, "Fast. Private. Resumable."));
+            assertFalse(hasText(root, "Windows Companion"));
+            assertFalse(hasText(root, "browser / PC"));
 
-        onView(withText(containsString("RECEIVE"))).perform(click());
-        onView(withText("Receive")).check(matches(isDisplayed()));
-        onView(withText(containsString("Android-to-Android transfers use authenticated")))
-                .check(matches(isDisplayed()));
-        onView(withText(containsString("Browser mode"))).check(doesNotExist());
-        onView(withText(containsString("Windows"))).check(doesNotExist());
+            View receive = findText(root, "RECEIVE");
+            assertNotNull(receive);
+            receive.performClick();
+
+            root = screen.getWindow().getDecorView();
+            assertTrue(hasExactText(root, "Receive"));
+            assertTrue(hasText(root, "Android-to-Android transfers use authenticated"));
+            assertFalse(hasText(root, "Browser mode"));
+            assertFalse(hasText(root, "Windows"));
+        });
+    }
+
+    private static boolean hasText(View root, String needle) {
+        return findText(root, needle) != null;
+    }
+
+    private static boolean hasExactText(View root, String expected) {
+        if (root instanceof TextView
+                && expected.contentEquals(((TextView) root).getText())) return true;
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (hasExactText(group.getChildAt(i), expected)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static View findText(View root, String needle) {
+        if (root instanceof TextView
+                && ((TextView) root).getText().toString().contains(needle)) return root;
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View match = findText(group.getChildAt(i), needle);
+                if (match != null) return match;
+            }
+        }
+        return null;
     }
 }
