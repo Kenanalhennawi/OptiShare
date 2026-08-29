@@ -131,7 +131,9 @@ jobs:
             sha256sum OptiShare-2.2-FAST-SIGNED.apk OptiShare-2.2-FAST-Play.aab > SHA256SUMS.txt
           )
           {
-            echo 'version=2.2.0'
+            echo 'version=2.2.0-rc1'
+            echo 'version_code=221'
+            echo 'release_scope=android-only'
             echo 'chunk_bytes=1572864'
             echo 'checkpoint_chunks=4'
             echo 'checkpoint_window_bytes=6291456'

@@ -499,7 +499,7 @@ public final class TransferEngine {
         }
     }
 
-    private static boolean isLocalSourceFailure(IOException error) {
+    static boolean isLocalSourceFailure(IOException error) {
         String message = error.getMessage();
         return message != null && (message.startsWith("Cannot open source file:")
                 || message.startsWith("Unexpected end of source file:"));
