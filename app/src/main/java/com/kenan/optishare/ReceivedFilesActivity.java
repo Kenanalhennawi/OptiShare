@@ -21,6 +21,8 @@ import androidx.activity.ComponentActivity;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.FileProvider;
 
+import com.kenan.optishare.ui.UiText;
+
 import java.io.File;
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -247,7 +249,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
 
     private void confirmDelete(Item item) {
         new android.app.AlertDialog.Builder(this)
-                .setTitle("Delete received file?")
+                .setTitle(R.string.delete_received_title)
                 .setMessage(item.name + " will be permanently removed from this phone.")
                 .setPositiveButton("Delete", (dialog, which) -> deleteItem(item))
                 .setNegativeButton("Cancel", null)
@@ -312,7 +314,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
 
     private Button button(String label) {
         Button button = new Button(this);
-        button.setText(label);
+        button.setText(UiText.get(this,label));
         button.setTextColor(Color.WHITE);
         button.setTextSize(12);
         button.setAllCaps(false);
@@ -322,7 +324,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
 
     private TextView text(String value, int size, int color, boolean bold) {
         TextView view = new TextView(this);
-        view.setText(value);
+        view.setText(UiText.get(this,value));
         view.setTextColor(color);
         view.setTextSize(size);
         if (bold) view.setTypeface(view.getTypeface(), android.graphics.Typeface.BOLD);

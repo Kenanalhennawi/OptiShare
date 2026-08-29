@@ -17,6 +17,8 @@ import android.widget.TextView;
 
 import androidx.activity.ComponentActivity;
 
+import com.kenan.optishare.ui.UiText;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -88,9 +90,9 @@ public final class AppPickerActivity extends ComponentActivity {
         finish();
     }
 
-    private Button button(String label){Button b=new Button(this);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Color.rgb(22,73,111),14));return b;}
+    private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Color.rgb(22,73,111),14));return b;}
     private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(round(Color.rgb(34,122,231),16));return b;}
-    private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(value);t.setTextColor(color);t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
+    private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextColor(color);t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }

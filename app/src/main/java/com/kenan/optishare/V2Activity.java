@@ -67,6 +67,7 @@ import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
 import com.kenan.optishare.transfer.TransferService;
 import com.kenan.optishare.ui.GalleryAdapter;
+import com.kenan.optishare.ui.UiText;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -381,7 +382,7 @@ public class V2Activity extends ComponentActivity implements
                 setConnectionUi(partial?"COMPLETED WITH FAILED FILES":"COMPLETED ✓",
                         partial?Color.rgb(255,188,70):Color.rgb(65, 225, 151));
                 TextView screenTitle=findViewByTag("transfer_screen_title");
-                if(screenTitle!=null)screenTitle.setText(partial?"Queue finished":"Transfer complete");
+                if(screenTitle!=null)screenTitle.setText(UiText.get(this,partial?"Queue finished":"Transfer complete"));
                 setTransferUi(partial?"Other files completed":"Transfer complete ✓",
                         partial?failedQueueIndexes.size()+" file(s) need retry • "+message:message,100);
                 historyStore.add(new TransferHistoryStore.Entry(
@@ -394,7 +395,7 @@ public class V2Activity extends ComponentActivity implements
                 transferPaused=false;
                 if(transferPauseButton!=null)transferPauseButton.setVisibility(View.GONE);
                 if(transferCancelButton!=null){
-                    transferCancelButton.setText(partial&&!receiverMode?"Retry failed files →":"Done");
+                    transferCancelButton.setText(UiText.get(this,partial&&!receiverMode?"Retry failed files →":"Done"));
                     transferCancelButton.setOnClickListener(v->{if(partial&&!receiverMode)retryFailedFiles();else showHome();});
                 }
                 updatePauseButton(false);
@@ -402,7 +403,7 @@ public class V2Activity extends ComponentActivity implements
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
                 setTransferUi("Transfer could not continue", message, -1);
                 if (!receiverMode && senderSessionStore.exists() && transferCancelButton != null) {
-                    transferCancelButton.setText("Retry / resume →");
+                    transferCancelButton.setText(UiText.get(this,"Retry / resume →"));
                     transferCancelButton.setOnClickListener(v -> resumePendingTransfer());
                 }
                 historyStore.add(new TransferHistoryStore.Entry(
@@ -796,7 +797,7 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout metrics=new LinearLayout(this);metrics.setOrientation(LinearLayout.HORIZONTAL);metrics.setPadding(0,dp(14),0,0);
         TextView bytes=text("0 B / —",13,Color.rgb(187,215,235),true);bytes.setTag("transfer_bytes");metrics.addView(bytes,new LinearLayout.LayoutParams(0,-2,1));
         TextView speedView=text("— MB/s",13,Color.rgb(89,205,255),true);speedView.setTag("transfer_speed");speedView.setGravity(Gravity.CENTER);metrics.addView(speedView,new LinearLayout.LayoutParams(0,-2,1));
-        TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.RIGHT);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
+        TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.END);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
         card.addView(metrics);root.addView(card);
         if(!benchmarkMode){
             LinearLayout queueCard=card();
@@ -1101,11 +1102,11 @@ public class V2Activity extends ComponentActivity implements
         ContextCompat.startForegroundService(this,i);
     }
 
-    private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null||transferPauseButton.getVisibility()!=View.VISIBLE)return;transferPauseButton.setText(paused?"Resume transfer":"Pause transfer");transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
+    private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null||transferPauseButton.getVisibility()!=View.VISIBLE)return;transferPauseButton.setText(UiText.get(this,paused?"Resume transfer":"Pause transfer"));transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
 
     private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));try{startService(new Intent(this,PcTransferService.class).setAction(PcTransferService.ACTION_STOP_PC));}catch(Exception ignored){}}
 
-    private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(title);if(transferDetail!=null)transferDetail.setText(detail);if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);if(progress>=0){TextView percent=findViewByTag("transfer_percent");if(percent!=null)percent.setText(progress+"%");}});}
+    private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(UiText.get(this,title));if(transferDetail!=null)transferDetail.setText(UiText.get(this,detail));if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);if(progress>=0){TextView percent=findViewByTag("transfer_percent");if(percent!=null)percent.setText(progress+"%");}});}
 
     private void setTransferMetrics(int progress,long done,long total,double speed,long etaSeconds){runOnUiThread(()->{TextView percent=findViewByTag("transfer_percent");TextView bytes=findViewByTag("transfer_bytes");TextView speedView=findViewByTag("transfer_speed");TextView eta=findViewByTag("transfer_eta");if(percent!=null)percent.setText(Math.max(0,Math.min(100,progress))+"%");if(bytes!=null)bytes.setText(formatBytes(Math.max(0L,done))+" / "+(total>0?formatBytes(total):"—"));if(speedView!=null)speedView.setText(formatTransferSpeed(speed));if(eta!=null)eta.setText(formatEta(etaSeconds));});}
 
@@ -1230,8 +1231,8 @@ public class V2Activity extends ComponentActivity implements
     private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle("Device name").setMessage("This name is used inside OptiShare.").setView(input).setPositiveButton("Save",(d,w)->{try{identity.setName(input.getText().toString());showDeviceSettings();}catch(Exception e){showMessage("Invalid name",e.getMessage());}}).setNegativeButton("Cancel",null).show();}
 
     private TextView connectionBadge(String label,int color){TextView v=text(label,13,color,true);v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(10),dp(12),dp(10));v.setBackground(round(Color.argb(70,Color.red(color),Color.green(color),Color.blue(color)),14));return v;}
-    private void setDiscoveryText(String value){runOnUiThread(()->{if(discoveryState!=null)discoveryState.setText(value);});}
-    private void setConnectionUi(String label,int color){runOnUiThread(()->{if(connectionPill==null)return;connectionPill.setText(label);connectionPill.setTextColor(color);connectionPill.setBackground(round(Color.argb(80,Color.red(color),Color.green(color),Color.blue(color)),14));});}
+    private void setDiscoveryText(String value){runOnUiThread(()->{if(discoveryState!=null)discoveryState.setText(UiText.get(this,value));});}
+    private void setConnectionUi(String label,int color){runOnUiThread(()->{if(connectionPill==null)return;connectionPill.setText(UiText.get(this,label));connectionPill.setTextColor(color);connectionPill.setBackground(round(Color.argb(80,Color.red(color),Color.green(color),Color.blue(color)),14));});}
     private void showNearbyPermissionHelp(){showMessage("Nearby permission required","Allow Nearby Wi‑Fi devices. On Android 12 or older, Android also requires Location permission and Location services for Wi‑Fi Direct discovery.");}
     private boolean isLocationEnabled(){LocationManager lm=(LocationManager)getSystemService(LOCATION_SERVICE);if(lm==null)return false;if(Build.VERSION.SDK_INT>=28)return lm.isLocationEnabled();try{return lm.isProviderEnabled(LocationManager.GPS_PROVIDER)||lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER);}catch(Exception e){return false;}}
     private void safeRemoveGroup(){if(manager==null||channel==null||!hasNearbyPermission())return;try{manager.removeGroup(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){}@Override public void onFailure(int reason){}});}catch(Exception ignored){}}
@@ -1245,19 +1246,19 @@ public class V2Activity extends ComponentActivity implements
     private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->navigateBack());root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
 
     private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
-    private Button category(String icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+label);b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(color,darken(color),18));b.setOnClickListener(listener);return b;}
+    private Button category(String icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(color,darken(color),18));b.setOnClickListener(listener);return b;}
     private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(106),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(106),1);p2.setMargins(dp(8),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(106),1);p3.setMargins(dp(8),0,0,0);row.addView(c,p3);return row;}
-    private Button bigAction(String icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+title+"\n"+sub);b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(top,bottom,22));return b;}
-    private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(Color.rgb(31,151,255),Color.rgb(52,88,226),16));return b;}
-    private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(13);b.setBackground(round(Color.rgb(24,52,78),14));return b;}
+    private Button bigAction(String icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(top,bottom,22));return b;}
+    private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(Color.rgb(31,151,255),Color.rgb(52,88,226),16));return b;}
+    private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(13);b.setBackground(round(Color.rgb(24,52,78),14));return b;}
     private Button smallButton(String label){Button b=secondaryButton(label);b.setTextSize(12);return b;}
     private LinearLayout card(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(16),dp(16),dp(16),dp(16));GradientDrawable g=round(Color.rgb(13,33,56),18);g.setStroke(dp(1),Color.rgb(37,68,96));l.setBackground(g);return l;}
-    private TextView text(String value,int sp,int color,boolean bold){TextView t=new TextView(this);t.setText(value);t.setTextSize(sp);t.setTextColor(color);if(bold)t.setTypeface(Typeface.DEFAULT_BOLD);return t;}
+    private TextView text(String value,int sp,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextSize(sp);t.setTextColor(color);if(bold)t.setTypeface(Typeface.DEFAULT_BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private GradientDrawable gradient(int top,int bottom,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{top,bottom});g.setCornerRadius(dp(radius));return g;}
     private int darken(int color){return Color.rgb((int)(Color.red(color)*.66),(int)(Color.green(color)*.66),(int)(Color.blue(color)*.66));}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
-    private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK",null).show());}
+    private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(UiText.get(this,title)).setMessage(UiText.get(this,message)).setPositiveButton(R.string.ok,null).show());}
 
     @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
     @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(p2pConnectTimeout);pendingP2pDevice=null;stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}try{unregisterReceiver(browserReceiver);}catch(Exception ignored){}}

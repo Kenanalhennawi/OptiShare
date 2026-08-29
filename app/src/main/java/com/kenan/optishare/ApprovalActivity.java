@@ -13,6 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.kenan.optishare.transfer.TransferService;
+import com.kenan.optishare.ui.UiText;
 
 /**
  * Focused approval UI opened for security-code verification and incoming-transfer consent.
@@ -120,7 +121,7 @@ public final class ApprovalActivity extends Activity {
     private Button button(String label, int top, int bottom) {
         Button button = new Button(this);
         button.setAllCaps(false);
-        button.setText(label);
+        button.setText(UiText.get(this,label));
         button.setTextColor(Color.WHITE);
         button.setTextSize(16);
         button.setTypeface(Typeface.DEFAULT_BOLD);
@@ -130,7 +131,7 @@ public final class ApprovalActivity extends Activity {
 
     private TextView text(String value, int size, int color, boolean bold) {
         TextView view = new TextView(this);
-        view.setText(value);
+        view.setText(UiText.get(this,value));
         view.setTextSize(size);
         view.setTextColor(color);
         if (bold) view.setTypeface(Typeface.DEFAULT_BOLD);
