@@ -81,6 +81,8 @@ public class V2Activity extends ComponentActivity implements
         WifiP2pManager.PeerListListener,
         WifiP2pManager.ConnectionInfoListener {
 
+    /** Frozen while Android 2.2 is completed and validated as a standalone release. */
+    private static final boolean ENABLE_PC_COMPANION = false;
     private static final int REQ_MEDIA = 2101;
     private static final int REQ_NEARBY = 2102;
     private static final int REQ_LEGACY_WRITE = 2103;
@@ -736,7 +738,7 @@ public class V2Activity extends ComponentActivity implements
         connectionPill=connectionBadge("SEARCHING",Color.rgb(255,194,73));root.addView(connectionPill);
         LinearLayout radar=card();TextView icon=text("◎",76,Color.rgb(80,198,255),true);icon.setGravity(Gravity.CENTER);radar.addView(icon);
         discoveryState=text("Searching for receiving phones…",16,Color.WHITE,true);discoveryState.setGravity(Gravity.CENTER);radar.addView(discoveryState);
-        TextView hint=text("SmartRoute finds Android receivers and OptiShare Windows Companion on the local network. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
+        TextView hint=text("SmartRoute finds verified OptiShare Android receivers on the local network. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
         LinearLayout qrRow=new LinearLayout(this);qrRow.setOrientation(LinearLayout.HORIZONTAL);
         Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());qrRow.addView(scan,new LinearLayout.LayoutParams(0,dp(50),1));
         Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(8),0,0,0);qrRow.addView(retry,rr);
@@ -755,7 +757,7 @@ public class V2Activity extends ComponentActivity implements
         TextView identityLabel=text(identity.name(),14,Color.rgb(88,202,255),true);identityLabel.setGravity(Gravity.CENTER);identityLabel.setTag("receiver_identity");receiveCard.addView(identityLabel);
         ImageView qr=new ImageView(this);qr.setTag("receiver_qr");qr.setAdjustViewBounds(true);receiveCard.addView(qr,new LinearLayout.LayoutParams(-1,dp(260)));
         root.addView(receiveCard);
-        Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);
+        if(ENABLE_PC_COMPANION){Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);}
         root.addView(text("Browser mode works on the same local network with a temporary link and phone approval. App-to-app transfers remain the encrypted ECDH/AES-GCM mode.",11,Color.rgb(150,179,202),false));
         Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
         setContentView(scroll);startReceiverService();startReceiverMode();
@@ -835,6 +837,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void startPcDiscovery(){
+        if(!ENABLE_PC_COMPANION)return;
         if(pcDiscovery==null||!pcDiscovery.available())return;
         pcPeers.clear();
         pcDiscovery.discover(new PcDiscovery.Listener(){
@@ -951,7 +954,7 @@ public class V2Activity extends ComponentActivity implements
             peerList.removeAllViews();
             if(peers.isEmpty()&&pcPeers.isEmpty()){
                 LinearLayout empty=card();empty.addView(text("Searching…",14,Color.WHITE,true));
-                empty.addView(text("Looking for Android receivers and OptiShare Windows Companion on this network.",12,Color.rgb(147,173,196),false));
+                empty.addView(text("Looking for verified OptiShare Android receivers on this network.",12,Color.rgb(147,173,196),false));
                 peerList.addView(empty);return;
             }
             if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){

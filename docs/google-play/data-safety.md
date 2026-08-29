@@ -7,7 +7,7 @@ This document describes the current OptiShare 2.2 behavior. Recheck each answer 
 | Play Console topic | Current answer | Reason |
 |---|---|---|
 | Does the app collect or share required user data with the developer or third parties? | No | There is no developer backend, analytics, advertising, or tracking SDK. User-selected peer-to-peer transfers are initiated by the user and go to the device they select. |
-| Is all user data encrypted in transit? | No, for the current release | Android-to-Android sessions use application-level encryption, but the optional Browser Receive compatibility route uses a token-protected local HTTP session. Do not claim universal encryption until that route is upgraded or removed from the Play build. |
+| Is all user data encrypted in transit? | Yes, for the Android-only Play release | Every transfer route exposed in the Android-only release uses authenticated application-level encryption. Experimental PC/browser entry points are disabled in the shipping UI and are not started automatically. Re-evaluate this answer before enabling another platform route. |
 | Can users request deletion of collected data? | Not applicable to developer-held data | The developer does not hold user data or accounts. Users can delete received files, local history/trusted-device records, or clear app storage. |
 | Does the app contain ads? | No | No advertising SDK or ad content. |
 | Is an account required? | No | Transfers and trusted devices are local. |
@@ -24,9 +24,8 @@ The receiving peer necessarily receives the content and metadata selected for tr
 ## Security-form notes
 
 - Android-to-Android: authenticated key agreement, application-level encrypted frames, integrity verification.
-- Android-to-Windows native companion: local direct connection; verify the release behavior before selecting universal encryption.
-- Browser Receive: local HTTP with a short-lived token and explicit phone approval. The token is kept in the URL fragment and removed from browser history after page load; responses prohibit caching, referrers and framing. This hardening is not equivalent to encrypted transport.
-- Therefore the conservative and accurate Play answer is currently **not all data is encrypted in transit**.
+- Experimental Windows/browser code is feature-disabled for the Android-only Play release and has no user-accessible entry point.
+- Revert to the conservative **not all data is encrypted in transit** answer if an unencrypted compatibility route is exposed again.
 
 ## Permissions declaration notes
 
