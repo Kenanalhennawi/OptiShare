@@ -148,3 +148,79 @@ jobs:
           path: security-reports/
           if-no-files-found: error
           retention-days: 30
+
+  workflow-lint:
+    name: actionlint workflow syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install checksum-verified actionlint 1.7.12
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -fsSLo actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz' | sha256sum --check -
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -version
+          ./actionlint -color
+
+  apk-sbom:
+    name: APK SBOM and Grype vulnerability gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build analyzable debug APK
+        run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Generate SPDX JSON SBOM from APK
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          file: app/build/outputs/apk/debug/app-debug.apk
+          format: spdx-json
+          output-file: security-reports/optishare-apk.spdx.json
+          artifact-name: OptiShare-2.2-APK-SBOM.spdx.json
+          upload-artifact: false
+
+      - name: Scan APK SBOM with Grype
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          sbom: security-reports/optishare-apk.spdx.json
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: false
+          output-format: sarif
+          output-file: security-reports/grype-apk.sarif
+
+      - name: Upload APK SBOM and vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.2-APK-supply-chain
+          path: security-reports/
+          if-no-files-found: error
+          retention-days: 30
