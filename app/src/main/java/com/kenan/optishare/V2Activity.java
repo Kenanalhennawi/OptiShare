@@ -1200,9 +1200,11 @@ public class V2Activity extends ComponentActivity implements
         Button trusted=secondaryButton("Trusted devices • "+trustedStore.list().size());trusted.setOnClickListener(v->showTrustedDevices());LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,dp(48));tp.setMargins(0,dp(8),0,0);device.addView(trusted,tp);root.addView(device);
         LinearLayout content=card();content.addView(text("Received content",16,Color.WHITE,true));content.addView(text("Files are sorted in Download/OptiShare. Text and clipboard items arrive as readable .txt files in the Text folder.",12,Color.rgb(151,190,218),false));
         Button received=secondaryButton("Open received files");received.setOnClickListener(v->startActivity(new Intent(this,ReceivedFilesActivity.class)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(48));cp.setMargins(0,dp(10),0,0);content.addView(received,cp);LinearLayout.LayoutParams contentLp=new LinearLayout.LayoutParams(-1,-2);contentLp.setMargins(0,dp(12),0,0);root.addView(content,contentLp);
-        LinearLayout about=card();about.addView(text("About OptiShare",16,Color.WHITE,true));about.addView(text("Version "+BuildConfig.VERSION_NAME+"\nPrivate Android-to-Android sharing. No account, advertising or analytics.",12,Color.rgb(151,190,218),false));about.addView(text("Designed & developed by Kenan Alhennawi",11,Color.rgb(91,189,255),true));LinearLayout.LayoutParams aboutLp=new LinearLayout.LayoutParams(-1,-2);aboutLp.setMargins(0,dp(12),0,0);root.addView(about,aboutLp);
+        LinearLayout about=card();about.addView(text("About OptiShare",16,Color.WHITE,true));about.addView(text("Version "+appVersion()+"\nPrivate Android-to-Android sharing. No account, advertising or analytics.",12,Color.rgb(151,190,218),false));about.addView(text("Designed & developed by Kenan Alhennawi",11,Color.rgb(91,189,255),true));LinearLayout.LayoutParams aboutLp=new LinearLayout.LayoutParams(-1,-2);aboutLp.setMargins(0,dp(12),0,0);root.addView(about,aboutLp);
         setContentView(scroll);
     }
+
+    private String appVersion(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){return "2.2";}}
 
     private void showTrustedDevices(){
         if(!DeviceIdentityKey.supported()){showMessage("Trusted devices","Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.");return;}
