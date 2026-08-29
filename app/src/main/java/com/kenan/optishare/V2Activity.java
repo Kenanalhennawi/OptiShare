@@ -758,7 +758,7 @@ public class V2Activity extends ComponentActivity implements
         ImageView qr=new ImageView(this);qr.setTag("receiver_qr");qr.setAdjustViewBounds(true);receiveCard.addView(qr,new LinearLayout.LayoutParams(-1,dp(260)));
         root.addView(receiveCard);
         if(ENABLE_PC_COMPANION){Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);}
-        root.addView(text("Browser mode works on the same local network with a temporary link and phone approval. App-to-app transfers remain the encrypted ECDH/AES-GCM mode.",11,Color.rgb(150,179,202),false));
+        root.addView(text("Keep this screen open while the sender connects. Android-to-Android transfers use authenticated ECDH and AES-GCM encryption.",11,Color.rgb(150,179,202),false));
         Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
         setContentView(scroll);startReceiverService();startReceiverMode();
     }
