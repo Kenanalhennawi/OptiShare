@@ -81,7 +81,7 @@ internal static class AndroidClient
     {
         private long sent,received;
         internal async Task WriteClient(byte[] plain){var record=SecureChannel.Encrypt(key,sent++,true,plain);await WriteInt32Async(stream,record.Length);await stream.WriteAsync(record);}
-        internal async Task<byte[]> ReadServer(){var length=await ReadInt32Async(stream);if(length is <30 or >SecureChannel.MaxRecordBytes)throw new CryptographicException("Invalid Android secure record length.");return SecureChannel.Decrypt(key,received++,false,await ReadExactAsync(stream,length));}
+        internal async Task<byte[]> ReadServer(){var length=await ReadInt32Async(stream);if(length is <30 or >SecureChannel.MaxRecordBytes)throw new CryptographicException("Invalid Android secure record length.");var record=await ReadExactAsync(stream,length);return SecureChannel.Decrypt(key,received++,false,record);}
         public ValueTask DisposeAsync(){CryptographicOperations.ZeroMemory(key);stream.Dispose();tcp.Dispose();return ValueTask.CompletedTask;}
     }
     private static string Mime(string path) => Path.GetExtension(path).ToLowerInvariant() switch { ".jpg" or ".jpeg"=>"image/jpeg", ".png"=>"image/png", ".gif"=>"image/gif", ".webp"=>"image/webp", ".mp4"=>"video/mp4", ".mov"=>"video/quicktime", ".mp3"=>"audio/mpeg", ".wav"=>"audio/wav", ".pdf"=>"application/pdf", ".apk"=>"application/vnd.android.package-archive", ".zip"=>"application/zip", ".txt"=>"text/plain", _=>"application/octet-stream" };
