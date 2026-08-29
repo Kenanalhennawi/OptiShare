@@ -11,6 +11,7 @@ on:
       - 'settings.gradle'
       - 'gradle.properties'
       - 'windows/**'
+      - '.gitleaksignore'
       - '.github/workflows/security-scan.yml'
 
 permissions:
@@ -36,18 +37,40 @@ jobs:
 
       - name: Semgrep Android and security rules
         run: |
-          docker run --rm -v "$PWD:/src" semgrep/semgrep:latest             semgrep scan             --config p/java             --config p/security-audit             --config p/owasp-top-ten             --exclude windows/publish             --exclude app/build             --json-output /src/security-reports/semgrep.json             --sarif-output /src/security-reports/semgrep.sarif             /src
-          docker run --rm semgrep/semgrep:latest semgrep --version             > security-reports/semgrep-version.txt
+          docker run --rm -v "$PWD:/src" semgrep/semgrep:1.174.0 \
+            semgrep scan \
+            --config p/java \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --exclude windows/publish \
+            --exclude app/build \
+            --json-output /src/security-reports/semgrep.json \
+            --sarif-output /src/security-reports/semgrep.sarif \
+            /src
+          docker run --rm semgrep/semgrep:1.174.0 semgrep --version \
+            > security-reports/semgrep-version.txt
 
       - name: Trivy dependencies and configuration
         run: |
-          docker run --rm -v "$PWD:/repo" aquasec/trivy:latest             fs --scanners vuln,misconfig             --severity HIGH,CRITICAL             --format json             --output /repo/security-reports/trivy.json             /repo
-          docker run --rm aquasec/trivy:latest --version             > security-reports/trivy-version.txt
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.74.0 \
+            fs --scanners vuln,misconfig \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output /repo/security-reports/trivy.json \
+            /repo
+          docker run --rm aquasec/trivy:0.74.0 --version \
+            > security-reports/trivy-version.txt
 
       - name: Gitleaks complete Git history
         run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest             detect --source=/repo             --report-format=json             --report-path=/repo/security-reports/gitleaks.json             --redact=100             --exit-code=0
-          docker run --rm ghcr.io/gitleaks/gitleaks:latest version             > security-reports/gitleaks-version.txt
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            detect --source=/repo \
+            --report-format=json \
+            --report-path=/repo/security-reports/gitleaks.json \
+            --redact=100 \
+            --exit-code=0
+          docker run --rm ghcr.io/gitleaks/gitleaks:v8.30.1 version \
+            > security-reports/gitleaks-version.txt
 
       - name: Summarize and enforce security gate
         shell: bash
