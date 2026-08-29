@@ -382,7 +382,7 @@ public class V2Activity extends ComponentActivity implements
                 setConnectionUi(partial?"COMPLETED WITH FAILED FILES":"COMPLETED ✓",
                         partial?Color.rgb(255,188,70):Color.rgb(65, 225, 151));
                 TextView screenTitle=findViewByTag("transfer_screen_title");
-                if(screenTitle!=null)screenTitle.setText(UiText.get(this,partial?"Queue finished":"Transfer complete"));
+                if(screenTitle!=null)screenTitle.setText(UiText.get(V2Activity.this,partial?"Queue finished":"Transfer complete"));
                 setTransferUi(partial?"Other files completed":"Transfer complete ✓",
                         partial?failedQueueIndexes.size()+" file(s) need retry • "+message:message,100);
                 historyStore.add(new TransferHistoryStore.Entry(
@@ -395,7 +395,7 @@ public class V2Activity extends ComponentActivity implements
                 transferPaused=false;
                 if(transferPauseButton!=null)transferPauseButton.setVisibility(View.GONE);
                 if(transferCancelButton!=null){
-                    transferCancelButton.setText(UiText.get(this,partial&&!receiverMode?"Retry failed files →":"Done"));
+                    transferCancelButton.setText(UiText.get(V2Activity.this,partial&&!receiverMode?"Retry failed files →":"Done"));
                     transferCancelButton.setOnClickListener(v->{if(partial&&!receiverMode)retryFailedFiles();else showHome();});
                 }
                 updatePauseButton(false);
@@ -403,7 +403,7 @@ public class V2Activity extends ComponentActivity implements
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
                 setTransferUi("Transfer could not continue", message, -1);
                 if (!receiverMode && senderSessionStore.exists() && transferCancelButton != null) {
-                    transferCancelButton.setText(UiText.get(this,"Retry / resume →"));
+                    transferCancelButton.setText(UiText.get(V2Activity.this,"Retry / resume →"));
                     transferCancelButton.setOnClickListener(v -> resumePendingTransfer());
                 }
                 historyStore.add(new TransferHistoryStore.Entry(
