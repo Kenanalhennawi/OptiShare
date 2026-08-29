@@ -35,6 +35,19 @@ public class AndroidOnlyUiTest {
             assertFalse(hasText(root, "Windows Companion"));
             assertFalse(hasText(root, "browser / PC"));
 
+            View settings = findText(root, "Settings");
+            assertNotNull(settings);
+            settings.performClick();
+            root = screen.getWindow().getDecorView();
+            assertTrue(hasText(root, "About OptiShare"));
+            assertTrue(hasText(root, "Download/OptiShare"));
+            assertFalse(hasText(root, "My security identity"));
+            assertFalse(hasText(root, "SmartRoute status"));
+            View back = findText(root, "Back");
+            assertNotNull(back);
+            back.performClick();
+
+            root = screen.getWindow().getDecorView();
             View receive = findText(root, "RECEIVE");
             assertNotNull(receive);
             receive.performClick();

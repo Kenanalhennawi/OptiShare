@@ -31,7 +31,7 @@ import java.util.Locale;
 
 /** A local, privacy-preserving view of files published by OptiShare. */
 public final class ReceivedFilesActivity extends ComponentActivity {
-    private static final int MAX_ITEMS = 150;
+    private static final int MAX_ITEMS = 1000;
 
     private static final class Item {
         final String name;
@@ -117,10 +117,10 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         LinearLayout card = card();
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView icon = text(iconFor(item.mime), 18, Color.WHITE, true);
+        TextView icon = text(iconFor(item.mime), 22, Color.WHITE, true);
         icon.setGravity(Gravity.CENTER);
         icon.setBackground(round(Color.rgb(28, 103, 157), 16));
-        top.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        top.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setPadding(dp(12), 0, 0, 0);
