@@ -1,0 +1,79 @@
+name: OptiShare Advanced Security
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/v2.2-fast-transfer
+    paths:
+      - 'app/**'
+      - '*.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/**'
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optishare-advanced-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL Java security-extended
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@a35ac6e6798d72df5475948b28efb89edc2e19ca # v4.37.9
+        with:
+          languages: java-kotlin
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyze Java data flow
+        uses: github/codeql-action/analyze@a35ac6e6798d72df5475948b28efb89edc2e19ca # v4.37.9
+        with:
+          category: /language:java-kotlin
+
+  osv:
+    name: OSV dependency vulnerabilities
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    with:
+      scan-args: |-
+        --recursive
+        ./
+      fail-on-vuln: true
+      upload-sarif: true
+
+  zizmor:
+    name: zizmor GitHub Actions audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Audit workflow supply chain
+        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
