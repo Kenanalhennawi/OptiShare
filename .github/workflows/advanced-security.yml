@@ -77,3 +77,40 @@ jobs:
 
       - name: Audit workflow supply chain
         uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
+
+  mobsfscan:
+    name: MobSF Android source audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned mobsfscan
+        run: python3 -m pip install --disable-pip-version-check mobsfscan==1.0.0
+
+      - name: Scan Android Java and XML
+        run: |
+          mkdir -p security-reports
+          mobsfscan app/src/main --type android --sarif \
+            --output security-reports/mobsfscan.sarif --no-fail
+          mobsfscan --version > security-reports/mobsfscan-version.txt
+          findings=$(jq '[.runs[]?.results[]? | select(.level == "error" or .level == "warning")] | length' security-reports/mobsfscan.sarif)
+          echo "mobsfscan_error_warning_findings=$findings" | tee security-reports/mobsfscan-summary.txt
+          if (( findings > 0 )); then
+            echo "::error::MobSF Android audit found actionable findings."
+            exit 1
+          fi
+
+      - name: Upload MobSF source report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-mobsfscan-report
+          path: security-reports/
+          if-no-files-found: error
+          retention-days: 30
