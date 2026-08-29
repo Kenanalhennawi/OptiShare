@@ -89,6 +89,7 @@
         <activity
             android:name=".V2Activity"
             android:screenOrientation="portrait"
+            android:taskAffinity=""
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
