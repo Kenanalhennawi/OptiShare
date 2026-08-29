@@ -63,9 +63,9 @@ jobs:
           retention-days: 14
 
   build:
-    name: Test, build and verify 2.2
+    name: Test, build, MobSF and verify 2.2
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 55
     env:
       OPTISHARE_KEYSTORE_B64: ${{ secrets.OPTISHARE_KEYSTORE_B64 }}
       OPTISHARE_STORE_PASSWORD: ${{ secrets.OPTISHARE_STORE_PASSWORD }}
@@ -190,6 +190,102 @@ jobs:
             echo "commit=${GITHUB_SHA}"
             echo "signer_sha256=${EXPECTED_CERT_SHA256}"
           } > release-output/BUILD_INFO.txt
+
+      - name: Start pinned MobSF 4.5.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          MOBSF_API_KEY=$(openssl rand -hex 32)
+          echo "::add-mask::$MOBSF_API_KEY"
+          echo "MOBSF_API_KEY=$MOBSF_API_KEY" >> "$GITHUB_ENV"
+          docker run --detach --name optishare-mobsf \
+            --publish 127.0.0.1:8000:8000 \
+            --env "MOBSF_API_KEY=$MOBSF_API_KEY" \
+            opensecurity/mobile-security-framework-mobsf@sha256:af94f81f8b13872cdf556327fab58f52d446299fe153be6e1eeec177f31b503b
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/login/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs optishare-mobsf
+          echo "::error::MobSF did not become ready."
+          exit 1
+
+      - name: Full MobSF scan of signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p security-reports/mobsf-apk
+          APK=release-output/OptiShare-2.2-FAST-SIGNED.apk
+          AUTH_HEADER="X-Mobsf-Api-Key: $MOBSF_API_KEY"
+
+          curl --fail-with-body --silent --show-error \
+            --header "$AUTH_HEADER" \
+            --form "file=@$APK" \
+            http://127.0.0.1:8000/api/v1/upload \
+            --output security-reports/mobsf-apk/upload.json
+
+          scan_hash=$(jq -er '.hash' security-reports/mobsf-apk/upload.json)
+          scan_type=$(jq -er '.scan_type' security-reports/mobsf-apk/upload.json)
+          file_name=$(jq -er '.file_name' security-reports/mobsf-apk/upload.json)
+
+          curl --fail-with-body --silent --show-error --max-time 1200 \
+            --header "$AUTH_HEADER" \
+            --request POST \
+            --data-urlencode "hash=$scan_hash" \
+            --data-urlencode "scan_type=$scan_type" \
+            --data-urlencode "file_name=$file_name" \
+            http://127.0.0.1:8000/api/v1/scan \
+            --output security-reports/mobsf-apk/scan-response.json
+
+          jq -e 'type == "object" and (.error | not)' \
+            security-reports/mobsf-apk/scan-response.json >/dev/null
+
+          curl --fail-with-body --silent --show-error \
+            --header "$AUTH_HEADER" \
+            --request POST \
+            --data-urlencode "hash=$scan_hash" \
+            http://127.0.0.1:8000/api/v1/report_json \
+            --output security-reports/mobsf-apk/report.json
+
+          curl --fail-with-body --silent --show-error \
+            --header "$AUTH_HEADER" \
+            --request POST \
+            --data-urlencode "hash=$scan_hash" \
+            http://127.0.0.1:8000/api/v1/download_pdf \
+            --output security-reports/mobsf-apk/report.pdf
+
+          jq -e 'type == "object" and (.error | not)' \
+            security-reports/mobsf-apk/report.json >/dev/null
+          test -s security-reports/mobsf-apk/report.pdf
+          jq '{
+            app_name,
+            package_name,
+            version_name,
+            security_score,
+            trackers,
+            certificate_analysis,
+            manifest_analysis,
+            network_security
+          }' security-reports/mobsf-apk/report.json \
+            > security-reports/mobsf-apk/review-summary.json
+
+      - name: Upload full MobSF signed APK reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiShare-2.2-MobSF-signed-APK
+          path: security-reports/mobsf-apk/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Stop MobSF
+        if: always()
+        shell: bash
+        run: |
+          docker logs optishare-mobsf > "$RUNNER_TEMP/mobsf-container.log" 2>&1 || true
+          docker rm --force optishare-mobsf >/dev/null 2>&1 || true
 
       - name: Upload 2.2 debug APK
         uses: actions/upload-artifact@v4
