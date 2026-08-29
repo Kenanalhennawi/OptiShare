@@ -109,6 +109,7 @@ public final class DownloadStore {
         long verifiedSize = source.length();
         String safeName = TransferItem.safeName(name);
         String folder = categoryFolder(category);
+        if (mime != null && mime.toLowerCase(java.util.Locale.US).startsWith("text/")) folder = "Text";
         String safeRelative;
         try { safeRelative = TransferItem.safeRelativePath(relativePath); }
         catch (IllegalArgumentException invalid) { throw new IOException("Unsafe relative path", invalid); }

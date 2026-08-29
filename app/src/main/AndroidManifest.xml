@@ -76,6 +76,17 @@
             android:exported="false" />
 
         <activity
+            android:name=".PortraitQrCaptureActivity"
+            android:screenOrientation="portrait"
+            android:exported="false"
+            android:theme="@style/zxing_CaptureTheme" />
+
+        <activity
+            android:name=".AppPickerActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".V2Activity"
             android:screenOrientation="portrait"
             android:exported="true">

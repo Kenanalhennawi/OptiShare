@@ -18,6 +18,10 @@ public final class TextTransferStore {
     private TextTransferStore() {}
 
     public static TransferItem create(Context context, CharSequence value) throws Exception {
+        return create(context, value, "Text");
+    }
+
+    public static TransferItem create(Context context, CharSequence value, String kind) throws Exception {
         String text = value == null ? "" : value.toString();
         byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
         if (bytes.length == 0) throw new IllegalArgumentException("Text is empty");
@@ -25,7 +29,8 @@ public final class TextTransferStore {
         File dir = new File(context.getFilesDir(), "text_outbox");
         if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("Could not create text outbox");
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
-        File file = new File(dir, "OptiShare Text " + stamp + "-" + UUID.randomUUID().toString().substring(0, 8) + ".txt");
+        String safeKind = "Clipboard".equalsIgnoreCase(kind) ? "Clipboard" : "Text";
+        File file = new File(dir, "OptiShare " + safeKind + " " + stamp + "-" + UUID.randomUUID().toString().substring(0, 8) + ".txt");
         try (FileOutputStream out = new FileOutputStream(file, false)) {
             out.write(bytes);
             out.getFD().sync();

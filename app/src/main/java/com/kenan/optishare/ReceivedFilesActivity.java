@@ -140,6 +140,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         actions.setPadding(0, dp(12), 0, 0);
         Button open = button("Open");
         Button share = button("Share");
+        Button delete = button("Delete");
         boolean actionable = itemUri(item) != null;
         open.setEnabled(actionable);
         share.setEnabled(actionable);
@@ -147,10 +148,14 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         share.setAlpha(actionable ? 1f : .45f);
         open.setOnClickListener(v -> openItem(item));
         share.setOnClickListener(v -> shareItem(item));
+        delete.setOnClickListener(v -> confirmDelete(item));
         actions.addView(open, new LinearLayout.LayoutParams(0, dp(42), 1f));
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, dp(42), 1f);
         sp.setMargins(dp(8), 0, 0, 0);
         actions.addView(share, sp);
+        LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        deleteLp.setMargins(dp(8), 0, 0, 0);
+        actions.addView(delete, deleteLp);
         card.addView(actions);
         if (!actionable && item.path != null) {
             TextView legacy = text(item.path, 10, Color.rgb(111, 151, 181), false);
@@ -240,6 +245,34 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         catch (Exception error) { showSimple("This file cannot be shared right now."); }
     }
 
+    private void confirmDelete(Item item) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Delete received file?")
+                .setMessage(item.name + " will be permanently removed from this phone.")
+                .setPositiveButton("Delete", (dialog, which) -> deleteItem(item))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void deleteItem(Item item) {
+        boolean deleted = false;
+        try {
+            if (item.uri != null && "content".equals(item.uri.getScheme())) {
+                deleted = getContentResolver().delete(item.uri, null, null) > 0;
+            } else if (item.path != null) {
+                File file = new File(item.path);
+                File allowedRoot = new File(Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS), "OptiShare");
+                String rootPath = allowedRoot.getCanonicalPath() + File.separator;
+                deleted = file.getCanonicalPath().startsWith(rootPath) && file.isFile() && file.delete();
+            }
+        } catch (Exception error) {
+            showSimple("Android could not delete this file: " + error.getMessage());
+            return;
+        }
+        if (deleted) render(); else showSimple("The file could not be deleted.");
+    }
+
     private Uri itemUri(Item item) {
         if (item == null) return null;
         if (item.uri != null && "content".equals(item.uri.getScheme())) return item.uri;
@@ -312,7 +345,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         if (mime.startsWith("image/")) return "Photo";
         if (mime.startsWith("video/")) return "Video";
         if (mime.startsWith("audio/")) return "Music";
-        if (mime.equals("application/vnd.android.package-archive")) return "App";
+        if (mime.equals("application/vnd.android.package-archive") || mime.equals("application/x-apks")) return "App";
         if (mime.contains("zip") || mime.contains("rar") || mime.contains("7z") || mime.contains("tar")) return "Archive";
         if (mime.startsWith("text/") || mime.contains("pdf") || mime.contains("document") || mime.contains("sheet")) return "Document";
         return "File";
@@ -340,6 +373,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         if (lower.endsWith(".mp3")) return "audio/mpeg";
         if (lower.endsWith(".pdf")) return "application/pdf";
         if (lower.endsWith(".apk")) return "application/vnd.android.package-archive";
+        if (lower.endsWith(".apks")) return "application/x-apks";
         if (lower.endsWith(".zip")) return "application/zip";
         if (lower.endsWith(".txt")) return "text/plain";
         return "application/octet-stream";

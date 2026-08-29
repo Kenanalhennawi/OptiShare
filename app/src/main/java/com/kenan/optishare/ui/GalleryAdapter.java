@@ -1,6 +1,9 @@
 package com.kenan.optishare.ui;
 
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.os.Build;
+import android.util.Size;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.view.Gravity;
@@ -25,8 +28,10 @@ public final class GalleryAdapter extends RecyclerView.Adapter<GalleryAdapter.Ho
     private final List<MediaRepository.MediaItem> items = new ArrayList<>();
     private final Set<Uri> selected = new HashSet<>();
     private final Listener listener;
+    private final String mediaType;
 
-    public GalleryAdapter(Set<Uri> initialSelection, Listener listener) {
+    public GalleryAdapter(String mediaType, Set<Uri> initialSelection, Listener listener) {
+        this.mediaType = mediaType == null ? "image" : mediaType;
         if (initialSelection != null) selected.addAll(initialSelection);
         this.listener = listener;
         setHasStableIds(true);
@@ -66,7 +71,21 @@ public final class GalleryAdapter extends RecyclerView.Adapter<GalleryAdapter.Ho
         MediaRepository.MediaItem item = items.get(position);
         holder.label.setText(shortName(item.name));
         holder.image.setImageDrawable(null);
-        holder.image.setImageURI(item.uri);
+        if ("audio".equals(mediaType)) {
+            holder.image.setBackgroundColor(Color.rgb(18, 50, 78));
+            holder.image.setImageResource(android.R.drawable.ic_media_play);
+            holder.image.setScaleType(ImageView.ScaleType.CENTER);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                Bitmap thumbnail = holder.image.getContext().getContentResolver()
+                        .loadThumbnail(item.uri, new Size(320, 240), null);
+                holder.image.setImageBitmap(thumbnail);
+            } catch (Exception ignored) {
+                holder.image.setImageURI(item.uri);
+            }
+        } else {
+            holder.image.setImageURI(item.uri);
+        }
         updateBackground(holder.root, selected.contains(item.uri));
         holder.root.setOnClickListener(v -> {
             if (!selected.add(item.uri)) selected.remove(item.uri);

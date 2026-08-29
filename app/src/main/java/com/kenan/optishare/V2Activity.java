@@ -57,6 +57,7 @@ import com.kenan.optishare.storage.MediaRepository;
 import com.kenan.optishare.storage.FolderSelection;
 import com.kenan.optishare.storage.FolderTransferQueue;
 import com.kenan.optishare.storage.TextTransferStore;
+import com.kenan.optishare.storage.InstalledAppExporter;
 import com.kenan.optishare.transfer.LanDiscovery;
 import com.kenan.optishare.transfer.PcDiscovery;
 import com.kenan.optishare.transfer.PcTransferService;
@@ -92,11 +93,13 @@ public class V2Activity extends ComponentActivity implements
     private static final int SCREEN_DISCOVERY = 3;
     private static final int SCREEN_RECEIVE = 4;
     private static final int SCREEN_TRANSFER = 5;
+    private static final int SCREEN_SETTINGS = 6;
 
     private final List<Uri> selected = new ArrayList<>();
     private final List<WifiP2pDevice> peers = new ArrayList<>();
     private final List<PcDiscovery.Peer> pcPeers = new ArrayList<>();
     private int currentScreen = SCREEN_HOME;
+    private int galleryReturnScreen = SCREEN_HOME;
     private String pendingGalleryType;
     private String pendingQrAddress;
     private String pendingQrName;
@@ -220,6 +223,23 @@ public class V2Activity extends ComponentActivity implements
                             + " files selected with folder structure preserved.");
                 } catch (Exception error) {
                     showMessage("Folder could not be opened", error.getMessage());
+                }
+            });
+
+    private final ActivityResultLauncher<Intent> appPicker =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
+                ArrayList<String> packages = result.getData().getStringArrayListExtra(AppPickerActivity.EXTRA_PACKAGES);
+                if (packages == null || packages.isEmpty()) return;
+                try {
+                    List<com.kenan.optishare.model.TransferItem> apps = InstalledAppExporter.export(this, packages);
+                    for (com.kenan.optishare.model.TransferItem item : apps) {
+                        if (!selected.contains(item.getUri())) selected.add(item.getUri());
+                    }
+                    FolderTransferQueue.addAll(apps);
+                    showSendSelection();
+                } catch (Exception error) {
+                    showMessage("Could not prepare apps", error.getMessage());
                 }
             });
 
@@ -495,9 +515,9 @@ public class V2Activity extends ComponentActivity implements
         titleBox.addView(text("OptiShare 2", 29, Color.WHITE, true));
         titleBox.addView(text(identity.name() + " • Private local sharing", 12, Color.rgb(157,198,228), false));
         top.addView(titleBox, new LinearLayout.LayoutParams(0,-2,1));
-        Button settings = smallButton("Device");
+        Button settings = smallButton("Settings");
         settings.setOnClickListener(v -> showDeviceSettings());
-        top.addView(settings, new LinearLayout.LayoutParams(dp(86), dp(42)));
+        top.addView(settings, new LinearLayout.LayoutParams(dp(98), dp(42)));
         root.addView(top);
 
         TextView hero = text("Fast. Private. Resumable.", 28, Color.WHITE, true);
@@ -534,10 +554,10 @@ public class V2Activity extends ComponentActivity implements
         root.addView(categoryRow(
                 category("▣","Photos",Color.rgb(190,83,255),v -> openInternalGallery("image")),
                 category("▶","Videos",Color.rgb(255,78,110),v -> openInternalGallery("video")),
-                category("♫","Music",Color.rgb(255,169,50),v -> openExternal("audio/*"))));
+                category("♫","Music",Color.rgb(255,169,50),v -> openInternalGallery("audio"))));
         LinearLayout row2 = categoryRow(
-                category("A","Apps",Color.rgb(53,203,165),v -> openExternal("application/vnd.android.package-archive")),
-                category("≡","Documents",Color.rgb(55,143,255),v -> openExternal("application/*")),
+                category("A","Apps",Color.rgb(53,203,165),v -> openInstalledApps()),
+                category("≡","Documents",Color.rgb(55,143,255),v -> openDocuments()),
                 category("▤","Folder",Color.rgb(122,140,166),v -> openFolder()));
         LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(10),0,0); root.addView(row2,r2);
         LinearLayout row3 = categoryRow(
@@ -613,6 +633,10 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout.LayoutParams ar2=new LinearLayout.LayoutParams(0,dp(46),1);ar2.setMargins(dp(8),0,0,0);addRow.addView(clipBtn,ar2);
         LinearLayout.LayoutParams arp=new LinearLayout.LayoutParams(-1,-2);arp.setMargins(0,dp(8),0,0);root.addView(addRow,arp);
 
+        Button find=primary(selected.isEmpty()?"Select content first":"Send selected • Find device →");
+        find.setEnabled(!selected.isEmpty());find.setAlpha(selected.isEmpty()?.45f:1f);find.setOnClickListener(v->showDiscovery());
+        LinearLayout.LayoutParams topSend=new LinearLayout.LayoutParams(-1,dp(58));topSend.setMargins(0,dp(12),0,0);root.addView(find,topSend);
+
         TextView count=text(selected.size()+" item"+(selected.size()==1?"":"s")+" selected • "+formatBytes(selectedTotalBytes()),18,Color.WHITE,true);
         count.setPadding(0,dp(18),0,dp(8));root.addView(count);
         LinearLayout selection=card();
@@ -626,9 +650,6 @@ public class V2Activity extends ComponentActivity implements
             LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,dp(46));cl.setMargins(0,dp(10),0,0);selection.addView(clear,cl);
         }
         root.addView(selection);
-        Button find=primary(selected.isEmpty()?"Select files first":"Find receiving device →");
-        find.setEnabled(!selected.isEmpty());find.setAlpha(selected.isEmpty()?.45f:1f);find.setOnClickListener(v->showDiscovery());
-        LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(58));fl.setMargins(0,dp(14),0,0);root.addView(find,fl);
         setContentView(scroll);
     }
 
@@ -703,6 +724,7 @@ public class V2Activity extends ComponentActivity implements
 
     private void openInternalGallery(String type) {
         pendingGalleryType=type;
+        galleryReturnScreen=currentScreen==SCREEN_SEND?SCREEN_SEND:SCREEN_HOME;
         if(!hasMediaPermission(type)){requestMediaPermission(type);return;}
         showMediaGallery(type);
     }
@@ -711,14 +733,15 @@ public class V2Activity extends ComponentActivity implements
         currentScreen=SCREEN_GALLERY;
         ScrollView outer=new ScrollView(this);
         LinearLayout root=shell(outer);
-        addBackHeader(root,"image".equals(type)?"Photos":"Videos","Tap to select multiple items");
+        String galleryTitle="image".equals(type)?"Photos":"video".equals(type)?"Videos":"Music";
+        addBackHeader(root,galleryTitle,"Tap to select multiple items");
         TextView selectedCount=text(selected.size()+" selected",14,Color.rgb(92,202,255),true);selectedCount.setGravity(Gravity.CENTER);root.addView(selectedCount);
 
         RecyclerView recycler=new RecyclerView(this);
         recycler.setNestedScrollingEnabled(false);
-        recycler.setLayoutManager(new GridLayoutManager(this,3));
+        recycler.setLayoutManager(new GridLayoutManager(this,"audio".equals(type)?2:3));
         Set<Uri> initial=new HashSet<>(selected);
-        GalleryAdapter adapter=new GalleryAdapter(initial,set->{
+        GalleryAdapter adapter=new GalleryAdapter(type,initial,set->{
             selectedCount.setText((selected.size()+Math.max(0,set.size()-initial.size()))+" queued");
         });
         adapter.replace(new MediaRepository(this).load(type,180,0));
@@ -738,7 +761,7 @@ public class V2Activity extends ComponentActivity implements
         connectionPill=connectionBadge("SEARCHING",Color.rgb(255,194,73));root.addView(connectionPill);
         LinearLayout radar=card();TextView icon=text("◎",76,Color.rgb(80,198,255),true);icon.setGravity(Gravity.CENTER);radar.addView(icon);
         discoveryState=text("Searching for receiving phones…",16,Color.WHITE,true);discoveryState.setGravity(Gravity.CENTER);radar.addView(discoveryState);
-        TextView hint=text("SmartRoute finds verified OptiShare Android receivers on the local network. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
+        TextView hint=text("Verified OptiShare phones appear here automatically. You can also scan the QR shown on the receiving phone.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
         LinearLayout qrRow=new LinearLayout(this);qrRow.setOrientation(LinearLayout.HORIZONTAL);
         Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());qrRow.addView(scan,new LinearLayout.LayoutParams(0,dp(50),1));
         Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(8),0,0,0);qrRow.addView(retry,rr);
@@ -1109,7 +1132,7 @@ public class V2Activity extends ComponentActivity implements
 
     @SuppressWarnings("unchecked") private <T extends View>T findViewByTag(String tag){View v=getWindow().getDecorView().findViewWithTag(tag);return(T)v;}
 
-    private void startQrScanner(){ScanOptions options=new ScanOptions();options.setPrompt("Scan the receiver's OptiShare QR");options.setBeepEnabled(false);options.setOrientationLocked(false);options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);qrScanner.launch(options);}
+    private void startQrScanner(){ScanOptions options=new ScanOptions();options.setPrompt("Scan the receiver's OptiShare QR");options.setBeepEnabled(false);options.setOrientationLocked(true);options.setCaptureActivity(PortraitQrCaptureActivity.class);options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);qrScanner.launch(options);}
 
     private void handlePairingQr(String raw){if(raw==null||!raw.startsWith("OPTISHARE2|")){showMessage("Invalid QR","This is not an OptiShare 2 pairing code.");return;}String[] parts=raw.split("\\|",3);if(parts.length<3){showMessage("Invalid QR","Pairing information is incomplete.");return;}pendingQrAddress=parts[1];pendingQrName=parts[2];setDiscoveryText("Receiver identified: "+pendingQrName+". Searching for its direct link…");startDiscovery();}
 
@@ -1119,8 +1142,9 @@ public class V2Activity extends ComponentActivity implements
 
     private boolean hasNearbyPermission(){if(Build.VERSION.SDK_INT>=33)return checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)==PackageManager.PERMISSION_GRANTED;if(Build.VERSION.SDK_INT>=23)return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;return true;}
     private void requestNearbyPermission(){if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES},REQ_NEARBY);else if(Build.VERSION.SDK_INT>=23)requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION},REQ_NEARBY);}
-    private boolean hasMediaPermission(String type){if(Build.VERSION.SDK_INT>=33){String permission="image".equals(type)?Manifest.permission.READ_MEDIA_IMAGES:Manifest.permission.READ_MEDIA_VIDEO;return checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED;}if(Build.VERSION.SDK_INT>=23)return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;return true;}
-    private void requestMediaPermission(String type){if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{"image".equals(type)?Manifest.permission.READ_MEDIA_IMAGES:Manifest.permission.READ_MEDIA_VIDEO},REQ_MEDIA);else if(Build.VERSION.SDK_INT>=23)requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},REQ_MEDIA);else showMediaGallery(type);}
+    private String mediaPermission(String type){return "image".equals(type)?Manifest.permission.READ_MEDIA_IMAGES:"audio".equals(type)?Manifest.permission.READ_MEDIA_AUDIO:Manifest.permission.READ_MEDIA_VIDEO;}
+    private boolean hasMediaPermission(String type){if(Build.VERSION.SDK_INT>=33)return checkSelfPermission(mediaPermission(type))==PackageManager.PERMISSION_GRANTED;if(Build.VERSION.SDK_INT>=23)return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;return true;}
+    private void requestMediaPermission(String type){if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{mediaPermission(type)},REQ_MEDIA);else if(Build.VERSION.SDK_INT>=23)requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},REQ_MEDIA);else showMediaGallery(type);}
     private boolean ensureLegacyWritePermission(){if(Build.VERSION.SDK_INT>=23&&Build.VERSION.SDK_INT<=28&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},REQ_LEGACY_WRITE);return false;}return true;}
 
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);boolean granted=grantResults.length>0&&grantResults[grantResults.length-1]==PackageManager.PERMISSION_GRANTED;if(requestCode==REQ_MEDIA&&granted&&pendingGalleryType!=null)showMediaGallery(pendingGalleryType);if(requestCode==REQ_NEARBY&&granted){if(currentScreen==SCREEN_DISCOVERY)startDiscovery();else if(currentScreen==SCREEN_RECEIVE)startReceiverMode();}if(requestCode==REQ_LEGACY_WRITE&&granted)showReceive();}
@@ -1145,7 +1169,7 @@ public class V2Activity extends ComponentActivity implements
         if(clipboard==null||!clipboard.hasPrimaryClip()||clipboard.getPrimaryClip()==null||clipboard.getPrimaryClip().getItemCount()==0){showMessage("Clipboard is empty","Copy some text first, then try again.");return;}
         CharSequence value=clipboard.getPrimaryClip().getItemAt(0).coerceToText(this);
         if(value==null||value.length()==0){showMessage("Clipboard has no text","The current clipboard item cannot be sent as text.");return;}
-        try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,value);if(!selected.contains(item.getUri()))selected.add(item.getUri());FolderTransferQueue.add(item);showSendSelection();}
+        try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,value,"Clipboard");if(!selected.contains(item.getUri()))selected.add(item.getUri());FolderTransferQueue.add(item);showSendSelection();}
         catch(Exception e){showMessage("Clipboard not added",e.getMessage());}
     }
 
@@ -1157,7 +1181,10 @@ public class V2Activity extends ComponentActivity implements
         folderPicker.launch(intent);
     }
 
+    private void openInstalledApps(){appPicker.launch(new Intent(this,AppPickerActivity.class));}
+
     private void openExternal(String mime){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType(mime);intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);externalPicker.launch(intent);}
+    private void openDocuments(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/pdf","text/plain","text/csv","application/rtf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","application/vnd.oasis.opendocument.text","application/vnd.oasis.opendocument.spreadsheet"});intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);externalPicker.launch(intent);}
     private void persistReadPermission(Uri uri,int flags){try{getContentResolver().takePersistableUriPermission(uri,flags&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}
 
     private long selectedTotalBytes(){long total=0;for(Uri uri:selected){long size=querySize(uri);if(size>0&&Long.MAX_VALUE-total>size)total+=size;}return total;}
@@ -1165,10 +1192,16 @@ public class V2Activity extends ComponentActivity implements
     private String displayName(Uri uri){Cursor c=null;try{c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(c!=null&&c.moveToFirst()){int i=c.getColumnIndex(OpenableColumns.DISPLAY_NAME);if(i>=0&&!c.isNull(i))return c.getString(i);}}catch(Exception ignored){}finally{if(c!=null)c.close();}String last=uri.getLastPathSegment();return last==null?"item":last;}
 
     private void showDeviceSettings(){
-        String[] options={"Rename this device","Trusted devices ("+trustedStore.list().size()+")","My security identity","SmartRoute status"};
-        new AlertDialog.Builder(this).setTitle("Device & security").setItems(options,(d,which)->{
-            if(which==0)editDeviceName(); else if(which==1)showTrustedDevices(); else if(which==2)showMySecurityIdentity(); else showMessage("SmartRoute",routeStore.summary()+"\nLearns from real transfer speed and route reliability.");
-        }).setNegativeButton("Close",null).show();
+        currentScreen=SCREEN_SETTINGS;
+        ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);
+        addBackHeader(root,"Settings","Device, received content and app information");
+        LinearLayout device=card();device.addView(text("This device",16,Color.WHITE,true));device.addView(text(identity.name(),13,Color.rgb(151,190,218),false));
+        Button rename=secondaryButton("Rename device");rename.setOnClickListener(v->editDeviceName());LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(48));rp.setMargins(0,dp(10),0,0);device.addView(rename,rp);
+        Button trusted=secondaryButton("Trusted devices • "+trustedStore.list().size());trusted.setOnClickListener(v->showTrustedDevices());LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,dp(48));tp.setMargins(0,dp(8),0,0);device.addView(trusted,tp);root.addView(device);
+        LinearLayout content=card();content.addView(text("Received content",16,Color.WHITE,true));content.addView(text("Files are sorted in Download/OptiShare. Text and clipboard items arrive as readable .txt files in the Text folder.",12,Color.rgb(151,190,218),false));
+        Button received=secondaryButton("Open received files");received.setOnClickListener(v->startActivity(new Intent(this,ReceivedFilesActivity.class)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(48));cp.setMargins(0,dp(10),0,0);content.addView(received,cp);LinearLayout.LayoutParams contentLp=new LinearLayout.LayoutParams(-1,-2);contentLp.setMargins(0,dp(12),0,0);root.addView(content,contentLp);
+        LinearLayout about=card();about.addView(text("About OptiShare",16,Color.WHITE,true));about.addView(text("Version "+BuildConfig.VERSION_NAME+"\nPrivate Android-to-Android sharing. No account, advertising or analytics.",12,Color.rgb(151,190,218),false));about.addView(text("Designed & developed by Kenan Alhennawi",11,Color.rgb(91,189,255),true));LinearLayout.LayoutParams aboutLp=new LinearLayout.LayoutParams(-1,-2);aboutLp.setMargins(0,dp(12),0,0);root.addView(about,aboutLp);
+        setContentView(scroll);
     }
 
     private void showTrustedDevices(){
@@ -1192,7 +1225,7 @@ public class V2Activity extends ComponentActivity implements
         try{String fp=new DeviceIdentityKey().fingerprint();showMessage("My security identity","Protected by Android Keystore\nFingerprint: "+DeviceIdentityKey.shortFingerprint(fp));}catch(Exception e){showMessage("Security identity","Could not access identity: "+e.getMessage());}
     }
 
-    private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle("Device name").setMessage("This name is used inside OptiShare.").setView(input).setPositiveButton("Save",(d,w)->{try{identity.setName(input.getText().toString());showHome();}catch(Exception e){showMessage("Invalid name",e.getMessage());}}).setNegativeButton("Cancel",null).show();}
+    private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle("Device name").setMessage("This name is used inside OptiShare.").setView(input).setPositiveButton("Save",(d,w)->{try{identity.setName(input.getText().toString());showDeviceSettings();}catch(Exception e){showMessage("Invalid name",e.getMessage());}}).setNegativeButton("Cancel",null).show();}
 
     private TextView connectionBadge(String label,int color){TextView v=text(label,13,color,true);v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(10),dp(12),dp(10));v.setBackground(round(Color.argb(70,Color.red(color),Color.green(color),Color.blue(color)),14));return v;}
     private void setDiscoveryText(String value){runOnUiThread(()->{if(discoveryState!=null)discoveryState.setText(value);});}
@@ -1207,7 +1240,9 @@ public class V2Activity extends ComponentActivity implements
     private String formatBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024.0*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.2f MB",b/(1024.0*1024));if(b>=1024)return String.format(Locale.US,"%.1f KB",b/1024.0);return b+" B";}
 
     private LinearLayout shell(ScrollView scroll){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(28));root.setBackground(gradient(Color.rgb(5,17,38),Color.rgb(16,48,84),0));scroll.addView(root);return root;}
-    private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->{if(currentScreen==SCREEN_GALLERY||currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();});root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
+    private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->navigateBack());root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
+
+    private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
     private Button category(String icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+label);b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(color,darken(color),18));b.setOnClickListener(listener);return b;}
     private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(106),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(106),1);p2.setMargins(dp(8),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(106),1);p3.setMargins(dp(8),0,0,0);row.addView(c,p3);return row;}
     private Button bigAction(String icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+title+"\n"+sub);b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(top,bottom,22));return b;}
@@ -1225,5 +1260,5 @@ public class V2Activity extends ComponentActivity implements
     @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
     @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(p2pConnectTimeout);pendingP2pDevice=null;stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}try{unregisterReceiver(browserReceiver);}catch(Exception ignored){}}
     @Override protected void onDestroy(){if(lanDiscovery!=null)lanDiscovery.close();super.onDestroy();}
-    @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else if(currentScreen==SCREEN_GALLERY||currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
+    @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else navigateBack();}
 }
