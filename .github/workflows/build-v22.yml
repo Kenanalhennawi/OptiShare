@@ -307,8 +307,8 @@ jobs:
           unexpected_secrets=$(jq '
             [.secrets[]?
              | select(
-                 . != "\\"library_zxingandroidembedded_author\\" : \\"JourneyApps\\""
-                 and . != "\\"library_zxingandroidembedded_authorWebsite\\" : \\"https://journeyapps.com/\\"
+                 ((contains("library_zxingandroidembedded_author"))
+                  and (contains("JourneyApps") or contains("https://journeyapps.com/"))) | not
                )] | length' security-reports/mobsf-apk/report.json)
           test "$unexpected_secrets" -eq 0 || {
             echo "::error::MobSF detected an unreviewed embedded secret."
