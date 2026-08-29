@@ -259,6 +259,76 @@ jobs:
           jq -e 'type == "object" and (.error | not)' \
             security-reports/mobsf-apk/report.json >/dev/null
           test -s security-reports/mobsf-apk/report.pdf
+          apk_target_sdk=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
+            | sed -n "s/.*targetSdkVersion:'\\([0-9][0-9]*\\)'.*/\\1/p" | head -n1)
+          source_target_sdk=$(awk '/targetSdk[[:space:]]+[0-9]+/ { print $2; exit }' app/build.gradle)
+          test -n "$apk_target_sdk" && test "$apk_target_sdk" = "$source_target_sdk" || {
+            echo "::error::APK target SDK could not be verified against Gradle."
+            exit 1
+          }
+          test "$apk_target_sdk" -ge 29 || {
+            echo "::error::MobSF StrandHogg exception requires targetSdk 29 or newer."
+            exit 1
+          }
+
+          cert_matches=$(jq --arg cert "$EXPECTED_CERT_SHA256" \
+            '[.certificate_analysis.certificate_info
+              | ascii_downcase
+              | contains($cert)] | all' security-reports/mobsf-apk/report.json)
+          test "$cert_matches" = true || {
+            echo "::error::MobSF report certificate does not match the protected release signer."
+            exit 1
+          }
+
+          unexpected_high=$(jq '
+            [
+              .manifest_analysis.manifest_findings[]?
+              | select(.severity == "high" and .rule != "task_hijacking2")
+            ] +
+            [
+              .code_analysis.findings[]?
+              | select(.metadata.severity == "high")
+            ] +
+            [
+              .binary_analysis[]?, .file_analysis[]?, .network_security.network_findings[]?
+              | select((.severity // "") == "high")
+            ] | length' security-reports/mobsf-apk/report.json)
+          test "$unexpected_high" -eq 0 || {
+            echo "::error::MobSF found an unexpected High severity issue."
+            exit 1
+          }
+
+          tracker_count=$(jq -er '.trackers.detected_trackers' security-reports/mobsf-apk/report.json)
+          test "$tracker_count" -eq 0 || {
+            echo "::error::MobSF detected privacy trackers."
+            exit 1
+          }
+
+          unexpected_secrets=$(jq '
+            [.secrets[]?
+             | select(
+                 . != "\\"library_zxingandroidembedded_author\\" : \\"JourneyApps\\""
+                 and . != "\\"library_zxingandroidembedded_authorWebsite\\" : \\"https://journeyapps.com/\\"
+               )] | length' security-reports/mobsf-apk/report.json)
+          test "$unexpected_secrets" -eq 0 || {
+            echo "::error::MobSF detected an unreviewed embedded secret."
+            exit 1
+          }
+
+          jq --argjson target_sdk "$apk_target_sdk" \
+             --argjson unexpected_high "$unexpected_high" \
+             --argjson trackers "$tracker_count" \
+             --argjson unexpected_secrets "$unexpected_secrets" \
+            '{
+              verified_apk_target_sdk: $target_sdk,
+              unexpected_high_findings: $unexpected_high,
+              detected_trackers: $trackers,
+              unexpected_secrets: $unexpected_secrets,
+              strandhogg_finding_review: "MobSF parser omitted targetSdk; APK targetSdk independently verified >= 29",
+              release_gate: "pass"
+            }' security-reports/mobsf-apk/report.json \
+            > security-reports/mobsf-apk/policy-gate.json
+
           jq '{
             app_name,
             package_name,
