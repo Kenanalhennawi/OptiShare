@@ -202,7 +202,7 @@ jobs:
             --publish 127.0.0.1:8000:8000 \
             --env "MOBSF_API_KEY=$MOBSF_API_KEY" \
             opensecurity/mobile-security-framework-mobsf@sha256:af94f81f8b13872cdf556327fab58f52d446299fe153be6e1eeec177f31b503b
-          for attempt in $(seq 1 90); do
+          for _ in $(seq 1 90); do
             if curl --fail --silent --show-error http://127.0.0.1:8000/login/ >/dev/null; then
               exit 0
             fi
@@ -262,10 +262,10 @@ jobs:
           apk_target_sdk=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" \
             | sed -n "s/.*targetSdkVersion:'\\([0-9][0-9]*\\)'.*/\\1/p" | head -n1)
           source_target_sdk=$(awk '/targetSdk[[:space:]]+[0-9]+/ { print $2; exit }' app/build.gradle)
-          test -n "$apk_target_sdk" && test "$apk_target_sdk" = "$source_target_sdk" || {
+          if [[ -z "$apk_target_sdk" || "$apk_target_sdk" != "$source_target_sdk" ]]; then
             echo "::error::APK target SDK could not be verified against Gradle."
             exit 1
-          }
+          fi
           test "$apk_target_sdk" -ge 29 || {
             echo "::error::MobSF StrandHogg exception requires targetSdk 29 or newer."
             exit 1
