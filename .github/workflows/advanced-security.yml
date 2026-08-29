@@ -99,8 +99,42 @@ jobs:
           mobsfscan app/src/main --type android --sarif \
             --output security-reports/mobsfscan.sarif --no-fail
           mobsfscan --version > security-reports/mobsfscan-version.txt
-          findings=$(jq '[.runs[]?.results[]? | select(.level == "error" or .level == "warning")] | length' security-reports/mobsfscan.sarif)
-          echo "mobsfscan_error_warning_findings=$findings" | tee security-reports/mobsfscan-summary.txt
+
+          # MobSF's StrandHogg rule is for targetSdk < 29. Keep the exception valid
+          # only while OptiShare explicitly targets a fixed modern Android SDK.
+          target_sdk=$(awk '/targetSdk[[:space:]]+[0-9]+/ { print $2; exit }' app/build.gradle)
+          if [[ -z "$target_sdk" || "$target_sdk" -lt 29 ]]; then
+            echo "::error::The StrandHogg exception requires targetSdk 29 or newer."
+            exit 1
+          fi
+
+          # Two reviewed source-only false positives:
+          # 1) hiding the completed transfer's Pause button contains no sensitive data;
+          # 2) StrandHogg 2.0 is platform-fixed for targetSdk >= 29.
+          jq '
+            [.runs[]?.results[]?
+             | select(.level == "error" or .level == "warning")
+             | select(
+                 ((.ruleId == "android_hidden_ui")
+                   and (.locations[0].physicalLocation.artifactLocation.uri == "app/src/main/java/com/kenan/optishare/V2Activity.java"))
+                 or
+                 ((.ruleId == "android_task_hijacking2")
+                   and (.locations[0].physicalLocation.artifactLocation.uri == "app/src/main/AndroidManifest.xml"))
+               )
+            ]' security-reports/mobsfscan.sarif > security-reports/mobsfscan-reviewed-false-positives.json
+
+          findings=$(jq '
+            [.runs[]?.results[]?
+             | select(.level == "error" or .level == "warning")
+             | select(
+                 (((.ruleId == "android_hidden_ui")
+                   and (.locations[0].physicalLocation.artifactLocation.uri == "app/src/main/java/com/kenan/optishare/V2Activity.java"))
+                 or
+                 ((.ruleId == "android_task_hijacking2")
+                   and (.locations[0].physicalLocation.artifactLocation.uri == "app/src/main/AndroidManifest.xml"))) | not
+               )
+            ] | length' security-reports/mobsfscan.sarif)
+          echo "mobsfscan_actionable_findings=$findings" | tee security-reports/mobsfscan-summary.txt
           if (( findings > 0 )); then
             echo "::error::MobSF Android audit found actionable findings."
             exit 1
