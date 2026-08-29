@@ -195,7 +195,9 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Build analyzable debug APK
-        run: gradle --no-daemon --stacktrace assembleDebug
+        run: |
+          mkdir -p security-reports
+          gradle --no-daemon --stacktrace assembleDebug
 
       - name: Generate SPDX JSON SBOM from APK
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
