@@ -16,6 +16,7 @@ import android.widget.TextView;
 import com.kenan.optishare.transfer.TransferService;
 import com.kenan.optishare.ui.UiText;
 import com.kenan.optishare.settings.LocaleSupport;
+import com.kenan.optishare.settings.Appearance;
 
 /**
  * Focused approval UI opened for security-code verification and incoming-transfer consent.
@@ -40,7 +41,8 @@ public final class ApprovalActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
         root.setPadding(dp(28), dp(28), dp(28), dp(28));
-        root.setBackground(gradient(Color.rgb(5, 17, 38), Color.rgb(18, 48, 82), 0));
+        root.setBackground(Appearance.light(this) ? solid(Appearance.background(this), 0)
+                : gradient(Color.rgb(5, 17, 38), Color.rgb(18, 48, 82), 0));
 
         TextView badge = text("O", 28, Color.WHITE, true);
         badge.setGravity(Gravity.CENTER);
@@ -116,8 +118,8 @@ public final class ApprovalActivity extends Activity {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(16), dp(16), dp(16), dp(16));
-        GradientDrawable bg = solid(Color.rgb(13, 33, 56), 18);
-        bg.setStroke(dp(1), Color.rgb(37, 68, 96));
+        GradientDrawable bg = solid(Appearance.light(this) ? Appearance.surface(this) : Color.rgb(13, 33, 56), 18);
+        bg.setStroke(dp(1), Appearance.light(this) ? Color.rgb(210, 222, 232) : Color.rgb(37, 68, 96));
         layout.setBackground(bg);
         return layout;
     }
@@ -137,7 +139,7 @@ public final class ApprovalActivity extends Activity {
         TextView view = new TextView(this);
         view.setText(UiText.get(this,value));
         view.setTextSize(size);
-        view.setTextColor(color);
+        view.setTextColor(Appearance.text(this, color));
         if (bold) view.setTypeface(Typeface.DEFAULT_BOLD);
         return view;
     }

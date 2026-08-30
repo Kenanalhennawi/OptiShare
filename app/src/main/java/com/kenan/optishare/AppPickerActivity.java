@@ -20,6 +20,7 @@ import androidx.activity.ComponentActivity;
 
 import com.kenan.optishare.ui.UiText;
 import com.kenan.optishare.settings.LocaleSupport;
+import com.kenan.optishare.settings.Appearance;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -41,11 +42,13 @@ public final class AppPickerActivity extends ComponentActivity {
 
     private void render() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Color.rgb(5, 20, 38));
+        scroll.setBackgroundColor(Appearance.background(this));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(22), dp(20), dp(28));
-        scroll.addView(root);
+        LinearLayout wrapper=new LinearLayout(this);wrapper.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+        wrapper.addView(root,new LinearLayout.LayoutParams(Math.min(getResources().getDisplayMetrics().widthPixels,dp(840)),-2));
+        scroll.addView(wrapper,new ScrollView.LayoutParams(-1,-2));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -72,7 +75,7 @@ public final class AppPickerActivity extends ComponentActivity {
             if (getPackageName().equals(info.packageName) || choices.containsKey(info.packageName)) continue;
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(12), dp(10), dp(12), dp(10));
-            row.setBackground(round(Color.rgb(12, 42, 69), 16));
+            row.setBackground(round(Appearance.surface(this), 16));
             ImageView icon = new ImageView(this); icon.setImageDrawable(info.loadIcon(pm));
             row.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
             LinearLayout infoBox = new LinearLayout(this); infoBox.setOrientation(LinearLayout.VERTICAL); infoBox.setPadding(dp(12),0,0,0);
@@ -94,9 +97,9 @@ public final class AppPickerActivity extends ComponentActivity {
         finish();
     }
 
-    private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Color.rgb(22,73,111),14));return b;}
+    private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Appearance.text(this,Color.WHITE));b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Appearance.secondarySurface(this),14));return b;}
     private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(round(Color.rgb(34,122,231),16));return b;}
-    private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextColor(color);t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
+    private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextColor(Appearance.text(this,color));t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }

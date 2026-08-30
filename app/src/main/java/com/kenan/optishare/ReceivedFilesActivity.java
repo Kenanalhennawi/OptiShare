@@ -24,6 +24,7 @@ import androidx.core.content.FileProvider;
 
 import com.kenan.optishare.ui.UiText;
 import com.kenan.optishare.settings.LocaleSupport;
+import com.kenan.optishare.settings.Appearance;
 
 import java.io.File;
 import java.text.DateFormat;
@@ -67,15 +68,17 @@ public final class ReceivedFilesActivity extends ComponentActivity {
     }
 
     private void render() {
-        getWindow().setStatusBarColor(Color.rgb(5, 20, 38));
+        getWindow().setStatusBarColor(Appearance.background(this));
         getWindow().getDecorView().setTag("rendered");
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.rgb(5, 20, 38));
+        scroll.setBackgroundColor(Appearance.background(this));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(22), dp(20), dp(28));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
+        LinearLayout wrapper=new LinearLayout(this);wrapper.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+        wrapper.addView(root,new LinearLayout.LayoutParams(Math.min(getResources().getDisplayMetrics().widthPixels,dp(920)),-2));
+        scroll.addView(wrapper, new ScrollView.LayoutParams(-1, -2));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -305,7 +308,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         LinearLayout value = new LinearLayout(this);
         value.setOrientation(LinearLayout.VERTICAL);
         value.setPadding(dp(15), dp(14), dp(15), dp(14));
-        value.setBackground(round(Color.rgb(12, 42, 69), 18));
+        value.setBackground(round(Appearance.surface(this), 18));
         return value;
     }
 
@@ -321,14 +324,14 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         button.setTextColor(Color.WHITE);
         button.setTextSize(12);
         button.setAllCaps(false);
-        button.setBackground(round(Color.rgb(22, 73, 111), 14));
+        button.setBackground(round(Appearance.secondarySurface(this), 14));
         return button;
     }
 
     private TextView text(String value, int size, int color, boolean bold) {
         TextView view = new TextView(this);
         view.setText(UiText.get(this,value));
-        view.setTextColor(color);
+        view.setTextColor(Appearance.text(this, color));
         view.setTextSize(size);
         if (bold) view.setTypeface(view.getTypeface(), android.graphics.Typeface.BOLD);
         return view;

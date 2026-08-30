@@ -337,9 +337,6 @@ public class V2Activity extends ComponentActivity implements
             } else if ("progress".equals(event)) {
                 transferPaused=false;
                 updatePauseButton(false);
-                if(receiverMode&&!partial&&new AppSettings(V2Activity.this).openReceivedAfterTransfer()){
-                    startActivity(new Intent(V2Activity.this,ReceivedFilesActivity.class));
-                }
                 setTransferUi(receiverMode ? "Receiving…" : "Sending…", message, progress);
                 setTransferMetrics(progress, done, total, speed, etaSeconds);
                 updateLiveQueue(activeFileIndex, activeFileName, activeFileDone, activeFileTotal, false);
@@ -415,6 +412,9 @@ public class V2Activity extends ComponentActivity implements
                     transferCancelButton.setOnClickListener(v->{if(partial&&!receiverMode)retryFailedFiles();else showHome();});
                 }
                 updatePauseButton(false);
+                if(receiverMode&&!partial&&new AppSettings(V2Activity.this).openReceivedAfterTransfer()){
+                    startActivity(new Intent(V2Activity.this,ReceivedFilesActivity.class));
+                }
             } else if ("error".equals(event)) {
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
                 setTransferUi("Transfer could not continue", message, -1);
