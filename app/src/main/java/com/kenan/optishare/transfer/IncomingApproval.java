@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat;
 import com.kenan.optishare.ApprovalActivity;
 import com.kenan.optishare.OptiShareApp;
 import com.kenan.optishare.R;
+import com.kenan.optishare.settings.AppSettings;
 
 /**
  * Process-local approval gate backed by a high-priority notification and a focused approval screen.
@@ -169,6 +170,7 @@ final class IncomingApproval {
                         .setAction(TransferService.ACTION_DECLINE),
                 PendingIntent.FLAG_UPDATE_CURRENT | immutable);
 
+        AppSettings settings = new AppSettings(context);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_optishare)
                 .setContentTitle(title)
@@ -180,6 +182,9 @@ final class IncomingApproval {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .addAction(0, context.getString(R.string.decline), decline)
                 .addAction(0, context.getString(R.string.confirm), accept);
+        builder.setSilent(!settings.soundEnabled());
+        if (settings.vibrationEnabled() && settings.requestVibration()) builder.setVibrate(new long[]{0L, 180L, 100L, 180L});
+        else builder.setVibrate(new long[]{0L});
         manager.notify(NOTIFICATION_ID, builder.build());
     }
 

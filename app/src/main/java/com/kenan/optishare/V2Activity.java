@@ -53,6 +53,8 @@ import com.kenan.optishare.device.DeviceIdentity;
 import com.kenan.optishare.device.DeviceIdentityKey;
 import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.history.TransferHistoryStore;
+import com.kenan.optishare.settings.AppSettings;
+import com.kenan.optishare.settings.LocaleSupport;
 import com.kenan.optishare.storage.MediaRepository;
 import com.kenan.optishare.storage.FolderSelection;
 import com.kenan.optishare.storage.FolderTransferQueue;
@@ -82,6 +84,8 @@ import java.util.Set;
 public class V2Activity extends ComponentActivity implements
         WifiP2pManager.PeerListListener,
         WifiP2pManager.ConnectionInfoListener {
+
+    public static final String EXTRA_OPEN_TRUSTED_DEVICES = "com.kenan.optishare.extra.OPEN_TRUSTED_DEVICES";
 
     /** Frozen while Android 2.2 is completed and validated as a standalone release. */
     private static final boolean ENABLE_PC_COMPANION = false;
@@ -362,9 +366,10 @@ public class V2Activity extends ComponentActivity implements
                 setTransferUi("Speed test could not finish", message, -1);
                 transferStarted = false;
             } else if ("text_received".equals(event)) {
-                android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-                if(clipboard!=null&&message!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OptiShare text",message));
-                setTransferUi("Text received & copied ✓","The received text is now in your clipboard.",-1);
+                boolean copy=new AppSettings(V2Activity.this).autoCopyText();
+                if(copy){android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                    if(clipboard!=null&&message!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OptiShare text",message));}
+                setTransferUi(copy?"Text received & copied ✓":"Text received ✓",copy?"The received text is now in your clipboard.":"The received text was saved without changing your clipboard.",-1);
             } else if ("file_done".equals(event)) {
                 setTransferUi("File verified ✓", message, -1);
                 updateLiveQueue(activeFileIndex, activeFileName, activeFileTotal, activeFileTotal, true);
@@ -385,7 +390,7 @@ public class V2Activity extends ComponentActivity implements
                 if(screenTitle!=null)screenTitle.setText(UiText.get(V2Activity.this,partial?"Queue finished":"Transfer complete"));
                 setTransferUi(partial?"Other files completed":"Transfer complete ✓",
                         partial?failedQueueIndexes.size()+" file(s) need retry • "+message:message,100);
-                historyStore.add(new TransferHistoryStore.Entry(
+                if(new AppSettings(V2Activity.this).keepHistory())historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
                         connectedPeerName, Math.max(0,(completedFileCount > 0 ? completedFileCount : selected.size())-failedQueueIndexes.size()),
                         completedTotalBytes > 0 ? completedTotalBytes : selectedTotalBytes(), !partial,
@@ -406,7 +411,7 @@ public class V2Activity extends ComponentActivity implements
                     transferCancelButton.setText(UiText.get(V2Activity.this,"Retry / resume →"));
                     transferCancelButton.setOnClickListener(v -> resumePendingTransfer());
                 }
-                historyStore.add(new TransferHistoryStore.Entry(
+                if(new AppSettings(V2Activity.this).keepHistory())historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
                         connectedPeerName, selected.size(), selectedTotalBytes(), false));
             }
@@ -445,6 +450,10 @@ public class V2Activity extends ComponentActivity implements
         }
     };
 
+    @Override protected void attachBaseContext(Context base) {
+        super.attachBaseContext(LocaleSupport.wrap(base));
+    }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         identity = new DeviceIdentity(this);
@@ -459,7 +468,10 @@ public class V2Activity extends ComponentActivity implements
             channel = manager.initialize(this, getMainLooper(), () -> setDiscoveryText("Nearby service restarted. Try again."));
         }
         requestNotificationPermissionIfUseful();
-        if(!handleInboundShare(getIntent())) showHome();
+        if (getIntent().getBooleanExtra(EXTRA_OPEN_TRUSTED_DEVICES, false)) {
+            showHome();
+            showTrustedDevices();
+        } else if(!handleInboundShare(getIntent())) showHome();
     }
 
     @Override protected void onNewIntent(Intent intent){
@@ -506,7 +518,7 @@ public class V2Activity extends ComponentActivity implements
 
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView logo = text("O", 24, Color.WHITE, true);
+        TextView logo = text(new AppSettings(this).avatar(), 24, Color.WHITE, true);
         logo.setGravity(Gravity.CENTER);
         logo.setBackground(gradient(Color.rgb(28,165,255), Color.rgb(91,73,245), 24));
         top.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
@@ -516,8 +528,8 @@ public class V2Activity extends ComponentActivity implements
         titleBox.addView(text("OptiShare 2", 29, Color.WHITE, true));
         titleBox.addView(text(identity.name() + " • Private local sharing", 12, Color.rgb(157,198,228), false));
         top.addView(titleBox, new LinearLayout.LayoutParams(0,-2,1));
-        Button settings = smallButton("Settings");
-        settings.setOnClickListener(v -> showDeviceSettings());
+        Button settings = smallButton(getString(R.string.settings));
+        settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         top.addView(settings, new LinearLayout.LayoutParams(dp(98), dp(42)));
         root.addView(top);
 

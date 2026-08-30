@@ -1,5 +1,6 @@
 package com.kenan.optishare;
 
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -18,6 +19,7 @@ import android.widget.TextView;
 import androidx.activity.ComponentActivity;
 
 import com.kenan.optishare.ui.UiText;
+import com.kenan.optishare.settings.LocaleSupport;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -96,3 +98,4 @@ public final class AppPickerActivity extends ComponentActivity {
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }

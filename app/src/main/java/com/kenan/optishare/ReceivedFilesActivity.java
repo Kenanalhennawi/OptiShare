@@ -1,6 +1,7 @@
 package com.kenan.optishare;
 
 import android.content.ContentUris;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -22,6 +23,7 @@ import androidx.annotation.RequiresApi;
 import androidx.core.content.FileProvider;
 
 import com.kenan.optishare.ui.UiText;
+import com.kenan.optishare.settings.LocaleSupport;
 
 import java.io.File;
 import java.text.DateFormat;
@@ -33,6 +35,7 @@ import java.util.Locale;
 
 /** A local, privacy-preserving view of files published by OptiShare. */
 public final class ReceivedFilesActivity extends ComponentActivity {
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }
     private static final int MAX_ITEMS = 1000;
 
     private static final class Item {

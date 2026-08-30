@@ -2,6 +2,7 @@ package com.kenan.optishare;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -14,6 +15,7 @@ import android.widget.TextView;
 
 import com.kenan.optishare.transfer.TransferService;
 import com.kenan.optishare.ui.UiText;
+import com.kenan.optishare.settings.LocaleSupport;
 
 /**
  * Focused approval UI opened for security-code verification and incoming-transfer consent.
@@ -156,3 +158,4 @@ public final class ApprovalActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }

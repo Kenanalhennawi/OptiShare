@@ -19,6 +19,7 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
@@ -65,14 +66,12 @@
 
         <activity
             android:name=".ApprovalActivity"
-            android:screenOrientation="portrait"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:exported="false" />
 
         <activity
             android:name=".ReceivedFilesActivity"
-            android:screenOrientation="portrait"
             android:exported="false" />
 
         <activity
@@ -83,12 +82,14 @@
 
         <activity
             android:name=".AppPickerActivity"
-            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".SettingsActivity"
             android:exported="false" />
 
         <activity
             android:name=".V2Activity"
-            android:screenOrientation="portrait"
             android:taskAffinity=""
             android:exported="true">
             <intent-filter>

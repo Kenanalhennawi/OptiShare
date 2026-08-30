@@ -142,6 +142,8 @@ public final class UiText {
             case "The file could not be deleted.": return R.string.file_delete_failed;
             case "No trusted devices yet. On the first secure connection choose ‘Trust this device & confirm’.": return R.string.trusted_none;
             case "Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.": return R.string.trusted_legacy;
+            case "Text received ✓": return R.string.text_received_only;
+            case "The received text was saved without changing your clipboard.": return R.string.text_saved_no_clipboard;
             default: return 0;
         }
     }
