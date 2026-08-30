@@ -29,6 +29,7 @@ import com.kenan.optishare.storage.DownloadStore;
 import com.kenan.optishare.settings.AppSettings;
 import com.kenan.optishare.settings.LocaleSupport;
 import com.kenan.optishare.transfer.SenderSessionStore;
+import com.kenan.optishare.ui.AvatarView;
 
 import java.io.File;
 import java.util.Locale;
@@ -117,8 +118,11 @@ public final class SettingsActivity extends Activity {
 
     private void addDeviceSection(LinearLayout page) {
         LinearLayout card = section(page, R.string.device_and_visibility);
-        row(card, settingsStore.avatar() + "  " + identity.name(), getString(R.string.device_profile_summary), () -> renameDevice());
-        row(card, getString(R.string.choose_avatar), settingsStore.avatar(), this::chooseAvatar);
+        LinearLayout profile=new LinearLayout(this);profile.setGravity(Gravity.CENTER_VERTICAL);profile.setPadding(dp(8),dp(10),dp(8),dp(10));
+        AvatarView avatar=new AvatarView(this);profile.addView(avatar,new LinearLayout.LayoutParams(dp(68),dp(68)));
+        LinearLayout profileCopy=new LinearLayout(this);profileCopy.setOrientation(LinearLayout.VERTICAL);profileCopy.setPadding(dp(14),0,0,0);profileCopy.addView(label(identity.name(),17,primaryText,true));profileCopy.addView(label(getString(R.string.device_profile_summary),12,secondaryText,false));profile.addView(profileCopy,new LinearLayout.LayoutParams(0,-2,1));
+        profile.setClickable(true);profile.setFocusable(true);profile.setOnClickListener(v->renameDevice());card.addView(profile,new LinearLayout.LayoutParams(-1,-2));
+        row(card, getString(R.string.choose_avatar), getString(R.string.customize_avatar_summary), this::chooseAvatar);
         row(card, getString(R.string.trusted_devices), getString(R.string.trusted_count, new TrustedDeviceStore(this).list().size()), this::openTrustedDevices);
         row(card, getString(R.string.visibility), getString(R.string.receive_screen_only), null);
     }
@@ -263,10 +267,20 @@ public final class SettingsActivity extends Activity {
     }
 
     private void chooseAvatar() {
-        String[] values = {"O", "◆", "●", "▲", "★", "⚡", "☁", "⌁"};
-        new AlertDialog.Builder(this).setTitle(R.string.choose_avatar).setItems(values, (d, i) -> {
-            settingsStore.setAvatar(values[i]); render();
-        }).setNegativeButton(R.string.cancel, null).show();
+        LinearLayout editor=new LinearLayout(this);editor.setOrientation(LinearLayout.VERTICAL);editor.setPadding(dp(22),dp(10),dp(22),dp(4));
+        AvatarView preview=new AvatarView(this);LinearLayout previewRow=new LinearLayout(this);previewRow.setGravity(Gravity.CENTER);previewRow.addView(preview,new LinearLayout.LayoutParams(dp(150),dp(150)));editor.addView(previewRow);
+        LinearLayout first=new LinearLayout(this);first.setOrientation(LinearLayout.HORIZONTAL);
+        Button skin=button(getString(R.string.avatar_skin),false);Button hair=button(getString(R.string.avatar_hair),false);Button style=button(getString(R.string.avatar_style),false);
+        first.addView(skin,new LinearLayout.LayoutParams(0,dp(48),1));first.addView(hair,new LinearLayout.LayoutParams(0,dp(48),1));first.addView(style,new LinearLayout.LayoutParams(0,dp(48),1));editor.addView(first);
+        LinearLayout second=new LinearLayout(this);second.setOrientation(LinearLayout.HORIZONTAL);
+        Button backdrop=button(getString(R.string.avatar_background),false);Button glasses=button(getString(R.string.avatar_glasses),false);Button beard=button(getString(R.string.avatar_beard),false);
+        second.addView(backdrop,new LinearLayout.LayoutParams(0,dp(48),1));second.addView(glasses,new LinearLayout.LayoutParams(0,dp(48),1));second.addView(beard,new LinearLayout.LayoutParams(0,dp(48),1));editor.addView(second);
+        final int[] skinValue={preview.skin()},hairValue={preview.hairColor()},styleValue={preview.hairStyle()},backgroundValue={preview.background()};final boolean[] glassesValue={preview.glasses()},beardValue={preview.beard()};
+        Runnable refresh=()->preview.configure(skinValue[0],styleValue[0],hairValue[0],backgroundValue[0],glassesValue[0],beardValue[0]);
+        skin.setOnClickListener(v->{skinValue[0]=(skinValue[0]+1)%6;refresh.run();});hair.setOnClickListener(v->{hairValue[0]=(hairValue[0]+1)%6;refresh.run();});style.setOnClickListener(v->{styleValue[0]=(styleValue[0]+1)%5;refresh.run();});backdrop.setOnClickListener(v->{backgroundValue[0]=(backgroundValue[0]+1)%6;refresh.run();});glasses.setOnClickListener(v->{glassesValue[0]=!glassesValue[0];refresh.run();});beard.setOnClickListener(v->{beardValue[0]=!beardValue[0];refresh.run();});
+        new AlertDialog.Builder(this).setTitle(R.string.choose_avatar).setView(editor)
+                .setPositiveButton(R.string.save,(d,w)->{settingsStore.setAvatarDesign(skinValue[0],styleValue[0],hairValue[0],backgroundValue[0],glassesValue[0],beardValue[0]);render();})
+                .setNegativeButton(R.string.cancel,null).show();
     }
 
     private void chooseTheme() {
