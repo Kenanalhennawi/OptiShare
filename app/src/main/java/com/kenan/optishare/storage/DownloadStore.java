@@ -1,6 +1,7 @@
 package com.kenan.optishare.storage;
 
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
@@ -13,6 +14,7 @@ import android.provider.MediaStore;
 import androidx.annotation.RequiresApi;
 
 import com.kenan.optishare.model.TransferItem;
+import com.kenan.optishare.settings.AppSettings;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -108,6 +110,9 @@ public final class DownloadStore {
         if (!source.exists()) throw new IOException("Partial file missing");
         long verifiedSize = source.length();
         String safeName = TransferItem.safeName(name);
+        if (!new AppSettings(context).allowApkReceive() && isApplicationPackage(safeName, mime)) {
+            throw new IOException("APK/APKS receiving is disabled in OptiShare settings");
+        }
         String folder = categoryFolder(category);
         if (mime != null && mime.toLowerCase(java.util.Locale.US).startsWith("text/")) folder = "Text";
         String safeRelative;
@@ -194,6 +199,10 @@ public final class DownloadStore {
             throws IOException {
         ContentResolver resolver = context.getContentResolver();
         String relativePath = Environment.DIRECTORY_DOWNLOADS + "/OptiShare/" + folder;
+        if (AppSettings.DUPLICATE_SKIP_IDENTICAL.equals(new AppSettings(context).duplicatePolicy())) {
+            Uri identical = identicalMediaStoreFile(resolver, source, name, relativePath);
+            if (identical != null) return identical;
+        }
         String uniqueName = uniqueMediaStoreName(resolver, name, relativePath);
         ContentValues values = new ContentValues();
         values.put(MediaStore.Downloads.DISPLAY_NAME, uniqueName);
@@ -253,6 +262,32 @@ public final class DownloadStore {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private Uri identicalMediaStoreFile(ContentResolver resolver, File source, String name,
+                                        String relativePath) throws IOException {
+        Cursor cursor = null;
+        try {
+            cursor = resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    new String[]{MediaStore.Downloads._ID, MediaStore.Downloads.SIZE},
+                    MediaStore.Downloads.DISPLAY_NAME + "=? AND " + MediaStore.Downloads.RELATIVE_PATH + "=?",
+                    new String[]{name, relativePath}, null);
+            while (cursor != null && cursor.moveToNext()) {
+                long size = cursor.getLong(1);
+                if (size != source.length()) continue;
+                Uri uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0));
+                try (InputStream existing = resolver.openInputStream(uri);
+                     InputStream incoming = new FileInputStream(source)) {
+                    if (existing != null && streamsEqual(existing, incoming)) return uri;
+                }
+            }
+            return null;
+        } catch (SecurityException restricted) {
+            return null;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+    }
+
     @SuppressWarnings("deprecation")
     private Uri publishLegacy(File source, String name, String folder) throws IOException {
         File dir = new File(
@@ -260,6 +295,14 @@ public final class DownloadStore {
                 "OptiShare/" + folder);
         if (!dir.exists() && !dir.mkdirs()) {
             throw new IOException("Could not create Download/OptiShare directory");
+        }
+        File exact = new File(dir, name);
+        if (AppSettings.DUPLICATE_SKIP_IDENTICAL.equals(new AppSettings(context).duplicatePolicy())
+                && exact.isFile() && exact.length() == source.length()) {
+            try (InputStream existing = new FileInputStream(exact);
+                 InputStream incoming = new FileInputStream(source)) {
+                if (streamsEqual(existing, incoming)) return Uri.fromFile(exact);
+            }
         }
         File target = uniqueFile(dir, name);
         try (InputStream in = new FileInputStream(source);
@@ -280,6 +323,36 @@ public final class DownloadStore {
             if (!candidate.exists()) return candidate;
         }
         return new File(dir, System.currentTimeMillis() + "-" + name);
+    }
+
+    private static boolean streamsEqual(InputStream first, InputStream second) throws IOException {
+        byte[] a = new byte[64 * 1024];
+        byte[] b = new byte[64 * 1024];
+        while (true) {
+            int an = readChunk(first, a);
+            int bn = readChunk(second, b);
+            if (an != bn) return false;
+            if (an < 0) return true;
+            for (int i = 0; i < an; i++) if (a[i] != b[i]) return false;
+        }
+    }
+
+    private static int readChunk(InputStream input, byte[] buffer) throws IOException {
+        int done = 0;
+        while (done < buffer.length) {
+            int count = input.read(buffer, done, buffer.length - done);
+            if (count < 0) return done == 0 ? -1 : done;
+            if (count == 0) continue;
+            done += count;
+        }
+        return done;
+    }
+
+    private static boolean isApplicationPackage(String name, String mime) {
+        String lower = name == null ? "" : name.toLowerCase(java.util.Locale.US);
+        String type = mime == null ? "" : mime.toLowerCase(java.util.Locale.US);
+        return lower.endsWith(".apk") || lower.endsWith(".apks")
+                || "application/vnd.android.package-archive".equals(type);
     }
 
     private static String categoryFolder(TransferItem.Category category) {

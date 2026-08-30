@@ -100,6 +100,12 @@ public class V2Activity extends ComponentActivity implements
     private static final int SCREEN_RECEIVE = 4;
     private static final int SCREEN_TRANSFER = 5;
     private static final int SCREEN_SETTINGS = 6;
+    private static final String STATE_SCREEN = "v2.screen";
+    private static final String STATE_SELECTED = "v2.selected";
+    private static final String STATE_RECEIVER = "v2.receiver";
+    private static final String STATE_TRANSFER_STARTED = "v2.transfer_started";
+    private static final String STATE_GALLERY_TYPE = "v2.gallery_type";
+    private static final String STATE_PEER_NAME = "v2.peer_name";
 
     private final List<Uri> selected = new ArrayList<>();
     private final List<WifiP2pDevice> peers = new ArrayList<>();
@@ -472,10 +478,41 @@ public class V2Activity extends ComponentActivity implements
             channel = manager.initialize(this, getMainLooper(), () -> setDiscoveryText("Nearby service restarted. Try again."));
         }
         requestNotificationPermissionIfUseful();
-        if (getIntent().getBooleanExtra(EXTRA_OPEN_TRUSTED_DEVICES, false)) {
+        if (state != null) {
+            restoreScreen(state);
+        } else if (getIntent().getBooleanExtra(EXTRA_OPEN_TRUSTED_DEVICES, false)) {
             showHome();
             showTrustedDevices();
         } else if(!handleInboundShare(getIntent())) showHome();
+    }
+
+    private void restoreScreen(Bundle state) {
+        selected.clear();
+        ArrayList<String> saved = state.getStringArrayList(STATE_SELECTED);
+        if (saved != null) for (String value : saved) if (value != null) selected.add(Uri.parse(value));
+        receiverMode = state.getBoolean(STATE_RECEIVER, false);
+        transferStarted = state.getBoolean(STATE_TRANSFER_STARTED, false);
+        pendingGalleryType = state.getString(STATE_GALLERY_TYPE);
+        connectedPeerName = state.getString(STATE_PEER_NAME, "Nearby device");
+        int screen = state.getInt(STATE_SCREEN, SCREEN_HOME);
+        if (screen == SCREEN_SEND) showSendSelection();
+        else if (screen == SCREEN_DISCOVERY) showDiscovery();
+        else if (screen == SCREEN_RECEIVE) showReceive();
+        else if (screen == SCREEN_TRANSFER) showTransferScreen(receiverMode ? "Receiving" : "Sending");
+        else if (screen == SCREEN_GALLERY && pendingGalleryType != null) showMediaGallery(pendingGalleryType);
+        else showHome();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putInt(STATE_SCREEN, currentScreen);
+        ArrayList<String> saved = new ArrayList<>();
+        for (Uri uri : selected) saved.add(uri.toString());
+        outState.putStringArrayList(STATE_SELECTED, saved);
+        outState.putBoolean(STATE_RECEIVER, receiverMode);
+        outState.putBoolean(STATE_TRANSFER_STARTED, transferStarted);
+        outState.putString(STATE_GALLERY_TYPE, pendingGalleryType);
+        outState.putString(STATE_PEER_NAME, connectedPeerName);
     }
 
     @Override protected void onNewIntent(Intent intent){
@@ -1258,7 +1295,7 @@ public class V2Activity extends ComponentActivity implements
     private String firstLetter(String value){return value==null||value.isEmpty()?"?":value.substring(0,1).toUpperCase(Locale.US);}
     private String formatBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024.0*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.2f MB",b/(1024.0*1024));if(b>=1024)return String.format(Locale.US,"%.1f KB",b/1024.0);return b+" B";}
 
-    private LinearLayout shell(ScrollView scroll){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(28));root.setBackground(lightMode()?round(Color.rgb(244,248,252),0):gradient(Color.rgb(5,17,38),Color.rgb(16,48,84),0));scroll.addView(root);return root;}
+    private LinearLayout shell(ScrollView scroll){LinearLayout outer=new LinearLayout(this);outer.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);outer.setBackground(lightMode()?round(Color.rgb(244,248,252),0):gradient(Color.rgb(5,17,38),Color.rgb(16,48,84),0));LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(28));int width=Math.min(getResources().getDisplayMetrics().widthPixels,dp(920));outer.addView(root,new LinearLayout.LayoutParams(width,-2));scroll.addView(outer,new ScrollView.LayoutParams(-1,-2));return root;}
     private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->navigateBack());root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
 
     private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}

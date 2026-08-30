@@ -25,6 +25,7 @@ import android.widget.Toast;
 import com.kenan.optishare.device.DeviceIdentity;
 import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.history.TransferHistoryStore;
+import com.kenan.optishare.storage.DownloadStore;
 import com.kenan.optishare.settings.AppSettings;
 import com.kenan.optishare.settings.LocaleSupport;
 import com.kenan.optishare.transfer.SenderSessionStore;
@@ -282,8 +283,8 @@ public final class SettingsActivity extends Activity {
     }
 
     private void chooseDuplicatePolicy() {
-        String[] labels = {getString(R.string.keep_both), getString(R.string.ask_each_time), getString(R.string.skip_identical)};
-        String[] values = {AppSettings.DUPLICATE_KEEP_BOTH, AppSettings.DUPLICATE_ASK, AppSettings.DUPLICATE_SKIP_IDENTICAL};
+        String[] labels = {getString(R.string.keep_both), getString(R.string.skip_identical)};
+        String[] values = {AppSettings.DUPLICATE_KEEP_BOTH, AppSettings.DUPLICATE_SKIP_IDENTICAL};
         choose(R.string.duplicate_files, labels, values, settingsStore.duplicatePolicy(), settingsStore::setDuplicatePolicy, false);
     }
 
@@ -342,7 +343,9 @@ public final class SettingsActivity extends Activity {
 
     private void confirmCleanTemporary() {
         confirm(R.string.clean_temporary_files, R.string.clean_temporary_confirm, () -> {
-            long deleted = deletePartials(receiveRoot());
+            long before = temporaryBytes(partialRoot());
+            new DownloadStore(this).pruneStalePartials();
+            long deleted = Math.max(0L, before - temporaryBytes(partialRoot()));
             toast(getString(R.string.temporary_cleaned, humanBytes(deleted))); render();
         });
     }
@@ -353,32 +356,17 @@ public final class SettingsActivity extends Activity {
                 .setNegativeButton(R.string.cancel, null).show();
     }
 
-    private File receiveRoot() {
-        return new File(android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DOWNLOADS), "OptiShare");
-    }
-
-    private long deletePartials(File file) {
-        if (file == null || !file.exists()) return 0L;
-        long bytes = 0L;
-        File[] children = file.listFiles();
-        if (children == null) return 0L;
-        for (File child : children) {
-            if (child.isDirectory()) bytes += deletePartials(child);
-            else if (child.getName().endsWith(".part")) { long size = child.length(); if (child.delete()) bytes += size; }
-        }
-        return bytes;
-    }
+    private File partialRoot() { return new File(getFilesDir(), "partial"); }
 
     private long temporaryBytes(File file) {
         if (file == null || !file.exists()) return 0L;
         long bytes = 0L; File[] children = file.listFiles(); if (children == null) return 0L;
         for (File child : children) bytes += child.isDirectory() ? temporaryBytes(child)
-                : child.getName().endsWith(".part") ? child.length() : 0L;
+                : child.getName().endsWith(".optishare-part") ? child.length() : 0L;
         return bytes;
     }
 
-    private String temporarySize() { return getString(R.string.temporary_files_summary, humanBytes(temporaryBytes(receiveRoot()))); }
+    private String temporarySize() { return getString(R.string.temporary_files_summary, humanBytes(temporaryBytes(partialRoot()))); }
     private String pendingSummary() { return new SenderSessionStore(this).exists() ? getString(R.string.pending_exists) : getString(R.string.no_pending_exists); }
 
     private void showHelp() {
