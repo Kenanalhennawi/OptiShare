@@ -822,7 +822,7 @@ public class V2Activity extends ComponentActivity implements
             done.setEnabled(count>0);
             done.setAlpha(count>0?1f:.55f);
         });
-        adapter.replace(new MediaRepository(this).load(type,180,0));
+        adapter.replace(new MediaRepository(this).load(type,2000,0));
         recycler.setAdapter(adapter);
         root.addView(recycler,new LinearLayout.LayoutParams(-1,0,1));
 
