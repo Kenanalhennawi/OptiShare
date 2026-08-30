@@ -26,6 +26,8 @@ public final class ApprovalActivity extends Activity {
     public static final String EXTRA_TEXT = "approval_text";
     public static final String EXTRA_PEER_FINGERPRINT = "peer_fingerprint";
 
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         String title = getIntent().getStringExtra(EXTRA_TITLE);
@@ -158,4 +160,3 @@ public final class ApprovalActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }
-    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }

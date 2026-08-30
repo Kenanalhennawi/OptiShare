@@ -32,6 +32,8 @@ public final class AppPickerActivity extends ComponentActivity {
     public static final String EXTRA_PACKAGES = "packages";
     private final Map<String, CheckBox> choices = new LinkedHashMap<>();
 
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         render();
@@ -98,4 +100,3 @@ public final class AppPickerActivity extends ComponentActivity {
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }
-    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }
