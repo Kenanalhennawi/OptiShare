@@ -717,6 +717,7 @@ public final class TransferService extends Service {
                                 activeManifest.getSessionId());
                         return;
                     }
+                    if (!new AppSettings(this).resumeAfterDisconnect()) throw transferError;
                     boolean directRecovered = false;
                     if (RoutePerformanceStore.ROUTE_DIRECT.equals(currentRoute)
                             && peerAddress != null && wifiRecovery.available()) {

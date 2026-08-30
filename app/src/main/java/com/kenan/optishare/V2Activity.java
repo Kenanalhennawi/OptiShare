@@ -337,6 +337,9 @@ public class V2Activity extends ComponentActivity implements
             } else if ("progress".equals(event)) {
                 transferPaused=false;
                 updatePauseButton(false);
+                if(receiverMode&&!partial&&new AppSettings(V2Activity.this).openReceivedAfterTransfer()){
+                    startActivity(new Intent(V2Activity.this,ReceivedFilesActivity.class));
+                }
                 setTransferUi(receiverMode ? "Receiving…" : "Sending…", message, progress);
                 setTransferMetrics(progress, done, total, speed, etaSeconds);
                 updateLiveQueue(activeFileIndex, activeFileName, activeFileDone, activeFileTotal, false);
@@ -1044,10 +1047,12 @@ public class V2Activity extends ComponentActivity implements
                 names.addView(text("Verified OptiShare • encrypted same-Wi-Fi route",12,Color.rgb(151,205,184),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
                 LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
-                Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkViaLan(lanName,pendingLanHost));
                 Button send=secondaryButton("Send here");send.setOnClickListener(v->connectViaLan(lanName,pendingLanHost));
-                actions.addView(test,new LinearLayout.LayoutParams(0,dp(46),1));
-                LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(8),0,0,0);actions.addView(send,sendLp);
+                if(new AppSettings(V2Activity.this).speedTestLargeFiles()){
+                    Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkViaLan(lanName,pendingLanHost));
+                    actions.addView(test,new LinearLayout.LayoutParams(0,dp(46),1));
+                    LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(8),0,0,0);actions.addView(send,sendLp);
+                }else actions.addView(send,new LinearLayout.LayoutParams(-1,dp(46)));
                 row.addView(actions);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
             }
             for(PcDiscovery.Peer pc:pcPeers){

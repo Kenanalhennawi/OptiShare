@@ -120,7 +120,7 @@ public final class SettingsActivity extends Activity {
         row(card, settingsStore.avatar() + "  " + identity.name(), getString(R.string.device_profile_summary), () -> renameDevice());
         row(card, getString(R.string.choose_avatar), settingsStore.avatar(), this::chooseAvatar);
         row(card, getString(R.string.trusted_devices), getString(R.string.trusted_count, new TrustedDeviceStore(this).list().size()), this::openTrustedDevices);
-        choice(card, R.string.visibility, visibilityLabel(), this::chooseVisibility);
+        row(card, getString(R.string.visibility), getString(R.string.receive_screen_only), null);
     }
 
     private void addAppearanceSection(LinearLayout page) {
@@ -134,7 +134,6 @@ public final class SettingsActivity extends Activity {
     private void addTransferSection(LinearLayout page) {
         LinearLayout card = section(page, R.string.sending_and_receiving);
         choice(card, R.string.duplicate_files, duplicateLabel(), this::chooseDuplicatePolicy);
-        choice(card, R.string.preferred_route, routeLabel(), this::chooseRoute);
         toggle(card, R.string.resume_after_disconnect, R.string.resume_after_disconnect_summary,
                 settingsStore.resumeAfterDisconnect(), settingsStore::setResumeAfterDisconnect, false);
         toggle(card, R.string.continue_after_failure, R.string.continue_after_failure_summary,

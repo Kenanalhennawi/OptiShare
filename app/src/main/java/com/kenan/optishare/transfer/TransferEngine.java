@@ -12,6 +12,7 @@ import com.kenan.optishare.protocol.ResumeState;
 import com.kenan.optishare.protocol.ResumeStore;
 import com.kenan.optishare.protocol.ResumableProtocol;
 import com.kenan.optishare.protocol.SessionWire;
+import com.kenan.optishare.settings.AppSettings;
 import com.kenan.optishare.storage.DownloadStore;
 
 import java.io.BufferedInputStream;
@@ -163,6 +164,9 @@ public final class TransferEngine {
                         listener.onFileFailed(manifest.getSessionId(), entry.id, entry.name,
                                 new String(verifiedFrame.payload, java.nio.charset.StandardCharsets.UTF_8));
                         confirmedBefore = batchBase;
+                        if (!new AppSettings(context).continueAfterFileFailure()) {
+                            throw new IOException("File failed and queue continuation is disabled: " + entry.name);
+                        }
                         continue;
                     }
                     if (verifiedFrame.type != SessionWire.TYPE_ACK) {
@@ -184,6 +188,7 @@ public final class TransferEngine {
                     listener.onFileFailed(manifest.getSessionId(), entry.id, entry.name,
                             sourceError.getMessage());
                     confirmedBefore = batchBase;
+                    if (!new AppSettings(context).continueAfterFileFailure()) throw sourceError;
                 }
             }
 
