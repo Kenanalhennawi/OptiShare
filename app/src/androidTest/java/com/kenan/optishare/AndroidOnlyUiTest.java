@@ -7,6 +7,7 @@ import android.widget.TextView;
 
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.core.app.ActivityScenario;
 import androidx.test.rule.GrantPermissionRule;
 
 import org.junit.Rule;
@@ -37,17 +38,6 @@ public class AndroidOnlyUiTest {
 
             View settings = findText(root, "Settings");
             assertNotNull(settings);
-            settings.performClick();
-            root = screen.getWindow().getDecorView();
-            assertTrue(hasText(root, "About OptiShare"));
-            assertTrue(hasText(root, "Download/OptiShare"));
-            assertFalse(hasText(root, "My security identity"));
-            assertFalse(hasText(root, "SmartRoute status"));
-            View back = findText(root, "Back");
-            assertNotNull(back);
-            back.performClick();
-
-            root = screen.getWindow().getDecorView();
             View receive = findText(root, "RECEIVE");
             assertNotNull(receive);
             receive.performClick();
@@ -58,6 +48,20 @@ public class AndroidOnlyUiTest {
             assertFalse(hasText(root, "Browser mode"));
             assertFalse(hasText(root, "Windows"));
         });
+    }
+
+    @Test public void settingsExposePrivateAndroidControls() {
+        try (ActivityScenario<SettingsActivity> settings = ActivityScenario.launch(SettingsActivity.class)) {
+            settings.onActivity(screen -> {
+                View root = screen.getWindow().getDecorView();
+                assertTrue(hasText(root, "About OptiShare"));
+                assertTrue(hasText(root, "Download/OptiShare"));
+                assertTrue(hasText(root, "Privacy policy"));
+                assertTrue(hasText(root, "Android notification settings"));
+                assertFalse(hasText(root, "My security identity"));
+                assertFalse(hasText(root, "SmartRoute status"));
+            });
+        }
     }
 
     private static boolean hasText(View root, String needle) {

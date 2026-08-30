@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -114,6 +115,7 @@ public class V2Activity extends ComponentActivity implements
     private boolean browserMode;
     private boolean pcTransferMode;
     private boolean benchmarkMode;
+    private String appearanceStamp;
 
     private WifiP2pManager manager;
     private WifiP2pManager.Channel channel;
@@ -456,6 +458,8 @@ public class V2Activity extends ComponentActivity implements
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        appearanceStamp = appearanceStamp();
+        applySystemBars();
         identity = new DeviceIdentity(this);
         historyStore = new TransferHistoryStore(this);
         trustedStore = new TrustedDeviceStore(this);
@@ -1254,7 +1258,7 @@ public class V2Activity extends ComponentActivity implements
     private String firstLetter(String value){return value==null||value.isEmpty()?"?":value.substring(0,1).toUpperCase(Locale.US);}
     private String formatBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024.0*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.2f MB",b/(1024.0*1024));if(b>=1024)return String.format(Locale.US,"%.1f KB",b/1024.0);return b+" B";}
 
-    private LinearLayout shell(ScrollView scroll){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(28));root.setBackground(gradient(Color.rgb(5,17,38),Color.rgb(16,48,84),0));scroll.addView(root);return root;}
+    private LinearLayout shell(ScrollView scroll){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(28));root.setBackground(lightMode()?round(Color.rgb(244,248,252),0):gradient(Color.rgb(5,17,38),Color.rgb(16,48,84),0));scroll.addView(root);return root;}
     private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->navigateBack());root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
 
     private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
@@ -1262,17 +1266,21 @@ public class V2Activity extends ComponentActivity implements
     private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(106),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(106),1);p2.setMargins(dp(8),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(106),1);p3.setMargins(dp(8),0,0,0);row.addView(c,p3);return row;}
     private Button bigAction(String icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(top,bottom,22));return b;}
     private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(Color.rgb(31,151,255),Color.rgb(52,88,226),16));return b;}
-    private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(13);b.setBackground(round(Color.rgb(24,52,78),14));return b;}
+    private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(lightMode()?Color.rgb(15,42,66):Color.WHITE);b.setTextSize(13);b.setBackground(round(lightMode()?Color.rgb(224,235,244):Color.rgb(24,52,78),14));return b;}
     private Button smallButton(String label){Button b=secondaryButton(label);b.setTextSize(12);return b;}
-    private LinearLayout card(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(16),dp(16),dp(16),dp(16));GradientDrawable g=round(Color.rgb(13,33,56),18);g.setStroke(dp(1),Color.rgb(37,68,96));l.setBackground(g);return l;}
-    private TextView text(String value,int sp,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextSize(sp);t.setTextColor(color);if(bold)t.setTypeface(Typeface.DEFAULT_BOLD);return t;}
+    private LinearLayout card(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(16),dp(16),dp(16),dp(16));GradientDrawable g=round(lightMode()?Color.WHITE:Color.rgb(13,33,56),18);g.setStroke(dp(1),lightMode()?Color.rgb(210,222,232):Color.rgb(37,68,96));l.setBackground(g);return l;}
+    private TextView text(String value,int sp,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextSize(sp);t.setTextColor(uiTextColor(color));if(bold)t.setTypeface(Typeface.DEFAULT_BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private GradientDrawable gradient(int top,int bottom,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{top,bottom});g.setCornerRadius(dp(radius));return g;}
     private int darken(int color){return Color.rgb((int)(Color.red(color)*.66),(int)(Color.green(color)*.66),(int)(Color.blue(color)*.66));}
+    private boolean lightMode(){AppSettings s=new AppSettings(this);if(AppSettings.THEME_LIGHT.equals(s.theme()))return true;if(AppSettings.THEME_DARK.equals(s.theme()))return false;return(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)!=Configuration.UI_MODE_NIGHT_YES;}
+    private int uiTextColor(int color){if(!lightMode())return color;if(color==Color.WHITE)return Color.rgb(12,30,48);int luminance=(Color.red(color)*299+Color.green(color)*587+Color.blue(color)*114)/1000;return luminance>115?Color.rgb(67,88,107):color;}
+    private String appearanceStamp(){AppSettings s=new AppSettings(this);return s.theme()+"|"+s.language()+"|"+s.highContrast();}
+    private void applySystemBars(){int color=lightMode()?Color.rgb(244,248,252):Color.rgb(7,17,31);getWindow().setStatusBarColor(color);getWindow().setNavigationBarColor(color);if(Build.VERSION.SDK_INT>=23)getWindow().getDecorView().setSystemUiVisibility(lightMode()?View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR:0);}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(UiText.get(this,title)).setMessage(UiText.get(this,message)).setPositiveButton(R.string.ok,null).show());}
 
-    @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
+    @Override protected void onResume(){super.onResume();String latest=appearanceStamp();if(appearanceStamp!=null&&!appearanceStamp.equals(latest)){appearanceStamp=latest;recreate();return;}IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
     @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(p2pConnectTimeout);pendingP2pDevice=null;stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}try{unregisterReceiver(browserReceiver);}catch(Exception ignored){}}
     @Override protected void onDestroy(){if(lanDiscovery!=null)lanDiscovery.close();super.onDestroy();}
     @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else navigateBack();}

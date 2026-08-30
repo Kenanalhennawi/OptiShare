@@ -23,6 +23,7 @@ import com.kenan.optishare.device.DeviceIdentityKey;
 import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
+import com.kenan.optishare.settings.AppSettings;
 import com.kenan.optishare.storage.FileClassifier;
 import com.kenan.optishare.storage.FolderTransferQueue;
 
@@ -551,6 +552,7 @@ public final class TransferService extends Service {
 
 
     private boolean shouldUseStripedTransfer() {
+        if (!new AppSettings(this).smartRoute()) return false;
         if (!RoutePerformanceStore.ROUTE_LAN.equals(currentRoute) || !routeStore.parallelRecommended()) return false;
         if (activeItems == null || activeManifest == null || activeItems.size() != 1 || activeManifest.getEntries().size() != 1) return false;
         if (activeItems.get(0).getSize() < StripedTransferEngine.MIN_FILE_BYTES) return false;
