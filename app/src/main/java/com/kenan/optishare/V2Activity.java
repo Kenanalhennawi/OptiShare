@@ -584,9 +584,9 @@ public class V2Activity extends ComponentActivity implements
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button send = bigAction("↑", "SEND", "Choose content", Color.rgb(35,146,255), Color.rgb(53,82,222));
+        Button send = bigAction(R.drawable.ic_os_send, "SEND", "Choose content", Color.rgb(35,146,255), Color.rgb(53,82,222));
         send.setOnClickListener(v -> showSendSelection());
-        Button receive = bigAction("↓", "RECEIVE", "Become visible", Color.rgb(49,205,145), Color.rgb(17,122,91));
+        Button receive = bigAction(R.drawable.ic_os_receive, "RECEIVE", "Become visible", Color.rgb(49,205,145), Color.rgb(17,122,91));
         receive.setOnClickListener(v -> showReceive());
         actions.addView(send,new LinearLayout.LayoutParams(0,dp(158),1));
         LinearLayout.LayoutParams receiveLp = new LinearLayout.LayoutParams(0,dp(158),1);
@@ -609,18 +609,18 @@ public class V2Activity extends ComponentActivity implements
         browse.setPadding(0,dp(24),0,dp(10));
         root.addView(browse);
         root.addView(categoryRow(
-                category("▣","Photos",Color.rgb(190,83,255),v -> openInternalGallery("image")),
-                category("▶","Videos",Color.rgb(255,78,110),v -> openInternalGallery("video")),
-                category("♫","Music",Color.rgb(255,169,50),v -> openInternalGallery("audio"))));
+                category(R.drawable.ic_os_photo,"Photos",Color.rgb(190,83,255),v -> openInternalGallery("image")),
+                category(R.drawable.ic_os_video,"Videos",Color.rgb(255,78,110),v -> openInternalGallery("video")),
+                category(R.drawable.ic_os_music,"Music",Color.rgb(255,169,50),v -> openInternalGallery("audio"))));
         LinearLayout row2 = categoryRow(
-                category("A","Apps",Color.rgb(53,203,165),v -> openInstalledApps()),
-                category("≡","Documents",Color.rgb(55,143,255),v -> openDocuments()),
-                category("▤","Folder",Color.rgb(122,140,166),v -> openFolder()));
+                category(R.drawable.ic_os_apps,"Apps",Color.rgb(53,203,165),v -> openInstalledApps()),
+                category(R.drawable.ic_os_document,"Documents",Color.rgb(55,143,255),v -> openDocuments()),
+                category(R.drawable.ic_os_folder,"Folder",Color.rgb(122,140,166),v -> openFolder()));
         LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(10),0,0); root.addView(row2,r2);
         LinearLayout row3 = categoryRow(
-                category("T","Text",Color.rgb(89,190,255),v -> showTextComposer(null)),
-                category("▣","Clipboard",Color.rgb(81,210,157),v -> addClipboardToQueue()),
-                category("…","Other",Color.rgb(122,140,166),v -> openExternal("*/*")));
+                category(R.drawable.ic_os_text,"Text",Color.rgb(89,190,255),v -> showTextComposer(null)),
+                category(R.drawable.ic_os_clipboard,"Clipboard",Color.rgb(81,210,157),v -> addClipboardToQueue()),
+                category(R.drawable.ic_os_more,"Other",Color.rgb(122,140,166),v -> openExternal("*/*")));
         LinearLayout.LayoutParams r3 = new LinearLayout.LayoutParams(-1,-2); r3.setMargins(0,dp(10),0,0); root.addView(row3,r3);
 
         addHistory(root);
@@ -788,26 +788,50 @@ public class V2Activity extends ComponentActivity implements
 
     private void showMediaGallery(String type) {
         currentScreen=SCREEN_GALLERY;
-        ScrollView outer=new ScrollView(this);
-        LinearLayout root=shell(outer);
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18),dp(14),dp(18),dp(12));
+        root.setBackgroundColor(Color.rgb(5,22,41));
         String galleryTitle="image".equals(type)?"Photos":"video".equals(type)?"Videos":"Music";
         addBackHeader(root,galleryTitle,"Tap to select multiple items");
-        TextView selectedCount=text(selected.size()+" selected",14,Color.rgb(92,202,255),true);selectedCount.setGravity(Gravity.CENTER);root.addView(selectedCount);
+
+        LinearLayout actionBar=new LinearLayout(this);
+        actionBar.setOrientation(LinearLayout.HORIZONTAL);
+        actionBar.setGravity(Gravity.CENTER_VERTICAL);
+        actionBar.setPadding(dp(12),dp(7),dp(7),dp(7));
+        actionBar.setBackground(gradient(Color.rgb(13,43,70),Color.rgb(9,31,54),16));
+        TextView selectedCount=text(selected.size()+" selected",14,Color.rgb(92,202,255),true);
+        actionBar.addView(selectedCount,new LinearLayout.LayoutParams(0,dp(48),1));
+        Button done=primary("Send selected");
+        done.setEnabled(false);
+        done.setAlpha(.55f);
+        actionBar.addView(done,new LinearLayout.LayoutParams(dp(154),dp(48)));
+        LinearLayout.LayoutParams actionParams=new LinearLayout.LayoutParams(-1,-2);
+        actionParams.setMargins(0,dp(8),0,dp(10));
+        root.addView(actionBar,actionParams);
 
         RecyclerView recycler=new RecyclerView(this);
-        recycler.setNestedScrollingEnabled(false);
+        recycler.setNestedScrollingEnabled(true);
+        recycler.setClipToPadding(false);
+        recycler.setPadding(0,0,0,dp(16));
         recycler.setLayoutManager(new GridLayoutManager(this,"audio".equals(type)?2:3));
         Set<Uri> initial=new HashSet<>(selected);
         GalleryAdapter adapter=new GalleryAdapter(type,initial,set->{
-            selectedCount.setText((selected.size()+Math.max(0,set.size()-initial.size()))+" queued");
+            int count=set.size();
+            selectedCount.setText(count+" selected");
+            done.setEnabled(count>0);
+            done.setAlpha(count>0?1f:.55f);
         });
         adapter.replace(new MediaRepository(this).load(type,180,0));
         recycler.setAdapter(adapter);
-        root.addView(recycler,new LinearLayout.LayoutParams(-1,dp(760)));
+        root.addView(recycler,new LinearLayout.LayoutParams(-1,0,1));
 
-        Button done=primary("Add selected to queue");done.setOnClickListener(v->{for(Uri uri:adapter.selection())if(!selected.contains(uri))selected.add(uri);showSendSelection();});
-        LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(-1,dp(56));dl.setMargins(0,dp(12),0,0);root.addView(done,dl);
-        setContentView(outer);
+        done.setOnClickListener(v->{
+            selected.clear();
+            selected.addAll(adapter.selection());
+            showSendSelection();
+        });
+        setContentView(root);
     }
 
     private void showDiscovery() {
@@ -994,7 +1018,11 @@ public class V2Activity extends ComponentActivity implements
                     scheduleDiscoveryRetry();
                 }
                 @Override public void onFailure(int reason){
-                    setDiscoveryText(p2pError("Search pass "+discoveryAttempt+" failed",reason));
+                    if(reason==WifiP2pManager.BUSY){
+                        if(pendingLanHost==null)setDiscoveryText("Wi-Fi Direct is busy • still searching for verified OptiShare devices on the same Wi-Fi…");
+                    }else if(pendingLanHost==null){
+                        setDiscoveryText(p2pError("Search pass "+discoveryAttempt+" failed",reason));
+                    }
                     scheduleDiscoveryRetry();
                 }
             });
@@ -1006,7 +1034,7 @@ public class V2Activity extends ComponentActivity implements
         if(currentScreen==SCREEN_DISCOVERY&&!transferStarted&&peers.isEmpty()&&discoveryAttempt<MAX_DISCOVERY_ATTEMPTS){
             discoveryHandler.postDelayed(discoveryRetry,DISCOVERY_RETRY_MS);
         }else if(currentScreen==SCREEN_DISCOVERY&&peers.isEmpty()&&discoveryAttempt>=MAX_DISCOVERY_ATTEMPTS){
-            setDiscoveryText("No receiver found yet. Keep RECEIVE open, then tap Search again.");
+            if(pendingLanHost==null)setDiscoveryText("Same-Wi-Fi search is still active. Keep RECEIVE open on the other phone, or scan its QR code.");
         }
     }
 
@@ -1304,9 +1332,9 @@ public class V2Activity extends ComponentActivity implements
     private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->navigateBack());root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
 
     private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
-    private Button category(String icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(color,darken(color),18));b.setOnClickListener(listener);return b;}
+    private Button category(int icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setCompoundDrawablesWithIntrinsicBounds(0,icon,0,0);b.setCompoundDrawablePadding(dp(9));b.setBackground(gradient(color,darken(color),18));b.setOnClickListener(listener);return b;}
     private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(106),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(106),1);p2.setMargins(dp(8),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(106),1);p3.setMargins(dp(8),0,0,0);row.addView(c,p3);return row;}
-    private Button bigAction(String icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(top,bottom,22));return b;}
+    private Button bigAction(int icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setCompoundDrawablesWithIntrinsicBounds(0,icon,0,0);b.setCompoundDrawablePadding(dp(10));b.setBackground(gradient(top,bottom,22));return b;}
     private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(Color.rgb(31,151,255),Color.rgb(52,88,226),16));return b;}
     private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(lightMode()?Color.rgb(15,42,66):Color.WHITE);b.setTextSize(13);b.setBackground(round(lightMode()?Color.rgb(224,235,244):Color.rgb(24,52,78),14));return b;}
     private Button smallButton(String label){Button b=secondaryButton(label);b.setTextSize(12);return b;}
