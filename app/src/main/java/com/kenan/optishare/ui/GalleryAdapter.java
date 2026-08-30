@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.os.Build;
 import android.util.Size;
 import android.graphics.drawable.GradientDrawable;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -84,7 +85,19 @@ public final class GalleryAdapter extends RecyclerView.Adapter<GalleryAdapter.Ho
                 holder.image.setImageURI(item.uri);
             }
         } else {
-            holder.image.setImageURI(item.uri);
+            if ("video".equals(mediaType)) {
+                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+                try {
+                    retriever.setDataSource(holder.image.getContext(), item.uri);
+                    Bitmap frame = retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (frame != null) holder.image.setImageBitmap(frame);
+                    else holder.image.setImageResource(android.R.drawable.ic_media_play);
+                } catch (Exception ignored) {
+                    holder.image.setImageResource(android.R.drawable.ic_media_play);
+                } finally {
+                    try { retriever.release(); } catch (Exception ignored) { }
+                }
+            } else holder.image.setImageURI(item.uri);
         }
         updateBackground(holder.root, selected.contains(item.uri));
         holder.root.setOnClickListener(v -> {
