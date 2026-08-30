@@ -178,8 +178,8 @@ final class IncomingApproval {
                 .setAutoCancel(false)
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .addAction(0, "Decline", decline)
-                .addAction(0, "Confirm", accept);
+                .addAction(0, context.getString(R.string.decline), decline)
+                .addAction(0, context.getString(R.string.confirm), accept);
         manager.notify(NOTIFICATION_ID, builder.build());
     }
 

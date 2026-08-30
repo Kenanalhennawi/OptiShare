@@ -973,15 +973,15 @@ public final class TransferService extends Service {
             Intent pause = new Intent(this, TransferService.class).setAction(ACTION_PAUSE);
             PendingIntent pausePending = PendingIntent.getService(this, 2, pause,
                     PendingIntent.FLAG_UPDATE_CURRENT | immutable);
-            builder.addAction(0, "Pause", pausePending);
+            builder.addAction(0, getString(R.string.pause), pausePending);
         } else if (!ongoingProgress && "Transfer paused".equals(title)
                 && senderStore != null && senderStore.exists()) {
             Intent resume = new Intent(this, TransferService.class).setAction(ACTION_RESUME_PENDING);
             PendingIntent resumePending = PendingIntent.getService(this, 3, resume,
                     PendingIntent.FLAG_UPDATE_CURRENT | immutable);
-            builder.addAction(0, "Resume", resumePending);
+            builder.addAction(0, getString(R.string.resume), resumePending);
         }
-        builder.addAction(0, "Cancel", stopPending);
+        builder.addAction(0, getString(R.string.cancel), stopPending);
         if (ongoingProgress) builder.setProgress(100, progress, false);
         return builder.build();
     }

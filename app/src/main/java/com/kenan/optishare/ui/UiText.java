@@ -116,6 +116,32 @@ public final class UiText {
             case "Send text": return R.string.send_text;
             case "Nearby permission required": return R.string.nearby_permission_title;
             case "Allow Nearby Wi‑Fi devices. On Android 12 or older, Android also requires Location permission and Location services for Wi‑Fi Direct discovery.": return R.string.nearby_permission_message;
+            case "Back to nearby devices": return R.string.back_nearby;
+            case "Waiting for incoming manifest…": return R.string.waiting_manifest;
+            case "Not verified as OptiShare • use the verified OptiShare card above or scan the receiver QR": return R.string.unverified_device;
+            case "Clipboard is empty": return R.string.clipboard_empty;
+            case "Copy some text first, then try again.": return R.string.clipboard_empty_message;
+            case "Clipboard has no text": return R.string.clipboard_no_text;
+            case "The current clipboard item cannot be sent as text.": return R.string.clipboard_no_text_message;
+            case "Clipboard not added": return R.string.clipboard_not_added;
+            case "Text not added": return R.string.text_not_added;
+            case "Invalid QR": return R.string.invalid_qr;
+            case "This is not an OptiShare 2 pairing code.": return R.string.invalid_qr_code;
+            case "Pairing information is incomplete.": return R.string.invalid_qr_incomplete;
+            case "Nothing to share": return R.string.nothing_to_share;
+            case "OptiShare did not receive a file, link or text from the other app.": return R.string.nothing_to_share_message;
+            case "No pending outgoing transfer was found.": return R.string.no_pending_transfer;
+            case "Wi‑Fi Direct unavailable": return R.string.wifi_direct_unavailable;
+            case "This device does not expose Android Wi‑Fi Direct to OptiShare.": return R.string.wifi_direct_unavailable_message;
+            case "Folder ready": return R.string.folder_ready;
+            case "Folder could not be opened": return R.string.folder_open_failed;
+            case "Could not prepare apps": return R.string.apps_prepare_failed;
+            case "Could not import shared content": return R.string.shared_import_failed;
+            case "No app can open this file type.": return R.string.file_open_failed;
+            case "This file cannot be shared right now.": return R.string.file_share_failed;
+            case "The file could not be deleted.": return R.string.file_delete_failed;
+            case "No trusted devices yet. On the first secure connection choose ‘Trust this device & confirm’.": return R.string.trusted_none;
+            case "Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.": return R.string.trusted_legacy;
             default: return 0;
         }
     }

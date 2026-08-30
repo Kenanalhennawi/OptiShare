@@ -250,9 +250,9 @@ public final class ReceivedFilesActivity extends ComponentActivity {
     private void confirmDelete(Item item) {
         new android.app.AlertDialog.Builder(this)
                 .setTitle(R.string.delete_received_title)
-                .setMessage(item.name + " will be permanently removed from this phone.")
-                .setPositiveButton("Delete", (dialog, which) -> deleteItem(item))
-                .setNegativeButton("Cancel", null)
+                .setMessage(getString(R.string.delete_received_message, item.name))
+                .setPositiveButton(R.string.delete, (dialog, which) -> deleteItem(item))
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 
@@ -269,7 +269,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
                 deleted = file.getCanonicalPath().startsWith(rootPath) && file.isFile() && file.delete();
             }
         } catch (Exception error) {
-            showSimple("Android could not delete this file: " + error.getMessage());
+            showSimple(getString(R.string.delete_android_failed, error.getMessage()));
             return;
         }
         if (deleted) render(); else showSimple("The file could not be deleted.");
@@ -294,8 +294,8 @@ public final class ReceivedFilesActivity extends ComponentActivity {
     }
 
     private void showSimple(String message) {
-        new android.app.AlertDialog.Builder(this).setTitle("OptiShare").setMessage(message)
-                .setPositiveButton("OK", null).show();
+        new android.app.AlertDialog.Builder(this).setTitle("OptiShare").setMessage(UiText.get(this, message))
+                .setPositiveButton(R.string.ok, null).show();
     }
 
     private LinearLayout card() {

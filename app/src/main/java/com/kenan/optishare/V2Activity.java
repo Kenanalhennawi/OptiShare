@@ -816,7 +816,7 @@ public class V2Activity extends ComponentActivity implements
             transferCancelButton=null;
             Button back=secondaryButton("Back to nearby devices");back.setOnClickListener(v->{stopTransferService();benchmarkMode=false;pcTransferMode=false;transferStarted=false;showDiscovery();});LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(back,cp);
         }else{
-            transferCancelButton=secondaryButton("Cancel transfer");transferCancelButton.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(transferCancelButton,cp);
+            transferCancelButton=secondaryButton("Cancel transfer");transferCancelButton.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(R.string.cancel_transfer_title).setMessage(R.string.cancel_transfer_message).setPositiveButton(R.string.cancel_transfer,(d,w)->{stopTransferService();showHome();}).setNegativeButton(R.string.keep_transferring,null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(transferCancelButton,cp);
         }
         setContentView(scroll);
     }
@@ -1139,7 +1139,7 @@ public class V2Activity extends ComponentActivity implements
 
     private Bitmap makeQr(String value,int size)throws Exception{BitMatrix matrix=new MultiFormatWriter().encode(value,BarcodeFormat.QR_CODE,size,size);Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.RGB_565);for(int y=0;y<size;y++)for(int x=0;x<size;x++)bitmap.setPixel(x,y,matrix.get(x,y)?Color.BLACK:Color.WHITE);return bitmap;}
 
-    private boolean ensureNearbyReady(){if(manager==null||channel==null){showMessage("Wi‑Fi Direct unavailable","This device does not expose Android Wi‑Fi Direct to OptiShare.");return false;}if(!hasNearbyPermission()){requestNearbyPermission();return false;}if(Build.VERSION.SDK_INT<=32&&!isLocationEnabled()){new AlertDialog.Builder(this).setTitle("Turn on Location").setMessage("Android requires Location services for Wi‑Fi Direct discovery on this Android version. OptiShare does not upload your location.").setPositiveButton("Open settings",(d,w)->startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))).setNegativeButton("Cancel",null).show();return false;}return true;}
+    private boolean ensureNearbyReady(){if(manager==null||channel==null){showMessage("Wi‑Fi Direct unavailable","This device does not expose Android Wi‑Fi Direct to OptiShare.");return false;}if(!hasNearbyPermission()){requestNearbyPermission();return false;}if(Build.VERSION.SDK_INT<=32&&!isLocationEnabled()){new AlertDialog.Builder(this).setTitle(R.string.turn_on_location).setMessage(R.string.location_required_message).setPositiveButton(R.string.open_settings,(d,w)->startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))).setNegativeButton(R.string.cancel,null).show();return false;}return true;}
 
     private boolean hasNearbyPermission(){if(Build.VERSION.SDK_INT>=33)return checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)==PackageManager.PERMISSION_GRANTED;if(Build.VERSION.SDK_INT>=23)return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;return true;}
     private void requestNearbyPermission(){if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES},REQ_NEARBY);else if(Build.VERSION.SDK_INT>=23)requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION},REQ_NEARBY);}
@@ -1156,13 +1156,13 @@ public class V2Activity extends ComponentActivity implements
         final android.widget.EditText input=new android.widget.EditText(this);
         input.setMinLines(5);input.setMaxLines(12);input.setGravity(Gravity.TOP|Gravity.START);
         input.setText(initial==null?"":initial);input.setHint("Type or paste text to send securely");
-        new AlertDialog.Builder(this).setTitle("Send text").setView(input)
-                .setPositiveButton("Add to queue",(d,w)->{
+        new AlertDialog.Builder(this).setTitle(R.string.send_text).setView(input)
+                .setPositiveButton(R.string.add_to_queue,(d,w)->{
                     try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,input.getText());
                         if(!selected.contains(item.getUri()))selected.add(item.getUri());
                         FolderTransferQueue.add(item);showSendSelection();}
                     catch(Exception e){showMessage("Text not added",e.getMessage());}
-                }).setNegativeButton("Cancel",null).show();
+                }).setNegativeButton(R.string.cancel,null).show();
     }
 
     private void addClipboardToQueue(){
@@ -1212,15 +1212,15 @@ public class V2Activity extends ComponentActivity implements
         List<TrustedDeviceStore.Entry> entries=trustedStore.list();
         if(entries.isEmpty()){showMessage("Trusted devices","No trusted devices yet. On the first secure connection choose ‘Trust this device & confirm’.");return;}
         String[] labels=new String[entries.size()];
-        for(int i=0;i<entries.size();i++){TrustedDeviceStore.Entry e=entries.get(i);labels[i]=e.name+"\n"+DeviceIdentityKey.shortFingerprint(e.fingerprint)+(e.autoAccept?" • Auto-accept ON":" • Confirm files");}
-        new AlertDialog.Builder(this).setTitle("Trusted devices").setItems(labels,(d,which)->showTrustedDeviceActions(entries.get(which))).setNegativeButton("Close",null).show();
+        for(int i=0;i<entries.size();i++){TrustedDeviceStore.Entry e=entries.get(i);labels[i]=e.name+"\n"+DeviceIdentityKey.shortFingerprint(e.fingerprint)+" • "+getString(e.autoAccept?R.string.auto_accept_on:R.string.confirm_files);}
+        new AlertDialog.Builder(this).setTitle(R.string.trusted_devices).setItems(labels,(d,which)->showTrustedDeviceActions(entries.get(which))).setNegativeButton(R.string.close,null).show();
     }
 
     private void showTrustedDeviceActions(TrustedDeviceStore.Entry entry){
-        String auto=entry.autoAccept?"Turn auto-accept OFF":"Turn auto-accept ON";
-        new AlertDialog.Builder(this).setTitle(entry.name).setMessage("Fingerprint: "+DeviceIdentityKey.shortFingerprint(entry.fingerprint)+"\nAuto-accept works only after the stored device key signs the new secure session.").setItems(new String[]{auto,"Forget this device"},(d,which)->{
-            if(which==0){trustedStore.setAutoAccept(entry.fingerprint,!entry.autoAccept);showTrustedDevices();} else new AlertDialog.Builder(this).setTitle("Forget trusted device?").setMessage("The six-digit code will be required again next time.").setPositiveButton("Forget",(x,w)->{trustedStore.forget(entry.fingerprint);showTrustedDevices();}).setNegativeButton("Cancel",null).show();
-        }).setNegativeButton("Back",(d,w)->showTrustedDevices()).show();
+        String auto=getString(entry.autoAccept?R.string.auto_accept_turn_off:R.string.auto_accept_turn_on);
+        new AlertDialog.Builder(this).setTitle(entry.name).setMessage(getString(R.string.fingerprint_details,DeviceIdentityKey.shortFingerprint(entry.fingerprint))).setItems(new String[]{auto,getString(R.string.forget_device)},(d,which)->{
+            if(which==0){trustedStore.setAutoAccept(entry.fingerprint,!entry.autoAccept);showTrustedDevices();} else new AlertDialog.Builder(this).setTitle(R.string.forget_device_title).setMessage(R.string.forget_device_message).setPositiveButton(R.string.forget,(x,w)->{trustedStore.forget(entry.fingerprint);showTrustedDevices();}).setNegativeButton(R.string.cancel,null).show();
+        }).setNegativeButton(R.string.back_plain,(d,w)->showTrustedDevices()).show();
     }
 
     private void showMySecurityIdentity(){
@@ -1228,7 +1228,7 @@ public class V2Activity extends ComponentActivity implements
         try{String fp=new DeviceIdentityKey().fingerprint();showMessage("My security identity","Protected by Android Keystore\nFingerprint: "+DeviceIdentityKey.shortFingerprint(fp));}catch(Exception e){showMessage("Security identity","Could not access identity: "+e.getMessage());}
     }
 
-    private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle("Device name").setMessage("This name is used inside OptiShare.").setView(input).setPositiveButton("Save",(d,w)->{try{identity.setName(input.getText().toString());showDeviceSettings();}catch(Exception e){showMessage("Invalid name",e.getMessage());}}).setNegativeButton("Cancel",null).show();}
+    private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle(R.string.device_name).setMessage(R.string.device_name_help).setView(input).setPositiveButton(R.string.save,(d,w)->{try{identity.setName(input.getText().toString());showDeviceSettings();}catch(Exception e){showMessage(getString(R.string.invalid_name),e.getMessage());}}).setNegativeButton(R.string.cancel,null).show();}
 
     private TextView connectionBadge(String label,int color){TextView v=text(label,13,color,true);v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(10),dp(12),dp(10));v.setBackground(round(Color.argb(70,Color.red(color),Color.green(color),Color.blue(color)),14));return v;}
     private void setDiscoveryText(String value){runOnUiThread(()->{if(discoveryState!=null)discoveryState.setText(UiText.get(this,value));});}

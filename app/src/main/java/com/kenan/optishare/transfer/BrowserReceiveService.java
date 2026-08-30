@@ -411,7 +411,7 @@ public final class BrowserReceiveService extends Service {
         return new NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_optishare)
                 .setContentTitle(title).setContentText(text).setContentIntent(open)
                 .setOngoing(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_LOW)
-                .addAction(0, "Stop", stop);
+                .addAction(0, getString(R.string.stop), stop);
     }
 
     private android.app.Notification notification(String title, String text) {
@@ -421,8 +421,8 @@ public final class BrowserReceiveService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL,
-                    "Browser receive", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Local browser file receiving sessions");
+                    getString(R.string.browser_receive_channel), NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription(getString(R.string.browser_receive_channel_description));
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(channel);
         }
     }
