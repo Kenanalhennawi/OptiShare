@@ -33,6 +33,20 @@ public final class AppSettings {
     public void setLanguage(String value) { put("language", allowed(value, LANGUAGE_SYSTEM, LANGUAGE_ARABIC, LANGUAGE_ENGLISH)); }
     public String avatar() { return string("avatar", "O"); }
     public void setAvatar(String value) { put("avatar", value == null || value.length() > 4 ? "O" : value); }
+    public int avatarSkin() { return integer("avatar_skin", 2, 0, 5); }
+    public int avatarHairStyle() { return integer("avatar_hair_style", 1, 0, 4); }
+    public int avatarHairColor() { return integer("avatar_hair_color", 1, 0, 5); }
+    public int avatarBackground() { return integer("avatar_background", 0, 0, 5); }
+    public boolean avatarGlasses() { return bool("avatar_glasses", false); }
+    public boolean avatarBeard() { return bool("avatar_beard", false); }
+    public void setAvatarDesign(int skin, int hairStyle, int hairColor, int background,
+                                boolean glasses, boolean beard) {
+        preferences.edit().putInt("avatar_skin", clamp(skin, 0, 5))
+                .putInt("avatar_hair_style", clamp(hairStyle, 0, 4))
+                .putInt("avatar_hair_color", clamp(hairColor, 0, 5))
+                .putInt("avatar_background", clamp(background, 0, 5))
+                .putBoolean("avatar_glasses", glasses).putBoolean("avatar_beard", beard).apply();
+    }
     public String duplicatePolicy() { return string("duplicate_policy", DUPLICATE_KEEP_BOTH); }
     public void setDuplicatePolicy(String value) { put("duplicate_policy", allowed(value, DUPLICATE_KEEP_BOTH, DUPLICATE_ASK, DUPLICATE_SKIP_IDENTICAL)); }
     public String preferredRoute() { return string("preferred_route", ROUTE_AUTOMATIC); }
@@ -73,6 +87,9 @@ public final class AppSettings {
 
     private boolean bool(String key, boolean fallback) { return preferences.getBoolean(key, fallback); }
     private String string(String key, String fallback) { return preferences.getString(key, fallback); }
+    private int integer(String key, int fallback, int min, int max) {
+        return clamp(preferences.getInt(key, fallback), min, max);
+    }
     private void put(String key, boolean value) { preferences.edit().putBoolean(key, value).apply(); }
     private void put(String key, String value) { preferences.edit().putString(key, value).apply(); }
 
@@ -80,4 +97,5 @@ public final class AppSettings {
         if (value != null) for (String item : allowed) if (item.equals(value)) return value;
         return fallback;
     }
+    private static int clamp(int value, int min, int max) { return Math.max(min, Math.min(max, value)); }
 }
