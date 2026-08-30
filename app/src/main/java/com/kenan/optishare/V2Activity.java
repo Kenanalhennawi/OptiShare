@@ -70,6 +70,7 @@ import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
 import com.kenan.optishare.transfer.TransferService;
 import com.kenan.optishare.ui.GalleryAdapter;
+import com.kenan.optishare.ui.AvatarView;
 import com.kenan.optishare.ui.UiText;
 
 import java.text.DateFormat;
@@ -562,9 +563,8 @@ public class V2Activity extends ComponentActivity implements
 
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView logo = text(new AppSettings(this).avatar(), 24, Color.WHITE, true);
-        logo.setGravity(Gravity.CENTER);
-        logo.setBackground(gradient(Color.rgb(28,165,255), Color.rgb(91,73,245), 24));
+        AvatarView logo = new AvatarView(this);
+        logo.setContentDescription(getString(R.string.device_avatar));
         top.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
