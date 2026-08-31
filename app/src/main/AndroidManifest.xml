@@ -26,6 +26,14 @@
     <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
+    <!-- Android 11+ package visibility: enumerate launcher apps without QUERY_ALL_PACKAGES. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".OptiShareApp"
         android:allowBackup="false"
