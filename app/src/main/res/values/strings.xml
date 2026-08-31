@@ -41,4 +41,12 @@
     <string name="use_profile_photo">Use profile photo</string>
     <string name="customize_illustrated_avatar">Customize illustrated avatar</string>
     <string name="remove_profile_photo">Remove profile photo</string>
+    <string name="select_received_files">Select files to manage</string>
+    <string name="delete_selected_files">Manage %1$d selected</string>
+    <string name="received_delete_options">What should OptiShare do?</string>
+    <string name="delete_from_device">Delete permanently from device</string>
+    <string name="remove_from_received_list">Remove from OptiShare list only</string>
+    <string name="remove_from_received_list_summary">The files stay in Download/OptiShare and remain available in your file manager.</string>
+    <string name="confirm_multi_delete">Permanently delete %1$d selected file(s) from this device?</string>
+    <string name="removed_from_list">Removed from the OptiShare list. Files remain on the device.</string>
 </resources>
