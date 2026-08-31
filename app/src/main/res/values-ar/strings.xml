@@ -41,4 +41,12 @@
     <string name="use_profile_photo">استخدام صورة شخصية</string>
     <string name="customize_illustrated_avatar">تخصيص أفاتار مرسوم</string>
     <string name="remove_profile_photo">إزالة الصورة الشخصية</string>
+    <string name="select_received_files">حدد الملفات لإدارتها</string>
+    <string name="delete_selected_files">إدارة %1$d ملف محدد</string>
+    <string name="received_delete_options">ماذا تريد أن يفعل OptiShare؟</string>
+    <string name="delete_from_device">حذف نهائي من الجهاز</string>
+    <string name="remove_from_received_list">إزالة من قائمة OptiShare فقط</string>
+    <string name="remove_from_received_list_summary">ستبقى الملفات داخل Download/OptiShare ومتاحة في مدير الملفات.</string>
+    <string name="confirm_multi_delete">هل تريد حذف %1$d ملف محدد نهائياً من هذا الجهاز؟</string>
+    <string name="removed_from_list">تمت الإزالة من قائمة OptiShare وبقيت الملفات على الجهاز.</string>
 </resources>
