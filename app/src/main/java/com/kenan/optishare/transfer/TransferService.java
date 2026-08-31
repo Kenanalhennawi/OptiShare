@@ -23,7 +23,6 @@ import com.kenan.optishare.device.DeviceIdentityKey;
 import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
-import com.kenan.optishare.settings.AppSettings;
 import com.kenan.optishare.storage.FileClassifier;
 import com.kenan.optishare.storage.FolderTransferQueue;
 
@@ -81,7 +80,6 @@ public final class TransferService extends Service {
     public static final int STRIPED_TRANSFER_PORT = 49892;
 
     private static final String CHANNEL = "optishare_transfers";
-    private static final String COMPLETION_CHANNEL = "optishare_transfer_results";
     private static final int NOTIFICATION_ID = 2200;
     private static final int MAX_SOCKET_RETRIES = 8;
     private static final long APPROVAL_TIMEOUT_MS = 90_000L;
@@ -197,14 +195,8 @@ public final class TransferService extends Service {
         latestBatchDone = 0L;
         latestSpeed = 0d;
         activePeerFingerprint = null;
-        lanDiscovery.advertise(new DeviceIdentity(this).name(), PORT, new LanDiscovery.Listener() {
-            @Override public void onPeer(String name, String host) { }
-            @Override public void onStatus(String message) {
-                broadcast("receiver_ready", message + " • Wi-Fi Direct also available when supported", 0, 0, null);
-            }
-        });
-        updateNotification("Ready to receive", "Waiting via Wi-Fi Direct or the same Wi-Fi network", 0, false);
-        broadcast("receiver_ready", "Waiting via Wi-Fi Direct or same Wi-Fi…", 0, 0, null);
+        updateNotification("Starting receiver", "Opening the secure local transfer port", 0, false);
+        broadcast("receiver_starting", "Preparing the secure same-Wi-Fi receiver…", 0, 0, null);
         startParallelBenchmarkReceiver();
         startStripedReceiver();
         executor.execute(() -> {
@@ -212,6 +204,17 @@ public final class TransferService extends Service {
                 serverSocket = server;
                 server.setReuseAddress(true);
                 server.bind(new InetSocketAddress(PORT));
+                // Never publish an mDNS receiver until the advertised port is actually listening.
+                // This prevents a fast sender from resolving the service and hitting connection
+                // refused during receiver startup.
+                lanDiscovery.advertise(new DeviceIdentity(this).name(), PORT, new LanDiscovery.Listener() {
+                    @Override public void onPeer(String name, String host) { }
+                    @Override public void onStatus(String message) {
+                        broadcast("receiver_ready", message + " • Wi-Fi Direct also available when supported", 0, 0, null);
+                    }
+                });
+                updateNotification("Ready to receive", "Waiting via Wi-Fi Direct or the same Wi-Fi network", 0, false);
+                broadcast("receiver_ready", "Secure same-Wi-Fi receiver is ready", 0, 0, null);
                 while (running.get()) {
                     Socket socket = server.accept();
                     if (!allowIncomingHandshake(socket)) continue;
@@ -553,7 +556,6 @@ public final class TransferService extends Service {
 
 
     private boolean shouldUseStripedTransfer() {
-        if (!new AppSettings(this).smartRoute()) return false;
         if (!RoutePerformanceStore.ROUTE_LAN.equals(currentRoute) || !routeStore.parallelRecommended()) return false;
         if (activeItems == null || activeManifest == null || activeItems.size() != 1 || activeManifest.getEntries().size() != 1) return false;
         if (activeItems.get(0).getSize() < StripedTransferEngine.MIN_FILE_BYTES) return false;
@@ -717,7 +719,6 @@ public final class TransferService extends Service {
                                 activeManifest.getSessionId());
                         return;
                     }
-                    if (!new AppSettings(this).resumeAfterDisconnect()) throw transferError;
                     boolean directRecovered = false;
                     if (RoutePerformanceStore.ROUTE_DIRECT.equals(currentRoute)
                             && peerAddress != null && wifiRecovery.available()) {
@@ -948,14 +949,10 @@ public final class TransferService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(
-                    CHANNEL, getString(R.string.transfer_channel_name), NotificationManager.IMPORTANCE_LOW);
+                    CHANNEL, "File transfers", NotificationManager.IMPORTANCE_LOW);
             channel.setDescription("Active encrypted OptiShare local file transfers");
-            NotificationChannel completion = new NotificationChannel(
-                    COMPLETION_CHANNEL, getString(R.string.transfer_results_channel_name), NotificationManager.IMPORTANCE_DEFAULT);
-            completion.setDescription(getString(R.string.transfer_results_channel_description));
-            NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-            manager.createNotificationChannel(channel);
-            manager.createNotificationChannel(completion);
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                    .createNotificationChannel(channel);
         }
     }
 
@@ -968,12 +965,7 @@ public final class TransferService extends Service {
         Intent stop = new Intent(this, TransferService.class).setAction(ACTION_STOP);
         PendingIntent stopPending = PendingIntent.getService(this, 1, stop,
                 PendingIntent.FLAG_UPDATE_CURRENT | immutable);
-        AppSettings userSettings = new AppSettings(this);
-        boolean completion = !ongoingProgress && title != null
-                && (title.toLowerCase(Locale.US).contains("complete")
-                || title.toLowerCase(Locale.US).contains("stopped")
-                || title.toLowerCase(Locale.US).contains("failed"));
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, completion ? COMPLETION_CHANNEL : CHANNEL)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_optishare)
                 .setContentTitle(title)
                 .setContentText(text)
@@ -981,23 +973,20 @@ public final class TransferService extends Service {
                 .setContentIntent(pending)
                 .setOnlyAlertOnce(true)
                 .setOngoing(ongoingProgress);
-        builder.setSilent(ongoingProgress || !userSettings.soundEnabled()
-                || (completion && !userSettings.completionSound()));
-        if (completion && !userSettings.completionNotifications()) builder.setTimeoutAfter(1L);
 
         if (ongoingProgress && activeManifest != null && activeItems != null) {
             Intent pause = new Intent(this, TransferService.class).setAction(ACTION_PAUSE);
             PendingIntent pausePending = PendingIntent.getService(this, 2, pause,
                     PendingIntent.FLAG_UPDATE_CURRENT | immutable);
-            builder.addAction(0, getString(R.string.pause), pausePending);
+            builder.addAction(0, "Pause", pausePending);
         } else if (!ongoingProgress && "Transfer paused".equals(title)
                 && senderStore != null && senderStore.exists()) {
             Intent resume = new Intent(this, TransferService.class).setAction(ACTION_RESUME_PENDING);
             PendingIntent resumePending = PendingIntent.getService(this, 3, resume,
                     PendingIntent.FLAG_UPDATE_CURRENT | immutable);
-            builder.addAction(0, getString(R.string.resume), resumePending);
+            builder.addAction(0, "Resume", resumePending);
         }
-        builder.addAction(0, getString(R.string.cancel), stopPending);
+        builder.addAction(0, "Cancel", stopPending);
         if (ongoingProgress) builder.setProgress(100, progress, false);
         return builder.build();
     }
