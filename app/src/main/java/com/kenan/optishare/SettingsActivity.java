@@ -62,8 +62,7 @@ public final class SettingsActivity extends Activity {
         super.onActivityResult(requestCode,resultCode,data);
         if(requestCode!=REQ_AVATAR_PHOTO||resultCode!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
-        int flags=data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION;
-        try{getContentResolver().takePersistableUriPermission(uri,flags);}catch(Exception ignored){}
+        try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
         settingsStore.setAvatarPhotoUri(uri.toString());
         render();
     }
