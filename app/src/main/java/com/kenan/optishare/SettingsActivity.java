@@ -36,6 +36,7 @@ import java.util.Locale;
 
 /** Responsive settings hub. It intentionally contains no account or cloud profile. */
 public final class SettingsActivity extends Activity {
+    private static final int REQ_AVATAR_PHOTO=4107;
     private AppSettings settingsStore;
     private DeviceIdentity identity;
     private boolean dark;
@@ -54,6 +55,16 @@ public final class SettingsActivity extends Activity {
         settingsStore = new AppSettings(this);
         identity = new DeviceIdentity(this);
         resolvePalette();
+        render();
+    }
+
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode!=REQ_AVATAR_PHOTO||resultCode!=RESULT_OK||data==null||data.getData()==null)return;
+        Uri uri=data.getData();
+        int flags=data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION;
+        try{getContentResolver().takePersistableUriPermission(uri,flags);}catch(Exception ignored){}
+        settingsStore.setAvatarPhotoUri(uri.toString());
         render();
     }
 
@@ -266,7 +277,24 @@ public final class SettingsActivity extends Activity {
                 }).setNegativeButton(R.string.cancel, null).show();
     }
 
-    private void chooseAvatar() {
+    private void chooseAvatar(){
+        String[] choices={getString(R.string.use_profile_photo),getString(R.string.customize_illustrated_avatar),getString(R.string.remove_profile_photo)};
+        new AlertDialog.Builder(this).setTitle(R.string.choose_avatar).setItems(choices,(dialog,which)->{
+            if(which==0){
+                Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+                pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(pick,REQ_AVATAR_PHOTO);
+            }else if(which==1){
+                settingsStore.setAvatarPhotoUri("");
+                showAvatarDesigner();
+            }else{
+                settingsStore.setAvatarPhotoUri("");
+                render();
+            }
+        }).setNegativeButton(R.string.cancel,null).show();
+    }
+
+    private void showAvatarDesigner() {
         LinearLayout editor=new LinearLayout(this);editor.setOrientation(LinearLayout.VERTICAL);editor.setPadding(dp(22),dp(10),dp(22),dp(4));
         AvatarView preview=new AvatarView(this);LinearLayout previewRow=new LinearLayout(this);previewRow.setGravity(Gravity.CENTER);previewRow.addView(preview,new LinearLayout.LayoutParams(dp(150),dp(150)));editor.addView(previewRow);
         LinearLayout first=new LinearLayout(this);first.setOrientation(LinearLayout.HORIZONTAL);
