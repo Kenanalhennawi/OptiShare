@@ -33,6 +33,8 @@ public final class AppSettings {
     public void setLanguage(String value) { put("language", allowed(value, LANGUAGE_SYSTEM, LANGUAGE_ARABIC, LANGUAGE_ENGLISH)); }
     public String avatar() { return string("avatar", "O"); }
     public void setAvatar(String value) { put("avatar", value == null || value.length() > 4 ? "O" : value); }
+    public String avatarPhotoUri() { return string("avatar_photo_uri", ""); }
+    public void setAvatarPhotoUri(String value) { put("avatar_photo_uri", value == null ? "" : value); }
     public int avatarSkin() { return integer("avatar_skin", 2, 0, 5); }
     public int avatarHairStyle() { return integer("avatar_hair_style", 1, 0, 4); }
     public int avatarHairColor() { return integer("avatar_hair_color", 1, 0, 5); }
