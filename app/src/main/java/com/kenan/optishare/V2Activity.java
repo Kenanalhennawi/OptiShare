@@ -712,7 +712,9 @@ public class V2Activity extends ComponentActivity implements
 
     private View queueSelectionRow(int index){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(5),0,dp(5));
-        TextView label=text((index+1)+". "+displayName(selected.get(index)),12,Color.WHITE,false);label.setMaxLines(2);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        Uri queued=selected.get(index);
+        long queuedBytes=querySize(queued);
+        TextView label=text((index+1)+". "+displayName(queued)+"\n"+formatBytes(queuedBytes),12,Color.WHITE,false);label.setMaxLines(3);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         Button up=smallButton("↑");up.setEnabled(index>0);up.setAlpha(index>0?1f:.35f);up.setOnClickListener(v->moveQueueItem(index,index-1));row.addView(up,new LinearLayout.LayoutParams(dp(42),dp(40)));
         Button down=smallButton("↓");down.setEnabled(index<selected.size()-1);down.setAlpha(index<selected.size()-1?1f:.35f);down.setOnClickListener(v->moveQueueItem(index,index+1));LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(dp(42),dp(40));dl.setMargins(dp(5),0,0,0);row.addView(down,dl);
         Button remove=smallButton("×");remove.setOnClickListener(v->removeQueueItem(index));LinearLayout.LayoutParams rl=new LinearLayout.LayoutParams(dp(42),dp(40));rl.setMargins(dp(5),0,0,0);row.addView(remove,rl);
@@ -816,9 +818,11 @@ public class V2Activity extends ComponentActivity implements
         recycler.setPadding(0,0,0,dp(16));
         recycler.setLayoutManager(new GridLayoutManager(this,"audio".equals(type)?2:3));
         Set<Uri> initial=new HashSet<>(selected);
-        GalleryAdapter adapter=new GalleryAdapter(type,initial,set->{
+        GalleryAdapter adapter=new GalleryAdapter(type,initial,(set,bytes)->{
+            selected.clear();
+            selected.addAll(set);
             int count=set.size();
-            selectedCount.setText(count+" selected");
+            selectedCount.setText(count+" selected • "+formatBytes(selectedTotalBytes()));
             done.setEnabled(count>0);
             done.setAlpha(count>0?1f:.55f);
         });
