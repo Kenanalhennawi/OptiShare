@@ -40,7 +40,7 @@ public final class MediaRepository {
     public List<MediaItem> load(String type, int limit, int offset) {
         List<MediaItem> result = new ArrayList<>();
         if (limit <= 0) return result;
-        limit = Math.min(limit, 500);
+        limit = Math.min(limit, 2000);
         offset = Math.max(0, offset);
 
         Uri collection;
