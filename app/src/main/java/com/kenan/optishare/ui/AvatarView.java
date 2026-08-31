@@ -1,15 +1,25 @@
 package com.kenan.optishare.ui;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.Shader;
+import android.net.Uri;
+import android.os.Build;
+import android.util.Size;
 import android.util.AttributeSet;
 import android.view.View;
 
 import com.kenan.optishare.settings.AppSettings;
+
+import java.io.InputStream;
 
 /** Lightweight local avatar renderer. No photo, account, network request, or personal data is used. */
 public final class AvatarView extends View {
@@ -19,15 +29,17 @@ public final class AvatarView extends View {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private int skin,hairStyle,hairColor,background;
     private boolean glasses,beard;
+    private Bitmap photoBitmap;
 
     public AvatarView(Context context){super(context);load(context);}
     public AvatarView(Context context, AttributeSet attrs){super(context,attrs);load(context);}
-    private void load(Context context){AppSettings s=new AppSettings(context);configure(s.avatarSkin(),s.avatarHairStyle(),s.avatarHairColor(),s.avatarBackground(),s.avatarGlasses(),s.avatarBeard());}
+    private void load(Context context){AppSettings s=new AppSettings(context);configure(s.avatarSkin(),s.avatarHairStyle(),s.avatarHairColor(),s.avatarBackground(),s.avatarGlasses(),s.avatarBeard());photoBitmap=loadPhoto(context,s.avatarPhotoUri());}
     public void configure(int skin,int hairStyle,int hairColor,int background,boolean glasses,boolean beard){this.skin=clamp(skin,SKINS.length);this.hairStyle=clamp(hairStyle,5);this.hairColor=clamp(hairColor,HAIR.length);this.background=clamp(background,BACK.length);this.glasses=glasses;this.beard=beard;invalidate();}
     public int skin(){return skin;} public int hairStyle(){return hairStyle;} public int hairColor(){return hairColor;} public int background(){return background;} public boolean glasses(){return glasses;} public boolean beard(){return beard;}
 
     @Override protected void onDraw(Canvas c){super.onDraw(c);float w=getWidth(),h=getHeight(),u=Math.min(w,h)/100f,cx=w/2f;paint.setStyle(Paint.Style.FILL);
         paint.setColor(BACK[background]);c.drawCircle(cx,h/2f,49*u,paint);
+        if(photoBitmap!=null){BitmapShader shader=new BitmapShader(photoBitmap,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);float scale=Math.max((94*u)/photoBitmap.getWidth(),(94*u)/photoBitmap.getHeight());Matrix matrix=new Matrix();matrix.setScale(scale,scale);matrix.postTranslate(cx-photoBitmap.getWidth()*scale/2f,h/2f-photoBitmap.getHeight()*scale/2f);shader.setLocalMatrix(matrix);paint.setShader(shader);c.drawCircle(cx,h/2f,47*u,paint);paint.setShader(null);return;}
         paint.setColor(0x22000000);c.drawCircle(cx+5*u,h/2f+5*u,43*u,paint);
         paint.setColor(shirt());c.drawRoundRect(new RectF(cx-32*u,72*u,cx+32*u,112*u),22*u,22*u,paint);
         paint.setColor(SKINS[skin]);c.drawRoundRect(new RectF(cx-9*u,62*u,cx+9*u,80*u),7*u,7*u,paint);c.drawCircle(cx-24*u,46*u,7*u,paint);c.drawCircle(cx+24*u,46*u,7*u,paint);c.drawOval(new RectF(cx-25*u,17*u,cx+25*u,72*u),paint);
@@ -46,4 +58,16 @@ public final class AvatarView extends View {
     }
     private int shirt(){return Color.rgb(Math.max(20,Color.red(BACK[background])-35),Math.max(30,Color.green(BACK[background])-20),Math.min(255,Color.blue(BACK[background])+25));}
     private static int clamp(int value,int length){return Math.max(0,Math.min(length-1,value));}
+    private static Bitmap loadPhoto(Context context,String value){
+        if(value==null||value.trim().isEmpty())return null;
+        Uri uri=Uri.parse(value);
+        try{
+            if(Build.VERSION.SDK_INT>=29)return context.getContentResolver().loadThumbnail(uri,new Size(512,512),null);
+            BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+            try(InputStream in=context.getContentResolver().openInputStream(uri)){BitmapFactory.decodeStream(in,null,bounds);}
+            int sample=1;while(bounds.outWidth/sample>768||bounds.outHeight/sample>768)sample*=2;
+            BitmapFactory.Options options=new BitmapFactory.Options();options.inSampleSize=sample;
+            try(InputStream in=context.getContentResolver().openInputStream(uri)){return BitmapFactory.decodeStream(in,null,options);}
+        }catch(Exception ignored){return null;}
+    }
 }
