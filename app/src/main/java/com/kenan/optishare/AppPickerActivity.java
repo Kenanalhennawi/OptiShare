@@ -1,111 +1,113 @@
 package com.kenan.optishare;
 
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
 import androidx.activity.ComponentActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.kenan.optishare.ui.UiText;
-import com.kenan.optishare.settings.LocaleSupport;
-import com.kenan.optishare.settings.Appearance;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
+import java.util.Set;
 
-/** Privacy-conscious picker limited to apps visible in the device launcher. */
+/** Scroll-safe picker showing only enabled, user-installed launcher apps. */
 public final class AppPickerActivity extends ComponentActivity {
-    public static final String EXTRA_PACKAGES = "packages";
-    private final Map<String, CheckBox> choices = new LinkedHashMap<>();
+    public static final String EXTRA_PACKAGES="packages";
+    private final Set<String> selected=new HashSet<>();
+    private Button addButton;
 
-    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(LocaleSupport.wrap(base)); }
-
-    @Override protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        render();
+    private static final class AppEntry {
+        final String label,packageName;
+        final Drawable icon;
+        final long bytes;
+        AppEntry(String label,String packageName,Drawable icon,long bytes){this.label=label;this.packageName=packageName;this.icon=icon;this.bytes=bytes;}
     }
 
-    private void render() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Appearance.background(this));
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(22), dp(20), dp(28));
-        LinearLayout wrapper=new LinearLayout(this);wrapper.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);
-        wrapper.addView(root,new LinearLayout.LayoutParams(Math.min(getResources().getDisplayMetrics().widthPixels,dp(840)),-2));
-        scroll.addView(wrapper,new ScrollView.LayoutParams(-1,-2));
+    @Override protected void onCreate(Bundle state){super.onCreate(state);render();}
 
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        Button back = button("‹ Back"); back.setOnClickListener(v -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(dp(88), dp(44)));
-        TextView title = text("Installed apps", 25, Color.WHITE, true);
-        title.setPadding(dp(12), 0, 0, 0);
-        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        root.addView(header);
+    private void render(){
+        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(18),dp(16),dp(18),dp(12));page.setBackgroundColor(Color.rgb(5,20,38));
 
-        Button add = primary("Add selected apps to queue");
-        add.setOnClickListener(v -> finishSelection());
-        LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(-1, dp(54));
-        addLp.setMargins(0, dp(16), 0, dp(14)); root.addView(add, addLp);
-        root.addView(text("Standard apps are sent as APK. Apps installed as split packages are bundled as APKS so every required component is preserved.", 12, Color.rgb(151, 188, 214), false));
+        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
+        Button back=button("‹ Back");back.setOnClickListener(v->finish());header.addView(back,new LinearLayout.LayoutParams(dp(88),dp(44)));
+        LinearLayout titleBox=new LinearLayout(this);titleBox.setOrientation(LinearLayout.VERTICAL);titleBox.setPadding(dp(12),0,0,0);
+        titleBox.addView(text("Installed apps",25,Color.WHITE,true));titleBox.addView(text("User-installed apps only",12,Color.rgb(143,183,212),false));
+        header.addView(titleBox,new LinearLayout.LayoutParams(0,-2,1));page.addView(header);
 
-        PackageManager pm = getPackageManager();
-        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> apps = new ArrayList<>(pm.queryIntentActivities(launcher, PackageManager.MATCH_ALL));
-        apps.sort(Comparator.comparing(x -> x.loadLabel(pm).toString(), String.CASE_INSENSITIVE_ORDER));
-        for (ResolveInfo resolved : apps) {
-            if (resolved.activityInfo == null || resolved.activityInfo.applicationInfo == null) continue;
-            ApplicationInfo info = resolved.activityInfo.applicationInfo;
-            if (getPackageName().equals(info.packageName) || choices.containsKey(info.packageName)) continue;
-            LinearLayout row = new LinearLayout(this);
-            row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(12), dp(10), dp(12), dp(10));
-            row.setBackground(round(Appearance.surface(this), 16));
-            ImageView icon = new ImageView(this); icon.setImageDrawable(info.loadIcon(pm));
-            row.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
-            LinearLayout infoBox = new LinearLayout(this); infoBox.setOrientation(LinearLayout.VERTICAL); infoBox.setPadding(dp(12),0,0,0);
-            infoBox.addView(text(info.loadLabel(pm).toString(), 14, Color.WHITE, true));
-            infoBox.addView(text(info.packageName+"  •  "+humanBytes(appBytes(info)), 10, Color.rgb(132, 170, 199), false));
-            row.addView(infoBox, new LinearLayout.LayoutParams(0, -2, 1));
-            CheckBox check = new CheckBox(this); check.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(70, 194, 255)));
-            row.addView(check, new LinearLayout.LayoutParams(dp(48), dp(48))); choices.put(info.packageName, check);
-            row.setOnClickListener(v -> check.setChecked(!check.isChecked()));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(0, dp(10), 0, 0); root.addView(row, lp);
+        addButton=primary("Select apps");
+        addButton.setEnabled(false);addButton.setAlpha(.5f);addButton.setOnClickListener(v->finishSelection());
+        LinearLayout.LayoutParams addLp=new LinearLayout.LayoutParams(-1,dp(54));addLp.setMargins(0,dp(14),0,dp(10));page.addView(addButton,addLp);
+        TextView hint=text("App size includes the base APK and all required split APK files.",11,Color.rgb(142,179,207),false);hint.setPadding(dp(4),0,dp(4),dp(8));page.addView(hint);
+
+        RecyclerView list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));list.setClipToPadding(false);list.setPadding(0,0,0,dp(16));list.setAdapter(new AppsAdapter(loadUserApps()));
+        page.addView(list,new LinearLayout.LayoutParams(-1,0,1));setContentView(page);
+    }
+
+    private List<AppEntry> loadUserApps(){
+        PackageManager pm=getPackageManager();Intent launcher=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> resolved=pm.queryIntentActivities(launcher,PackageManager.MATCH_ALL);List<AppEntry> result=new ArrayList<>();Set<String> seen=new HashSet<>();
+        for(ResolveInfo item:resolved){
+            if(item.activityInfo==null||item.activityInfo.applicationInfo==null)continue;
+            ApplicationInfo info=item.activityInfo.applicationInfo;
+            if(!info.enabled||getPackageName().equals(info.packageName)||!seen.add(info.packageName))continue;
+            if((info.flags&ApplicationInfo.FLAG_SYSTEM)!=0||(info.flags&ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0)continue;
+            result.add(new AppEntry(item.loadLabel(pm).toString(),info.packageName,info.loadIcon(pm),appBytes(info)));
         }
-        setContentView(scroll);
+        result.sort(Comparator.comparing(x->x.label,String.CASE_INSENSITIVE_ORDER));return result;
     }
 
-    private void finishSelection() {
-        ArrayList<String> selected = new ArrayList<>();
-        for (Map.Entry<String, CheckBox> entry : choices.entrySet()) if (entry.getValue().isChecked()) selected.add(entry.getKey());
-        setResult(RESULT_OK, new Intent().putStringArrayListExtra(EXTRA_PACKAGES, selected));
-        finish();
+    private final class AppsAdapter extends RecyclerView.Adapter<AppsAdapter.Holder>{
+        private final List<AppEntry> apps;
+        AppsAdapter(List<AppEntry> apps){this.apps=apps;setHasStableIds(true);}
+        @Override public long getItemId(int position){return apps.get(position).packageName.hashCode();}
+        @NonNull @Override public Holder onCreateViewHolder(@NonNull ViewGroup parent,int type){
+            LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(10),dp(12),dp(10));row.setBackground(round(Color.rgb(12,42,69),18));
+            ImageView icon=new ImageView(parent.getContext());row.addView(icon,new LinearLayout.LayoutParams(dp(52),dp(52)));
+            LinearLayout copy=new LinearLayout(parent.getContext());copy.setOrientation(LinearLayout.VERTICAL);copy.setPadding(dp(13),0,dp(6),0);
+            TextView label=text("",15,Color.WHITE,true);TextView meta=text("",11,Color.rgb(140,178,207),false);copy.addView(label);copy.addView(meta);row.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+            CheckBox check=new CheckBox(parent.getContext());check.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(70,194,255)));row.addView(check,new LinearLayout.LayoutParams(dp(48),dp(48)));
+            RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(9));row.setLayoutParams(lp);return new Holder(row,icon,label,meta,check);
+        }
+        @Override public void onBindViewHolder(@NonNull Holder h,int position){
+            AppEntry app=apps.get(position);h.icon.setImageDrawable(app.icon);h.label.setText(app.label);h.meta.setText(humanBytes(app.bytes)+"  •  "+app.packageName);
+            h.check.setOnCheckedChangeListener(null);h.check.setChecked(selected.contains(app.packageName));
+            View.OnClickListener toggle=v->{if(!selected.add(app.packageName))selected.remove(app.packageName);h.check.setChecked(selected.contains(app.packageName));updateAction();};
+            h.root.setOnClickListener(toggle);h.check.setOnClickListener(toggle);
+        }
+        @Override public int getItemCount(){return apps.size();}
+        final class Holder extends RecyclerView.ViewHolder{final LinearLayout root;final ImageView icon;final TextView label,meta;final CheckBox check;Holder(LinearLayout root,ImageView icon,TextView label,TextView meta,CheckBox check){super(root);this.root=root;this.icon=icon;this.label=label;this.meta=meta;this.check=check;}}
     }
 
+    private void updateAction(){int count=selected.size();addButton.setText(count==0?UiText.get(this,"Select apps"):UiText.get(this,"Add "+count+" app"+(count==1?"":"s")+" to queue"));addButton.setEnabled(count>0);addButton.setAlpha(count>0?1f:.5f);}
+    private void finishSelection(){setResult(RESULT_OK,new Intent().putStringArrayListExtra(EXTRA_PACKAGES,new ArrayList<>(selected)));finish();}
     private long appBytes(ApplicationInfo info){long total=fileBytes(info.sourceDir);if(info.splitSourceDirs!=null)for(String path:info.splitSourceDirs){long size=fileBytes(path);if(Long.MAX_VALUE-total<size)return Long.MAX_VALUE;total+=size;}return total;}
     private long fileBytes(String path){if(path==null)return 0L;try{return Math.max(0L,new File(path).length());}catch(Exception ignored){return 0L;}}
     private String humanBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024d*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.1f MB",b/(1024d*1024));if(b>=1024)return String.format(Locale.US,"%.0f KB",b/1024d);return b+" B";}
-
-    private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Appearance.text(this,Color.WHITE));b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Appearance.secondarySurface(this),14));return b;}
-    private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(round(Color.rgb(34,122,231),16));return b;}
-    private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextColor(Appearance.text(this,color));t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
+    private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Color.rgb(22,73,111),14));return b;}
+    private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(round(Color.rgb(34,122,231),18));return b;}
+    private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextColor(color);t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }
