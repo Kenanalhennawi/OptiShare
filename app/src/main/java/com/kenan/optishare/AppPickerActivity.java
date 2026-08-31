@@ -22,11 +22,13 @@ import com.kenan.optishare.ui.UiText;
 import com.kenan.optishare.settings.LocaleSupport;
 import com.kenan.optishare.settings.Appearance;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 /** Privacy-conscious picker limited to apps visible in the device launcher. */
 public final class AppPickerActivity extends ComponentActivity {
@@ -80,7 +82,7 @@ public final class AppPickerActivity extends ComponentActivity {
             row.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
             LinearLayout infoBox = new LinearLayout(this); infoBox.setOrientation(LinearLayout.VERTICAL); infoBox.setPadding(dp(12),0,0,0);
             infoBox.addView(text(info.loadLabel(pm).toString(), 14, Color.WHITE, true));
-            infoBox.addView(text(info.packageName, 10, Color.rgb(132, 170, 199), false));
+            infoBox.addView(text(info.packageName+"  •  "+humanBytes(appBytes(info)), 10, Color.rgb(132, 170, 199), false));
             row.addView(infoBox, new LinearLayout.LayoutParams(0, -2, 1));
             CheckBox check = new CheckBox(this); check.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(70, 194, 255)));
             row.addView(check, new LinearLayout.LayoutParams(dp(48), dp(48))); choices.put(info.packageName, check);
@@ -96,6 +98,10 @@ public final class AppPickerActivity extends ComponentActivity {
         setResult(RESULT_OK, new Intent().putStringArrayListExtra(EXTRA_PACKAGES, selected));
         finish();
     }
+
+    private long appBytes(ApplicationInfo info){long total=fileBytes(info.sourceDir);if(info.splitSourceDirs!=null)for(String path:info.splitSourceDirs){long size=fileBytes(path);if(Long.MAX_VALUE-total<size)return Long.MAX_VALUE;total+=size;}return total;}
+    private long fileBytes(String path){if(path==null)return 0L;try{return Math.max(0L,new File(path).length());}catch(Exception ignored){return 0L;}}
+    private String humanBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024d*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.1f MB",b/(1024d*1024));if(b>=1024)return String.format(Locale.US,"%.0f KB",b/1024d);return b+" B";}
 
     private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Appearance.text(this,Color.WHITE));b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Appearance.secondarySurface(this),14));return b;}
     private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(round(Color.rgb(34,122,231),16));return b;}
