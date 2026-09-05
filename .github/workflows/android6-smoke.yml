@@ -69,7 +69,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Build, install and run tests on Android 6
+      - name: Build, install and run compatibility tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api_level }}
@@ -84,14 +84,10 @@ jobs:
             adb shell am force-stop com.kenan.optishare.debug || true
             adb shell monkey -p com.kenan.optishare.debug -c android.intent.category.LAUNCHER 1
             sleep 5
-            if ! adb shell pidof com.kenan.optishare.debug | grep -q '[0-9]'; then
-              echo "::error::OptiShare did not stay running on Android API ${{ matrix.api_level }}"
-              adb logcat -d -t 300
-              exit 1
-            fi
+            adb shell pidof com.kenan.optishare.debug | grep -q '[0-9]' || (echo "::error::OptiShare did not stay running on Android API ${{ matrix.api_level }}"; adb logcat -d -t 300; exit 1)
             gradle --no-daemon --stacktrace connectedDebugAndroidTest
 
-      - name: Upload Android 6 test reports
+      - name: Upload compatibility test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
