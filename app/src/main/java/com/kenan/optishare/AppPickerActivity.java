@@ -52,7 +52,7 @@ public final class AppPickerActivity extends ComponentActivity {
 
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         Button back=button("‹ Back");back.setOnClickListener(v->finish());header.addView(back,new LinearLayout.LayoutParams(dp(88),dp(44)));
-        LinearLayout titleBox=new LinearLayout(this);titleBox.setOrientation(LinearLayout.VERTICAL);titleBox.setPadding(dp(12),0,0,0);
+        LinearLayout titleBox=new LinearLayout(this);titleBox.setOrientation(LinearLayout.VERTICAL);titleBox.setPaddingRelative(dp(12),0,0,0);
         titleBox.addView(text(getString(R.string.installed_apps),25,Color.WHITE,true));titleBox.addView(text(getString(R.string.user_installed_apps_only),12,Color.rgb(143,183,212),false));
         header.addView(titleBox,new LinearLayout.LayoutParams(0,-2,1));page.addView(header);
 
@@ -85,7 +85,7 @@ public final class AppPickerActivity extends ComponentActivity {
         @NonNull @Override public Holder onCreateViewHolder(@NonNull ViewGroup parent,int type){
             LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(10),dp(12),dp(10));row.setBackground(vivid(new int[]{Color.rgb(24,65,96),Color.rgb(12,39,68),Color.rgb(35,25,76)},22));if(android.os.Build.VERSION.SDK_INT>=21)row.setElevation(dp(8));
             ImageView icon=new ImageView(parent.getContext());icon.setPadding(dp(7),dp(7),dp(7),dp(7));GradientDrawable iconHalo=round(Color.argb(48,255,255,255),28);iconHalo.setShape(GradientDrawable.OVAL);iconHalo.setStroke(dp(1),Color.argb(115,255,255,255));icon.setBackground(iconHalo);row.addView(icon,new LinearLayout.LayoutParams(dp(58),dp(58)));
-            LinearLayout copy=new LinearLayout(parent.getContext());copy.setOrientation(LinearLayout.VERTICAL);copy.setPadding(dp(13),0,dp(6),0);
+            LinearLayout copy=new LinearLayout(parent.getContext());copy.setOrientation(LinearLayout.VERTICAL);copy.setPaddingRelative(dp(13),0,dp(6),0);
             TextView label=text("",15,Color.WHITE,true);TextView meta=text("",11,Color.rgb(140,178,207),false);copy.addView(label);copy.addView(meta);row.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
             CheckBox check=new CheckBox(parent.getContext());check.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(70,194,255)));row.addView(check,new LinearLayout.LayoutParams(dp(48),dp(48)));
             RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(9));row.setLayoutParams(lp);return new Holder(row,icon,label,meta,check);

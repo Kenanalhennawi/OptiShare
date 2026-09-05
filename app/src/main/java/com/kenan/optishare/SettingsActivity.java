@@ -108,7 +108,7 @@ public final class SettingsActivity extends Activity {
         header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
         LinearLayout title = new LinearLayout(this);
         title.setOrientation(LinearLayout.VERTICAL);
-        title.setPadding(dp(12), 0, 0, 0);
+        title.setPaddingRelative(dp(12), 0, 0, 0);
         title.addView(label(getString(R.string.settings), 25, primaryText, true));
         title.addView(label(getString(R.string.settings_subtitle), 12, secondaryText, false));
         header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
@@ -130,7 +130,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = section(page, R.string.device_and_visibility);
         LinearLayout profile=new LinearLayout(this);profile.setGravity(Gravity.CENTER_VERTICAL);profile.setPadding(dp(8),dp(10),dp(8),dp(10));
         AvatarView avatar=new AvatarView(this);profile.addView(avatar,new LinearLayout.LayoutParams(dp(68),dp(68)));
-        LinearLayout profileCopy=new LinearLayout(this);profileCopy.setOrientation(LinearLayout.VERTICAL);profileCopy.setPadding(dp(14),0,0,0);profileCopy.addView(label(identity.name(),17,primaryText,true));profileCopy.addView(label(getString(R.string.device_profile_summary),12,secondaryText,false));profile.addView(profileCopy,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout profileCopy=new LinearLayout(this);profileCopy.setOrientation(LinearLayout.VERTICAL);profileCopy.setPaddingRelative(dp(14),0,0,0);profileCopy.addView(label(identity.name(),17,primaryText,true));profileCopy.addView(label(getString(R.string.device_profile_summary),12,secondaryText,false));profile.addView(profileCopy,new LinearLayout.LayoutParams(0,-2,1));
         profile.setClickable(true);profile.setFocusable(true);profile.setOnClickListener(v->renameDevice());card.addView(profile,new LinearLayout.LayoutParams(-1,-2));
         row(card, getString(R.string.choose_avatar), getString(R.string.customize_avatar_summary), this::chooseAvatar);
         row(card, getString(R.string.trusted_devices), getString(R.string.trusted_count, new TrustedDeviceStore(this).list().size()), this::openTrustedDevices);
@@ -253,7 +253,7 @@ public final class SettingsActivity extends Activity {
                         BooleanConsumer changed, boolean rerender) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), dp(10), dp(4), dp(10));
+        row.setPaddingRelative(dp(8), dp(10), dp(4), dp(10));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
         copy.addView(label(getString(titleId), 15, primaryText, true));

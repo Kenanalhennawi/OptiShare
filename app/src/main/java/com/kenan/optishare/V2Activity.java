@@ -570,7 +570,7 @@ public class V2Activity extends ComponentActivity implements
         top.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        titleBox.setPadding(dp(12),0,0,0);
+        titleBox.setPaddingRelative(dp(12),0,0,0);
         titleBox.addView(text("OptiShare 2", 29, Color.WHITE, true));
         titleBox.addView(text(identity.name() + " • Private local sharing", 12, Color.rgb(157,198,228), false));
         top.addView(titleBox, new LinearLayout.LayoutParams(0,-2,1));
@@ -680,16 +680,16 @@ public class V2Activity extends ComponentActivity implements
         Button photos=smallButton("Photos"); photos.setOnClickListener(v->openInternalGallery("image"));
         Button videos=smallButton("Videos"); videos.setOnClickListener(v->openInternalGallery("video"));
         Button files=smallButton("Files"); files.setOnClickListener(v->openExternal("*/*"));
-        tabs.addView(photos,new LinearLayout.LayoutParams(0,dp(46),1));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);p.setMargins(dp(8),0,0,0);tabs.addView(videos,p);
-        LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(46),1);p2.setMargins(dp(8),0,0,0);tabs.addView(files,p2);root.addView(tabs);
+        LinearLayout.LayoutParams photosLp=new LinearLayout.LayoutParams(0,dp(46),1);photosLp.setMargins(dp(4),0,dp(4),0);tabs.addView(photos,photosLp);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);p.setMargins(dp(4),0,dp(4),0);tabs.addView(videos,p);
+        LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(46),1);p2.setMargins(dp(4),0,dp(4),0);tabs.addView(files,p2);root.addView(tabs);
         LinearLayout addRow=new LinearLayout(this);addRow.setOrientation(LinearLayout.HORIZONTAL);
         Button folder=smallButton("Folder");folder.setOnClickListener(v->openFolder());
         Button textBtn=smallButton("Text");textBtn.setOnClickListener(v->showTextComposer(null));
         Button clipBtn=smallButton("Clipboard");clipBtn.setOnClickListener(v->addClipboardToQueue());
-        addRow.addView(folder,new LinearLayout.LayoutParams(0,dp(46),1));
-        LinearLayout.LayoutParams ar1=new LinearLayout.LayoutParams(0,dp(46),1);ar1.setMargins(dp(8),0,0,0);addRow.addView(textBtn,ar1);
-        LinearLayout.LayoutParams ar2=new LinearLayout.LayoutParams(0,dp(46),1);ar2.setMargins(dp(8),0,0,0);addRow.addView(clipBtn,ar2);
+        LinearLayout.LayoutParams folderLp=new LinearLayout.LayoutParams(0,dp(46),1);folderLp.setMargins(dp(4),0,dp(4),0);addRow.addView(folder,folderLp);
+        LinearLayout.LayoutParams ar1=new LinearLayout.LayoutParams(0,dp(46),1);ar1.setMargins(dp(4),0,dp(4),0);addRow.addView(textBtn,ar1);
+        LinearLayout.LayoutParams ar2=new LinearLayout.LayoutParams(0,dp(46),1);ar2.setMargins(dp(4),0,dp(4),0);addRow.addView(clipBtn,ar2);
         LinearLayout.LayoutParams arp=new LinearLayout.LayoutParams(-1,-2);arp.setMargins(0,dp(8),0,0);root.addView(addRow,arp);
 
         Button find=primary(selected.isEmpty()?"Select content first":"Send selected • Find device →");
@@ -717,9 +717,9 @@ public class V2Activity extends ComponentActivity implements
         Uri queued=selected.get(index);
         long queuedBytes=querySize(queued);
         TextView label=text((index+1)+". "+displayName(queued)+"\n"+formatBytes(queuedBytes),12,Color.WHITE,false);label.setMaxLines(3);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        Button up=smallButton("↑");up.setEnabled(index>0);up.setAlpha(index>0?1f:.35f);up.setOnClickListener(v->moveQueueItem(index,index-1));row.addView(up,new LinearLayout.LayoutParams(dp(42),dp(40)));
-        Button down=smallButton("↓");down.setEnabled(index<selected.size()-1);down.setAlpha(index<selected.size()-1?1f:.35f);down.setOnClickListener(v->moveQueueItem(index,index+1));LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(dp(42),dp(40));dl.setMargins(dp(5),0,0,0);row.addView(down,dl);
-        Button remove=smallButton("×");remove.setOnClickListener(v->removeQueueItem(index));LinearLayout.LayoutParams rl=new LinearLayout.LayoutParams(dp(42),dp(40));rl.setMargins(dp(5),0,0,0);row.addView(remove,rl);
+        Button up=smallButton("↑");up.setEnabled(index>0);up.setAlpha(index>0?1f:.35f);up.setOnClickListener(v->moveQueueItem(index,index-1));LinearLayout.LayoutParams ul=new LinearLayout.LayoutParams(dp(42),dp(40));ul.setMargins(dp(3),0,dp(3),0);row.addView(up,ul);
+        Button down=smallButton("↓");down.setEnabled(index<selected.size()-1);down.setAlpha(index<selected.size()-1?1f:.35f);down.setOnClickListener(v->moveQueueItem(index,index+1));LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(dp(42),dp(40));dl.setMargins(dp(3),0,dp(3),0);row.addView(down,dl);
+        Button remove=smallButton("×");remove.setOnClickListener(v->removeQueueItem(index));LinearLayout.LayoutParams rl=new LinearLayout.LayoutParams(dp(42),dp(40));rl.setMargins(dp(3),0,dp(3),0);row.addView(remove,rl);
         return row;
     }
 
@@ -762,9 +762,9 @@ public class V2Activity extends ComponentActivity implements
         TextView label=text((index+1)+". "+name+"   "+state,11,color,true);
         row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         Button retry=smallButton("Retry");retry.setOnClickListener(v->retryQueueFile(index));
-        row.addView(retry,new LinearLayout.LayoutParams(dp(72),dp(40)));
+        LinearLayout.LayoutParams retryLp=new LinearLayout.LayoutParams(dp(72),dp(40));retryLp.setMargins(dp(3),0,dp(3),0);row.addView(retry,retryLp);
         Button remove=smallButton("×");remove.setOnClickListener(v->{removedQueueIndexes.add(index);renderLiveQueue(liveQueueIndex,liveQueueName,liveQueueDone,liveQueueTotal);});
-        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(42),dp(40));rp.setMargins(dp(5),0,0,0);row.addView(remove,rp);
+        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(42),dp(40));rp.setMargins(dp(3),0,dp(3),0);row.addView(remove,rp);
         return row;
     }
 
@@ -802,7 +802,7 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout actionBar=new LinearLayout(this);
         actionBar.setOrientation(LinearLayout.HORIZONTAL);
         actionBar.setGravity(Gravity.CENTER_VERTICAL);
-        actionBar.setPadding(dp(12),dp(7),dp(7),dp(7));
+        actionBar.setPaddingRelative(dp(12),dp(7),dp(7),dp(7));
         actionBar.setBackground(gradient(Color.rgb(13,43,70),Color.rgb(9,31,54),16));
         TextView selectedCount=text(selected.size()+" selected • "+formatBytes(selectedTotalBytes()),14,Color.rgb(92,202,255),true);
         actionBar.addView(selectedCount,new LinearLayout.LayoutParams(0,dp(48),1));
@@ -850,8 +850,8 @@ public class V2Activity extends ComponentActivity implements
         discoveryState=text("Searching for receiving phones…",16,Color.WHITE,true);discoveryState.setGravity(Gravity.CENTER);radar.addView(discoveryState);
         TextView hint=text("Verified OptiShare phones appear here automatically. You can also scan the QR shown on the receiving phone.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
         LinearLayout qrRow=new LinearLayout(this);qrRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());qrRow.addView(scan,new LinearLayout.LayoutParams(0,dp(50),1));
-        Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(8),0,0,0);qrRow.addView(retry,rr);
+        Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());LinearLayout.LayoutParams scanLp=new LinearLayout.LayoutParams(0,dp(50),1);scanLp.setMargins(dp(4),0,dp(4),0);qrRow.addView(scan,scanLp);
+        Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(4),0,dp(4),0);qrRow.addView(retry,rr);
         LinearLayout.LayoutParams qrlp=new LinearLayout.LayoutParams(-1,-2);qrlp.setMargins(0,dp(12),0,0);root.addView(qrRow,qrlp);
         peerList=new LinearLayout(this);peerList.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,-2);pl.setMargins(0,dp(12),0,0);root.addView(peerList,pl);
         setAnimatedContent(scroll);startDiscovery();
@@ -1087,7 +1087,7 @@ public class V2Activity extends ComponentActivity implements
                 LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView avatar=text("OS",13,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(43,196,126),Color.rgb(31,137,213),18));
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
-                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPaddingRelative(dp(12),0,0,0);
                 String lanName=(pendingLanName==null||pendingLanName.trim().isEmpty())?"OptiShare device":pendingLanName;
                 names.addView(text(lanName,15,Color.WHITE,true));
                 names.addView(text("Verified OptiShare • encrypted same-Wi-Fi route",12,Color.rgb(151,205,184),false));
@@ -1096,8 +1096,8 @@ public class V2Activity extends ComponentActivity implements
                 Button send=secondaryButton("Send here");send.setOnClickListener(v->connectViaLan(lanName,pendingLanHost));
                 if(new AppSettings(V2Activity.this).speedTestLargeFiles()){
                     Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkViaLan(lanName,pendingLanHost));
-                    actions.addView(test,new LinearLayout.LayoutParams(0,dp(46),1));
-                    LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(8),0,0,0);actions.addView(send,sendLp);
+                    LinearLayout.LayoutParams testLp=new LinearLayout.LayoutParams(0,dp(46),1);testLp.setMargins(dp(4),0,dp(4),0);actions.addView(test,testLp);
+                    LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(4),0,dp(4),0);actions.addView(send,sendLp);
                 }else actions.addView(send,new LinearLayout.LayoutParams(-1,dp(46)));
                 row.addView(actions);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
             }
@@ -1105,7 +1105,7 @@ public class V2Activity extends ComponentActivity implements
                 LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView avatar=text("PC",14,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(39,178,255),Color.rgb(84,82,222),18));
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
-                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPaddingRelative(dp(12),0,0,0);
                 names.addView(text(pc.name,15,Color.WHITE,true));names.addView(text("Windows Companion • same network",12,Color.rgb(151,182,205),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectToPc(pc));
                 line.addView(connect,new LinearLayout.LayoutParams(dp(112),dp(46)));row.addView(line);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
@@ -1120,7 +1120,7 @@ public class V2Activity extends ComponentActivity implements
                 LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView avatar=text(firstLetter(deviceName(device)),18,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(38,151,232),Color.rgb(62,91,220),18));
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
-                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPaddingRelative(dp(12),0,0,0);
                 names.addView(text(deviceName(device),15,Color.WHITE,true));
                 names.addView(text(deviceStatus(device.status)+" • Wi-Fi Direct candidate",12,Color.rgb(151,182,205),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);

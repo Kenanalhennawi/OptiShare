@@ -104,7 +104,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         header.addView(back, new LinearLayout.LayoutParams(dp(92), dp(44)));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        titles.setPadding(dp(12), 0, 0, 0);
+        titles.setPaddingRelative(dp(12), 0, 0, 0);
         titles.addView(text("Received files", 25, Color.WHITE, true));
         titles.addView(text("Download / OptiShare", 12, Color.rgb(135, 181, 214), false));
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
@@ -188,7 +188,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
 
             LinearLayout info = new LinearLayout(ReceivedFilesActivity.this);
             info.setOrientation(LinearLayout.VERTICAL);
-            info.setPadding(dp(12), 0, dp(8), 0);
+            info.setPaddingRelative(dp(12), 0, dp(8), 0);
             TextView name = text("", 14, Color.WHITE, true);
             name.setMaxLines(2);
             TextView meta = text("", 11, Color.rgb(139, 177, 205), false);
@@ -262,7 +262,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
 
     private LinearLayout.LayoutParams actionLp(boolean margin) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(42), 1f);
-        if (margin) lp.setMargins(dp(8), 0, 0, 0);
+        lp.setMargins(dp(4), 0, dp(4), 0);
         return lp;
     }
 

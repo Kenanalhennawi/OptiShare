@@ -68,7 +68,7 @@ public final class HistoryActivity extends ComponentActivity {
         header.addView(back, new LinearLayout.LayoutParams(dp(50), dp(50)));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        titles.setPadding(dp(13), 0, 0, 0);
+        titles.setPaddingRelative(dp(13), 0, 0, 0);
         titles.addView(label(getString(R.string.transfer_history), 25, text, true));
         titles.addView(label(getString(R.string.transfer_history_summary), 12, secondary, false));
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
@@ -138,7 +138,7 @@ public final class HistoryActivity extends ComponentActivity {
 
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setPadding(dp(13), 0, 0, 0);
+        copy.setPaddingRelative(dp(13), 0, 0, 0);
         String direction = getString(incoming ? R.string.history_received : R.string.history_sent);
         String status = getString(entry.success ? R.string.history_success : R.string.history_failed);
         copy.addView(label(direction + " • " + status, 16,
