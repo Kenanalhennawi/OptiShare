@@ -235,8 +235,8 @@ public class V2Activity extends ComponentActivity implements
                     }
                     FolderTransferQueue.addAll(files);
                     showSendSelection();
-                    showMessage("Folder ready", files.size()
-                            getString(R.string.folder_items_selected, items.size()));
+                    showMessage("Folder ready",
+                            getString(R.string.folder_items_selected, files.size()));
                 } catch (Exception error) {
                     showMessage("Folder could not be opened", error.getMessage());
                 }
