@@ -56,7 +56,6 @@
     <string name="history_empty">No transfer history yet</string>
     <string name="history_empty_summary">Completed and failed transfers will appear here.</string>
     <string name="clear_history">Clear history</string>
-    <string name="clear_history_confirm">Remove all transfer history? This does not delete received files.</string>
     <string name="history_sent">Sent</string>
     <string name="history_received">Received</string>
     <string name="history_success">Completed</string>

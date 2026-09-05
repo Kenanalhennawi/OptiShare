@@ -56,7 +56,6 @@
     <string name="history_empty">لا يوجد سجل نقل بعد</string>
     <string name="history_empty_summary">ستظهر هنا عمليات النقل المكتملة والفاشلة.</string>
     <string name="clear_history">مسح السجل</string>
-    <string name="clear_history_confirm">هل تريد إزالة سجل النقل بالكامل؟ لن يؤدي ذلك إلى حذف الملفات المستلمة.</string>
     <string name="history_sent">تم الإرسال</string>
     <string name="history_received">تم الاستلام</string>
     <string name="history_success">مكتمل</string>
