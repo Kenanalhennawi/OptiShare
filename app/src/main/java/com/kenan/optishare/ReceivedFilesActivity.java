@@ -443,6 +443,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         value.setTextSize(12);
         value.setAllCaps(false);
         value.setBackground(vivid(new int[]{Color.rgb(45,112,164),Color.rgb(28,75,122),Color.rgb(58,39,111)},16));if (Build.VERSION.SDK_INT >= 21) value.setElevation(dp(5));
+        press(value);
         return value;
     }
 
@@ -463,6 +464,8 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         value.setCornerRadius(dp(radiusDp));
         return value;
     }
+
+    private void press(View view) { view.setOnTouchListener((v,e) -> { if(e.getAction()==android.view.MotionEvent.ACTION_DOWN) v.animate().scaleX(.96f).scaleY(.96f).translationY(dp(3)).setDuration(75).start(); else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL) v.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(170).start(); return false; }); }
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);

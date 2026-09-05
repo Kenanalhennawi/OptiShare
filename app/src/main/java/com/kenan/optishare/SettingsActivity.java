@@ -89,7 +89,7 @@ public final class SettingsActivity extends Activity {
     private void render() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(background);
+        scroll.setBackground(dark ? vivid(new int[]{Color.rgb(3,14,34),Color.rgb(8,43,74),Color.rgb(35,22,74)},0) : vivid(new int[]{Color.rgb(248,251,255),Color.rgb(235,245,255),Color.rgb(247,241,255)},0));
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         LinearLayout page = new LinearLayout(this);
@@ -123,7 +123,7 @@ public final class SettingsActivity extends Activity {
         addPrivacySection(page);
         addHelpSection(page);
         addAboutSection(page);
-        setContentView(scroll);
+        setContentView(scroll);scroll.setAlpha(0f);scroll.setTranslationY(dp(20));scroll.animate().alpha(1f).translationY(0f).setDuration(280).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
     }
 
     private void addDeviceSection(LinearLayout page) {
@@ -221,7 +221,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(14), dp(8), dp(14), dp(8));
-        card.setBackground(round(surface, 18));
+        card.setBackground(dark?vivid(new int[]{Color.rgb(24,64,95),Color.rgb(12,38,67),Color.rgb(34,24,74)},22):vivid(new int[]{Color.WHITE,Color.rgb(243,249,255),Color.rgb(239,243,255)},22));if(Build.VERSION.SDK_INT>=21)card.setElevation(dp(8));
         page.addView(card, new LinearLayout.LayoutParams(-1, -2));
         return card;
     }
@@ -235,6 +235,7 @@ public final class SettingsActivity extends Activity {
         if (action != null) {
             row.setClickable(true);
             row.setFocusable(true);
+            press(row);
             row.setOnClickListener(v -> action.run());
         }
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
@@ -262,6 +263,7 @@ public final class SettingsActivity extends Activity {
         control.setContentDescription(getString(titleId));
         control.setOnCheckedChangeListener((button, value) -> { changed.accept(value); if (rerender) { resolvePalette(); render(); } });
         row.addView(control);
+        press(row);row.setClickable(true);row.setOnClickListener(v -> control.toggle());
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
 
@@ -474,7 +476,7 @@ public final class SettingsActivity extends Activity {
     private Button button(String value, boolean compact) {
         Button button = new Button(this);
         button.setText(value); button.setTextColor(primaryText); button.setTextSize(compact ? 22 : 14);
-        button.setAllCaps(false); button.setBackground(round(surface, 14));
+        button.setAllCaps(false); button.setBackground(dark?vivid(new int[]{Color.rgb(46,99,140),Color.rgb(26,63,99),Color.rgb(55,38,107)},16):vivid(new int[]{Color.WHITE,Color.rgb(225,239,251),Color.rgb(219,230,245)},16));if(Build.VERSION.SDK_INT>=21)button.setElevation(dp(6));press(button);
         return button;
     }
     private TextView label(String value, int size, int color, boolean bold) {
@@ -482,6 +484,8 @@ public final class SettingsActivity extends Activity {
         if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
         view.setTextDirection(View.TEXT_DIRECTION_LOCALE); return view;
     }
+    private GradientDrawable vivid(int[] colors,int radius){GradientDrawable drawable=new GradientDrawable(GradientDrawable.Orientation.TL_BR,colors);drawable.setCornerRadius(dp(radius));drawable.setStroke(dp(1),dark?Color.rgb(66,106,140):Color.rgb(204,220,235));return drawable;}
+    private void press(View view){view.setOnTouchListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.975f).scaleY(.975f).translationY(dp(3)).alpha(.9f).setDuration(75).start();else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).alpha(1f).setDuration(175).start();return false;});}
     private GradientDrawable round(int color, int radius) {
         GradientDrawable drawable = new GradientDrawable(); drawable.setColor(color); drawable.setCornerRadius(dp(radius)); return drawable;
     }
