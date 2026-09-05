@@ -10,6 +10,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.rule.GrantPermissionRule;
 
+import com.kenan.optishare.ui.UiText;
+
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.RuleChain;
@@ -32,19 +34,19 @@ public class AndroidOnlyUiTest {
     @Test public void homeAndReceiveExposeOnlyAndroidExperience() {
         activity.getScenario().onActivity(screen -> {
             View root = screen.getWindow().getDecorView();
-            assertTrue(hasText(root, "Fast. Private. Resumable."));
+            assertTrue(hasText(root, UiText.get(screen, "Fast. Private. Resumable.")));
             assertFalse(hasText(root, "Windows Companion"));
             assertFalse(hasText(root, "browser / PC"));
 
-            View settings = findText(root, "Settings");
+            View settings = findText(root, screen.getString(R.string.settings));
             assertNotNull(settings);
-            View receive = findText(root, "RECEIVE");
+            View receive = findText(root, UiText.get(screen, "RECEIVE"));
             assertNotNull(receive);
             receive.performClick();
 
             root = screen.getWindow().getDecorView();
-            assertTrue(hasExactText(root, "Receive"));
-            assertTrue(hasText(root, "Android-to-Android transfers use authenticated"));
+            assertTrue(hasExactText(root, UiText.get(screen, "Receive")));
+            assertTrue(hasText(root, UiText.get(screen, "Keep this screen open while the sender connects. Android-to-Android transfers use authenticated ECDH and AES-GCM encryption.")));
             assertFalse(hasText(root, "Browser mode"));
             assertFalse(hasText(root, "Windows"));
         });
@@ -54,10 +56,10 @@ public class AndroidOnlyUiTest {
         try (ActivityScenario<SettingsActivity> settings = ActivityScenario.launch(SettingsActivity.class)) {
             settings.onActivity(screen -> {
                 View root = screen.getWindow().getDecorView();
-                assertTrue(hasText(root, "About OptiShare"));
+                assertTrue(hasText(root, screen.getString(R.string.about_optishare)));
                 assertTrue(hasText(root, "Download/OptiShare"));
-                assertTrue(hasText(root, "Privacy policy"));
-                assertTrue(hasText(root, "Android notification settings"));
+                assertTrue(hasText(root, screen.getString(R.string.privacy_policy)));
+                assertTrue(hasText(root, screen.getString(R.string.system_notification_settings)));
                 assertFalse(hasText(root, "My security identity"));
                 assertFalse(hasText(root, "SmartRoute status"));
             });
