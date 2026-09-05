@@ -50,7 +50,7 @@ public class AndroidOnlyUiTest {
 
             View settings = findText(root, screen.getString(R.string.settings));
             assertNotNull(settings);
-            View receive = findText(root, UiText.get(screen, "RECEIVE"));
+            View receive = root.findViewWithTag("home_receive");
             assertNotNull(receive);
             receive.performClick();
 

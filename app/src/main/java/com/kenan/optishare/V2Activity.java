@@ -596,6 +596,7 @@ public class V2Activity extends ComponentActivity implements
         Button send = bigAction(R.drawable.ic_os_send, "SEND", "Choose content", Color.rgb(35,146,255), Color.rgb(53,82,222));
         send.setOnClickListener(v -> showSendSelection());
         Button receive = bigAction(R.drawable.ic_os_receive, "RECEIVE", "Become visible", Color.rgb(49,205,145), Color.rgb(17,122,91));
+        receive.setTag("home_receive");
         receive.setOnClickListener(v -> showReceive());
         LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(0,dp(97),1);
         sendLp.setMargins(dp(6),0,dp(6),0);
