@@ -625,8 +625,6 @@ public class V2Activity extends ComponentActivity implements
                 category(R.drawable.ic_os_more,"Other",Color.rgb(102,116,170),v -> openExternal("*/*")));
         LinearLayout.LayoutParams r3 = new LinearLayout.LayoutParams(-1,-2); r3.setMargins(0,dp(10),0,0); root.addView(row3,r3);
 
-        addHistory(root);
-
         Button receivedFiles = primary("Received files center →");
         receivedFiles.setOnClickListener(v -> startActivity(new Intent(this, ReceivedFilesActivity.class)));
         LinearLayout.LayoutParams receivedLp = new LinearLayout.LayoutParams(-1, dp(50));
