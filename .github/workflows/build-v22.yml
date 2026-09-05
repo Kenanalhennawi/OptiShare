@@ -1,4 +1,4 @@
-name: Build OptiShare 2.2 Fast Transfer
+name: Build OptiShare 1.0.0 Release
 
 on:
   push:
@@ -55,7 +55,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.2-emulator-reports
+          name: OptiShare-1.0.0-emulator-reports
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
@@ -63,7 +63,7 @@ jobs:
           retention-days: 14
 
   build:
-    name: Test, build, MobSF and verify 2.2
+    name: Test, build, MobSF and verify 1.0.0
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
@@ -144,7 +144,7 @@ jobs:
             -storepass "$OPTISHARE_STORE_PASSWORD" \
             -alias "$OPTISHARE_KEY_ALIAS" >/dev/null
 
-      - name: Build signed 2.2 APK and AAB
+      - name: Build signed 1.0.0 APK and AAB
         env:
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_FILE: ${{ runner.temp }}/optishare-release.jks
           ORG_GRADLE_PROJECT_OPTISHARE_STORE_PASSWORD: ${{ env.OPTISHARE_STORE_PASSWORD }}
@@ -167,19 +167,19 @@ jobs:
             exit 1
           }
 
-      - name: Prepare 2.2 artifacts
+      - name: Prepare 1.0.0 artifacts
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release-output
-          cp app/build/outputs/apk/release/app-release.apk release-output/OptiShare-2.2-FAST-SIGNED.apk
-          cp app/build/outputs/bundle/release/app-release.aab release-output/OptiShare-2.2-FAST-Play.aab
+          cp app/build/outputs/apk/release/app-release.apk release-output/OptiShare-1.0.0-RELEASE-SIGNED.apk
+          cp app/build/outputs/bundle/release/app-release.aab release-output/OptiShare-1.0.0-Play.aab
           (
             cd release-output
-            sha256sum OptiShare-2.2-FAST-SIGNED.apk OptiShare-2.2-FAST-Play.aab > SHA256SUMS.txt
+            sha256sum OptiShare-1.0.0-RELEASE-SIGNED.apk OptiShare-1.0.0-Play.aab > SHA256SUMS.txt
           )
           {
-            echo 'version=2.2.0-rc1'
+            echo 'version=1.0.0'
             echo 'version_code=221'
             echo 'release_scope=android-only'
             echo 'chunk_bytes=1572864'
@@ -217,7 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p security-reports/mobsf-apk
-          APK=release-output/OptiShare-2.2-FAST-SIGNED.apk
+          APK=release-output/OptiShare-1.0.0-RELEASE-SIGNED.apk
           AUTH_HEADER="X-Mobsf-Api-Key: $MOBSF_API_KEY"
 
           curl --fail-with-body --silent --show-error \
@@ -345,7 +345,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.2-MobSF-signed-APK
+          name: OptiShare-1.0.0-MobSF-signed-APK
           path: security-reports/mobsf-apk/
           if-no-files-found: warn
           retention-days: 30
@@ -357,21 +357,21 @@ jobs:
           docker logs optishare-mobsf > "$RUNNER_TEMP/mobsf-container.log" 2>&1 || true
           docker rm --force optishare-mobsf >/dev/null 2>&1 || true
 
-      - name: Upload 2.2 debug APK
+      - name: Upload 1.0.0 debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.2-fast-debug
+          name: OptiShare-1.0.0-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload 2.2 signed release
+      - name: Upload 1.0.0 signed release
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.2-FAST-SIGNED
+          name: OptiShare-1.0.0-RELEASE-SIGNED
           path: |
-            release-output/OptiShare-2.2-FAST-SIGNED.apk
-            release-output/OptiShare-2.2-FAST-Play.aab
+            release-output/OptiShare-1.0.0-RELEASE-SIGNED.apk
+            release-output/OptiShare-1.0.0-Play.aab
             release-output/SHA256SUMS.txt
             release-output/BUILD_INFO.txt
           if-no-files-found: error
@@ -381,7 +381,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-2.2-quality-reports
+          name: OptiShare-1.0.0-quality-reports
           path: |
             app/build/reports/tests/
             app/build/reports/lint-results-debug.*

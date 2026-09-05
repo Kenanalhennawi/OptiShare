@@ -91,7 +91,7 @@ public class V2Activity extends ComponentActivity implements
 
     public static final String EXTRA_OPEN_TRUSTED_DEVICES = "com.kenan.optishare.extra.OPEN_TRUSTED_DEVICES";
 
-    /** Frozen while Android 2.2 is completed and validated as a standalone release. */
+    /** Public Android 1.0.0 release identity. */
     private static final boolean ENABLE_PC_COMPANION = false;
     private static final int REQ_MEDIA = 2101;
     private static final int REQ_NEARBY = 2102;
@@ -1309,7 +1309,7 @@ public class V2Activity extends ComponentActivity implements
         setAnimatedContent(scroll);
     }
 
-    private String appVersion(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){return "2.2";}}
+    private String appVersion(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){return "1.0.0";}}
 
     private void showTrustedDevices(){
         if(!DeviceIdentityKey.supported()){showMessage("Trusted devices","Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.");return;}
