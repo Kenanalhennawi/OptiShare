@@ -592,7 +592,7 @@ public class V2Activity extends ComponentActivity implements
         receive.setOnClickListener(v -> showReceive());
         actions.addView(send,new LinearLayout.LayoutParams(0,dp(158),1));
         LinearLayout.LayoutParams receiveLp = new LinearLayout.LayoutParams(0,dp(158),1);
-        receiveLp.setMargins(dp(10),0,0,0);
+        receiveLp.setMargins(dp(16),0,0,0);
         actions.addView(receive,receiveLp);
         LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1,-2);
         actionsLp.setMargins(0,dp(22),0,0);
@@ -618,12 +618,12 @@ public class V2Activity extends ComponentActivity implements
                 category(R.drawable.ic_os_apps,"Apps",Color.rgb(24,198,157),v -> openInstalledApps()),
                 category(R.drawable.ic_os_document,"Documents",Color.rgb(38,132,255),v -> openDocuments()),
                 category(R.drawable.ic_os_folder,"Folder",Color.rgb(102,116,170),v -> openFolder()));
-        LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(10),0,0); root.addView(row2,r2);
+        LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(16),0,0); root.addView(row2,r2);
         LinearLayout row3 = categoryRow(
                 category(R.drawable.ic_os_text,"Text",Color.rgb(32,180,255),v -> showTextComposer(null)),
                 category(R.drawable.ic_os_clipboard,"Clipboard",Color.rgb(31,202,133),v -> addClipboardToQueue()),
                 category(R.drawable.ic_os_more,"Other",Color.rgb(102,116,170),v -> openExternal("*/*")));
-        LinearLayout.LayoutParams r3 = new LinearLayout.LayoutParams(-1,-2); r3.setMargins(0,dp(10),0,0); root.addView(row3,r3);
+        LinearLayout.LayoutParams r3 = new LinearLayout.LayoutParams(-1,-2); r3.setMargins(0,dp(16),0,0); root.addView(row3,r3);
 
         Button receivedFiles = primary("Received files center →");
         receivedFiles.setOnClickListener(v -> startActivity(new Intent(this, ReceivedFilesActivity.class)));
@@ -1349,7 +1349,7 @@ public class V2Activity extends ComponentActivity implements
 
     private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
     private Button category(int icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);b.setTextDirection(View.TEXT_DIRECTION_LOCALE);b.setIncludeFontPadding(false);b.setMinHeight(0);b.setMinWidth(0);b.setCompoundDrawables(null,circularIcon(icon,color,54),null,null);b.setCompoundDrawablePadding(dp(9));b.setPadding(dp(7),dp(12),dp(7),dp(13));b.setLetterSpacing(.01f);b.setBackground(vividGradient(new int[]{shine(color),lighten(color),color,darken(color)},28,Color.argb(130,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(18));b.setTranslationZ(dp(5));}applyPressMotion(b);b.setOnClickListener(listener);return b;}
-    private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(124),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(124),1);p2.setMargins(dp(10),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(124),1);p3.setMargins(dp(10),0,0,0);row.addView(c,p3);return row;}
+    private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(124),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(124),1);p2.setMargins(dp(16),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(124),1);p3.setMargins(dp(16),0,0,0);row.addView(c,p3);return row;}
     private Button bigAction(int icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(16);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);b.setTextDirection(View.TEXT_DIRECTION_LOCALE);b.setIncludeFontPadding(false);b.setMinHeight(0);b.setMinWidth(0);b.setLineSpacing(dp(4),1f);b.setLetterSpacing(.01f);b.setCompoundDrawables(null,circularIcon(icon,top,62),null,null);b.setCompoundDrawablePadding(dp(10));b.setPadding(dp(10),dp(14),dp(10),dp(15));b.setBackground(vividGradient(new int[]{shine(top),lighten(top),top,bottom},32,Color.argb(145,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(21));b.setTranslationZ(dp(6));}applyPressMotion(b);return b;}
     private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setLetterSpacing(.015f);b.setBackground(vividGradient(new int[]{Color.rgb(52,205,255),Color.rgb(38,122,244),Color.rgb(104,62,226)},18,Color.argb(105,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(13));b.setTranslationZ(dp(4));}applyPressMotion(b);return b;}
     private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(lightMode()?Color.rgb(15,42,66):Color.WHITE);b.setTextSize(13);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(lightMode()?vividGradient(new int[]{Color.WHITE,Color.rgb(226,239,250),Color.rgb(215,228,243)},16,Color.rgb(195,213,229)):vividGradient(new int[]{Color.rgb(43,93,132),Color.rgb(25,60,94),Color.rgb(48,34,101)},16,Color.rgb(75,122,158)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(11));b.setTranslationZ(dp(3));}applyPressMotion(b);return b;}
