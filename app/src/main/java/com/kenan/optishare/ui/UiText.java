@@ -198,6 +198,10 @@ public final class UiText {
             case "Archive": return R.string.category_archive;
             case "Document": return R.string.category_document;
             case "File": return R.string.category_file;
+            case "Wi‑Fi Direct is off. Turn Wi‑Fi on to continue.": return R.string.wifi_direct_off_continue;
+            case "Wi-Fi Direct is busy • still searching for verified OptiShare devices on the same Wi-Fi…": return R.string.wifi_direct_busy_searching_lan;
+            case "Same-Wi-Fi search is still active. Keep RECEIVE open on the other phone, or scan its QR code.": return R.string.same_wifi_search_active;
+            case "Same-Wi-Fi receiver stays active • Android Wi-Fi Direct is busy and will retry in the background": return R.string.same_wifi_receiver_active_direct_retry;
             default: return 0;
         }
     }

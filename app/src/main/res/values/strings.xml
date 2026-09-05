@@ -125,4 +125,8 @@
     <string name="smart_route_wifi_direct_status">SMART ROUTE • WI-FI DIRECT ✓</string>
     <string name="browser_ready_status">BROWSER READY</string>
     <string name="browser_receive_ready">Browser receive ready • same local network</string>
+    <string name="wifi_direct_off_continue">Wi‑Fi Direct is off. Turn Wi‑Fi on to continue.</string>
+    <string name="wifi_direct_busy_searching_lan">Wi‑Fi Direct is busy • still searching for verified OptiShare devices on the same Wi‑Fi…</string>
+    <string name="same_wifi_search_active">Same-Wi‑Fi search is still active. Keep RECEIVE open on the other phone, or scan its QR code.</string>
+    <string name="same_wifi_receiver_active_direct_retry">Same-Wi‑Fi receiver stays active • Android Wi‑Fi Direct is busy and will retry in the background</string>
 </resources>

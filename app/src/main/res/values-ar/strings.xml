@@ -125,4 +125,8 @@
     <string name="smart_route_wifi_direct_status">المسار الذكي • اتصال Wi‑Fi مباشر ✓</string>
     <string name="browser_ready_status">المتصفح جاهز</string>
     <string name="browser_receive_ready">الاستلام من المتصفح جاهز • على الشبكة المحلية نفسها</string>
+    <string name="wifi_direct_off_continue">الاتصال المباشر عبر Wi‑Fi متوقف. شغّل Wi‑Fi للمتابعة.</string>
+    <string name="wifi_direct_busy_searching_lan">الاتصال المباشر عبر Wi‑Fi مشغول • ما زال البحث جارياً عن أجهزة OptiShare الموثقة على شبكة Wi‑Fi نفسها…</string>
+    <string name="same_wifi_search_active">البحث عبر شبكة Wi‑Fi نفسها ما زال نشطاً. أبقِ شاشة الاستلام مفتوحة على الهاتف الآخر، أو امسح رمز QR الخاص به.</string>
+    <string name="same_wifi_receiver_active_direct_retry">الاستلام عبر شبكة Wi‑Fi نفسها جاهز • الاتصال المباشر عبر Wi‑Fi مشغول وستتم إعادة المحاولة في الخلفية</string>
 </resources>
