@@ -40,6 +40,11 @@ public final class UiText {
             case "Wi-Fi Direct candidate": return R.string.wifi_direct_candidate;
             case "CONNECTED ✓\nSecure receiver channel is active.": return R.string.connected_receiver_active;
             case "READY TO RECEIVE ✓\nWaiting for sender…": return R.string.ready_receive_waiting;
+            case "READY • DIRECT + WI-FI": return R.string.ready_direct_wifi_status;
+            case "SAME WI-FI READY": return R.string.same_wifi_ready_status;
+            case "SMART ROUTE • WI-FI DIRECT ✓": return R.string.smart_route_wifi_direct_status;
+            case "BROWSER READY": return R.string.browser_ready_status;
+            case "Browser receive ready • same local network": return R.string.browser_receive_ready;
             case "VISIBLE TO SENDERS": return R.string.visible_to_senders;
             case "Receiving": return R.string.receiving_status;
             case "Receiving…": return R.string.receiving_progress;

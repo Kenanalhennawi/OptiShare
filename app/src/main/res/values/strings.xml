@@ -120,4 +120,9 @@
     <string name="received_folder_label">Downloads / OptiShare</string>
     <string name="contact_support">Contact us / report a problem</string>
     <string name="contact_support_summary">Email support with device and Android version; private file names are never included</string>
+    <string name="ready_direct_wifi_status">READY • DIRECT + WI-FI</string>
+    <string name="same_wifi_ready_status">SAME WI-FI READY</string>
+    <string name="smart_route_wifi_direct_status">SMART ROUTE • WI-FI DIRECT ✓</string>
+    <string name="browser_ready_status">BROWSER READY</string>
+    <string name="browser_receive_ready">Browser receive ready • same local network</string>
 </resources>

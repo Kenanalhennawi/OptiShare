@@ -1229,8 +1229,8 @@ public class V2Activity extends ComponentActivity implements
         return (seconds/60)+"m "+(seconds%60)+"s";
     }
     private String historyRouteLabel(String route){
-        if(RoutePerformanceStore.ROUTE_DIRECT.equals(route))return "Wi-Fi Direct";
-        if(RoutePerformanceStore.ROUTE_LAN.equals(route))return "same Wi-Fi";
+        if(RoutePerformanceStore.ROUTE_DIRECT.equals(route))return getString(R.string.route_wifi_direct);
+        if(RoutePerformanceStore.ROUTE_LAN.equals(route))return getString(R.string.route_same_wifi);
         if("pc-local".equals(route))return "Windows PC";
         if("incoming".equals(route))return "received";
         return route;

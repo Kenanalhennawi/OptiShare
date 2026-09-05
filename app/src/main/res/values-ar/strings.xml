@@ -29,7 +29,7 @@
     <string name="trusted_none">لا توجد أجهزة موثوقة بعد. عند أول اتصال آمن اختر «الوثوق بهذا الجهاز والتأكيد».</string><string name="trusted_legacy">يستخدم أندرويد 5 التحقق اليدوي بالرمز المكوّن من ستة أرقام. تتوفر الثقة الدائمة على أندرويد 6 والأحدث.</string><string name="auto_accept_turn_on">تشغيل الموافقة التلقائية</string><string name="auto_accept_turn_off">إيقاف الموافقة التلقائية</string><string name="confirm_files">تأكيد الملفات</string>
     <string name="settings">الإعدادات</string><string name="settings_subtitle">تحكم بالمظهر والنقل والخصوصية والتخزين</string><string name="device_and_visibility">الجهاز والظهور</string><string name="device_profile_summary">ملف جهاز محلي • بدون حساب سحابي</string><string name="choose_avatar">تخصيص صورتك الرمزية</string><string name="customize_avatar_summary">الوجه ولون البشرة والشعر والنظارات والألوان</string><string name="device_avatar">الصورة الرمزية للجهاز</string><string name="avatar_skin">البشرة</string><string name="avatar_hair">الشعر</string><string name="avatar_style">التسريحة</string><string name="avatar_background">اللون</string><string name="avatar_glasses">نظارات</string><string name="avatar_beard">لحية</string><string name="trusted_count">%1$d موثوق</string><string name="visibility">الظهور</string><string name="receive_screen_only">فقط أثناء فتح شاشة الاستلام</string><string name="five_minutes">الظهور لمدة خمس دقائق</string>
     <string name="appearance_and_language">المظهر واللغة</string><string name="theme">المظهر</string><string name="language">اللغة</string><string name="follow_system">حسب إعداد النظام</string><string name="dark_mode">داكن</string><string name="light_mode">فاتح</string><string name="high_contrast">تباين مرتفع</string><string name="high_contrast_summary">زيادة تباين النصوص وعناصر التحكم</string>
-    <string name="sending_and_receiving">الإرسال والاستلام</string><string name="duplicate_files">الملفات المكررة</string><string name="keep_both">الاحتفاظ بالنسختين</string><string name="ask_each_time">السؤال كل مرة</string><string name="skip_identical">تخطي المتطابق</string><string name="preferred_route">المسار المفضل</string><string name="automatic_recommended">تلقائي (موصى به)</string><string name="same_wifi">نفس شبكة Wi‑Fi</string><string name="wifi_direct">Wi‑Fi Direct</string>
+    <string name="sending_and_receiving">الإرسال والاستلام</string><string name="duplicate_files">الملفات المكررة</string><string name="keep_both">الاحتفاظ بالنسختين</string><string name="ask_each_time">السؤال كل مرة</string><string name="skip_identical">تخطي المتطابق</string><string name="preferred_route">المسار المفضل</string><string name="automatic_recommended">تلقائي (موصى به)</string><string name="same_wifi">نفس شبكة Wi‑Fi</string><string name="wifi_direct">اتصال Wi‑Fi مباشر</string>
     <string name="resume_after_disconnect">المتابعة بعد انقطاع الاتصال</string><string name="resume_after_disconnect_summary">حفظ التقدم المؤكد وإعادة الاتصال تلقائياً</string><string name="continue_after_failure">المتابعة عند فشل ملف</string><string name="continue_after_failure_summary">عدم إلغاء بقية قائمة النقل</string><string name="smart_route_setting">المسار الذكي</string><string name="smart_route_setting_summary">استخدام أداء المسار وعدد التدفقات المقاس</string><string name="speed_test_large">اختبار عمليات النقل الكبيرة</string><string name="speed_test_large_summary">السماح باختبار اختياري قبل الملفات الكبيرة</string><string name="auto_copy_text">نسخ النص المستلم تلقائياً</string><string name="auto_copy_text_summary">نسخ النصوص والحافظة بعد التحقق منها</string><string name="open_received_after">فتح مركز الاستلام بعد الاكتمال</string><string name="open_received_after_summary">إظهار الملفات المستلمة عند انتهاء الدفعة</string><string name="allow_apk_receive">السماح باستلام APK/APKS</string><string name="allow_apk_receive_summary">عطّل الخيار لمنع حزم تطبيقات أندرويد</string>
     <string name="sounds_and_vibration">الأصوات والاهتزاز</string><string name="sounds">الأصوات</string><string name="sounds_summary">السماح بأصوات عمليات النقل</string><string name="completion_sound">صوت اكتمال النقل</string><string name="completion_sound_summary">تشغيل صوت إشعار النظام عند الانتهاء</string><string name="vibration">الاهتزاز</string><string name="vibration_summary">السماح باهتزازات عمليات النقل</string><string name="request_vibration">الاهتزاز لطلبات الاستلام</string><string name="request_vibration_summary">التنبيه عند الحاجة إلى تأكيد</string>
     <string name="notifications">الإشعارات</string><string name="transfer_notifications">إشعارات النقل النشط</string><string name="transfer_notifications_summary">إظهار التقدم والسرعة والوقت والأزرار</string><string name="active_notification_required">مطلوبة من أندرويد أثناء النقل • اضغط للإدارة</string><string name="completion_notifications">إشعارات اكتمال النقل</string><string name="completion_notifications_summary">التنبيه عند اكتمال النقل أو فشله</string><string name="system_notification_settings">إعدادات إشعارات أندرويد</string><string name="system_notification_settings_summary">إدارة قنوات إشعارات OptiShare بشكل منفصل</string>
@@ -65,7 +65,7 @@
     <string name="history_performance">%1$s • %2$s • المتوسط %3$s/ث</string>
     <string name="history_reconnects">إعادة اتصال: %1$d</string>
     <string name="route_same_wifi">نفس شبكة Wi‑Fi</string>
-    <string name="route_wifi_direct">Wi‑Fi Direct</string>
+    <string name="route_wifi_direct">اتصال Wi‑Fi مباشر</string>
     <string name="route_unknown">اتصال محلي</string>
     <string name="select_apps">حدد التطبيقات</string>
     <string name="add_apps_count">إضافة %1$d تطبيق إلى قائمة الانتظار</string>
@@ -97,7 +97,7 @@
     <string name="unavailable_status">غير متاح</string>
     <string name="busy_status">مشغول</string>
     <string name="nearby_device">جهاز قريب</string>
-    <string name="wifi_direct_candidate">جهاز مرشح عبر Wi‑Fi Direct</string>
+    <string name="wifi_direct_candidate">جهاز مرشح عبر اتصال Wi‑Fi المباشر</string>
     <string name="connected_receiver_active">متصل ✓\nقناة الاستقبال الآمنة نشطة.</string>
     <string name="ready_receive_waiting">جاهز للاستلام ✓\nبانتظار المرسل…</string>
     <string name="visible_to_senders">ظاهر للمرسلين</string>
@@ -120,4 +120,9 @@
     <string name="received_folder_label">التنزيلات / OptiShare</string>
     <string name="contact_support">تواصل معنا أو أبلغ عن مشكلة</string>
     <string name="contact_support_summary">راسل الدعم مع نوع الجهاز وإصدار أندرويد، من دون تضمين أسماء ملفاتك الخاصة</string>
+    <string name="ready_direct_wifi_status">جاهز • اتصال مباشر + Wi‑Fi</string>
+    <string name="same_wifi_ready_status">جاهز عبر شبكة Wi‑Fi نفسها</string>
+    <string name="smart_route_wifi_direct_status">المسار الذكي • اتصال Wi‑Fi مباشر ✓</string>
+    <string name="browser_ready_status">المتصفح جاهز</string>
+    <string name="browser_receive_ready">الاستلام من المتصفح جاهز • على الشبكة المحلية نفسها</string>
 </resources>
