@@ -55,7 +55,7 @@ public class AndroidOnlyUiTest {
             receive.performClick();
 
             root = screen.getWindow().getDecorView();
-            assertTrue(hasExactText(root, UiText.get(screen, "Receive")));
+            assertTrue(hasText(root, UiText.get(screen, "Stop receiving")));
             assertTrue(hasText(root, UiText.get(screen, "Keep this screen open while the sender connects. Android-to-Android transfers use authenticated ECDH and AES-GCM encryption.")));
             assertFalse(hasText(root, "Browser mode"));
             assertFalse(hasText(root, "Windows"));
