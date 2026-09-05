@@ -442,7 +442,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         value.setTextColor(Color.WHITE);
         value.setTextSize(12);
         value.setAllCaps(false);
-        value.setBackground(vivid(new int[]{Color.rgb(45,112,164),Color.rgb(28,75,122),Color.rgb(58,39,111)},16));if (Build.VERSION.SDK_INT >= 21) value.setElevation(dp(5));
+        value.setBackground(vivid(new int[]{Color.rgb(55,211,255),Color.rgb(36,132,244),Color.rgb(126,62,232)},18));if (Build.VERSION.SDK_INT >= 21) value.setElevation(dp(5));
         press(value);
         return value;
     }

@@ -217,14 +217,12 @@ public final class HistoryActivity extends ComponentActivity {
         Button button = new Button(this);
         button.setText(value);
         button.setAllCaps(false);
-        button.setTextColor(light ? Color.rgb(13, 39, 62) : Color.WHITE);
+        button.setTextColor(Color.WHITE);
         button.setTextSize(14);
         button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setBackground(light
-                ? vivid(new int[]{Color.WHITE, Color.rgb(226, 240, 252), Color.rgb(211, 226, 244)},
-                18, Color.rgb(190, 211, 229))
-                : vivid(new int[]{Color.rgb(78, 139, 180), Color.rgb(33, 78, 116), Color.rgb(55, 37, 108)},
-                18, Color.rgb(104, 151, 185)));
+        button.setBackground(vivid(
+                new int[]{Color.rgb(61, 218, 255), Color.rgb(42, 135, 246), Color.rgb(133, 67, 238)},
+                18, Color.argb(150, 255, 255, 255)));
         if (Build.VERSION.SDK_INT >= 21) {
             button.setElevation(dp(12));
             button.setTranslationZ(dp(4));

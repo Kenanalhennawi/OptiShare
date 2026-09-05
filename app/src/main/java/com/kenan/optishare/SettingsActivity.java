@@ -477,7 +477,7 @@ public final class SettingsActivity extends Activity {
     private Button button(String value, boolean compact) {
         Button button = new Button(this);
         button.setText(value); button.setTextColor(primaryText); button.setTextSize(compact ? 22 : 14);
-        button.setAllCaps(false); button.setBackground(dark?vivid(new int[]{Color.rgb(46,99,140),Color.rgb(26,63,99),Color.rgb(55,38,107)},16):vivid(new int[]{Color.WHITE,Color.rgb(225,239,251),Color.rgb(219,230,245)},16));if(Build.VERSION.SDK_INT>=21)button.setElevation(dp(6));press(button);
+        button.setAllCaps(false); button.setTextColor(Color.WHITE); button.setBackground(vivid(new int[]{Color.rgb(61,218,255),Color.rgb(42,135,246),Color.rgb(133,67,238)},18));if(Build.VERSION.SDK_INT>=21)button.setElevation(dp(6));press(button);
         return button;
     }
     private TextView label(String value, int size, int color, boolean bold) {
