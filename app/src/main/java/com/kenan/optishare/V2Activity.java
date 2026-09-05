@@ -236,7 +236,7 @@ public class V2Activity extends ComponentActivity implements
                     FolderTransferQueue.addAll(files);
                     showSendSelection();
                     showMessage("Folder ready", files.size()
-                            + " files selected with folder structure preserved.");
+                            getString(R.string.folder_items_selected, items.size()));
                 } catch (Exception error) {
                     showMessage("Folder could not be opened", error.getMessage());
                 }
@@ -572,7 +572,7 @@ public class V2Activity extends ComponentActivity implements
         titleBox.setOrientation(LinearLayout.VERTICAL);
         titleBox.setPaddingRelative(dp(12),0,0,0);
         titleBox.addView(text("OptiShare 2", 29, Color.WHITE, true));
-        titleBox.addView(text(identity.name() + " • Private local sharing", 12, Color.rgb(157,198,228), false));
+        titleBox.addView(text(identity.name() + " • " + getString(R.string.private_local_sharing), 12, Color.rgb(157,198,228), false));
         top.addView(titleBox, new LinearLayout.LayoutParams(0,-2,1));
         Button settings = smallButton(getString(R.string.settings));
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
@@ -674,7 +674,7 @@ public class V2Activity extends ComponentActivity implements
         receiverMode = false;
         ScrollView scroll = new ScrollView(this);
         LinearLayout root = shell(scroll);
-        addBackHeader(root,"Send","Build one batch from photos, videos, apps and documents");
+        addBackHeader(root,"Send",getString(R.string.build_batch_subtitle));
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         Button photos=smallButton("Photos"); photos.setOnClickListener(v->openInternalGallery("image"));
@@ -696,7 +696,7 @@ public class V2Activity extends ComponentActivity implements
         find.setEnabled(!selected.isEmpty());find.setAlpha(selected.isEmpty()?.45f:1f);find.setOnClickListener(v->showDiscovery());
         LinearLayout.LayoutParams topSend=new LinearLayout.LayoutParams(-1,dp(58));topSend.setMargins(0,dp(12),0,0);root.addView(find,topSend);
 
-        TextView count=text(selected.size()+" item"+(selected.size()==1?"":"s")+" selected • "+formatBytes(selectedTotalBytes()),18,Color.WHITE,true);
+        TextView count=text(getString(R.string.selected_size, selected.size(), formatBytes(selectedTotalBytes())),18,Color.WHITE,true);
         count.setPadding(0,dp(18),0,dp(8));root.addView(count);
         LinearLayout selection=card();
         if(selected.isEmpty()) selection.addView(text("Nothing selected yet. Photos and Videos open inside OptiShare; Files opens Android's document picker.",13,Color.rgb(156,181,202),false));
@@ -797,14 +797,14 @@ public class V2Activity extends ComponentActivity implements
         root.setPadding(dp(18),dp(14),dp(18),dp(12));
         root.setBackgroundColor(Color.rgb(5,22,41));
         String galleryTitle="image".equals(type)?"Photos":"video".equals(type)?"Videos":"Music";
-        addBackHeader(root,galleryTitle,"Tap to select multiple items");
+        addBackHeader(root,galleryTitle,getString(R.string.tap_select_multiple));
 
         LinearLayout actionBar=new LinearLayout(this);
         actionBar.setOrientation(LinearLayout.HORIZONTAL);
         actionBar.setGravity(Gravity.CENTER_VERTICAL);
         actionBar.setPaddingRelative(dp(12),dp(7),dp(7),dp(7));
         actionBar.setBackground(gradient(Color.rgb(13,43,70),Color.rgb(9,31,54),16));
-        TextView selectedCount=text(selected.size()+" selected • "+formatBytes(selectedTotalBytes()),14,Color.rgb(92,202,255),true);
+        TextView selectedCount=text(getString(R.string.selected_size, selected.size(), formatBytes(selectedTotalBytes())),14,Color.rgb(92,202,255),true);
         actionBar.addView(selectedCount,new LinearLayout.LayoutParams(0,dp(48),1));
         Button done=primary("Send selected");
         done.setEnabled(false);
@@ -824,7 +824,7 @@ public class V2Activity extends ComponentActivity implements
             selected.clear();
             selected.addAll(set);
             int count=set.size();
-            selectedCount.setText(count+" selected • "+formatBytes(selectedTotalBytes()));
+            selectedCount.setText(getString(R.string.selected_size, count, formatBytes(selectedTotalBytes())));
             done.setEnabled(count>0);
             done.setAlpha(count>0?1f:.55f);
         });
@@ -844,7 +844,7 @@ public class V2Activity extends ComponentActivity implements
         currentScreen=SCREEN_DISCOVERY;
         receiverMode=false;
         pendingQrAddress=null;pendingQrName=null;
-        ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,"Nearby devices",selected.size()+" items • "+formatBytes(selectedTotalBytes()));
+        ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,"Nearby devices",getString(R.string.items_size, selected.size(), formatBytes(selectedTotalBytes())));
         connectionPill=connectionBadge("SEARCHING",Color.rgb(255,194,73));root.addView(connectionPill);
         LinearLayout radar=card();TextView icon=text("◎",76,Color.rgb(80,198,255),true);icon.setGravity(Gravity.CENTER);radar.addView(icon);
         discoveryState=text("Searching for receiving phones…",16,Color.WHITE,true);discoveryState.setGravity(Gravity.CENTER);radar.addView(discoveryState);

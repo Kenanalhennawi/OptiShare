@@ -107,4 +107,17 @@
     <string name="sending_progress">Sending…</string>
     <string name="resuming_status">Resuming</string>
     <string name="android_speed_test">Android speed test</string>
+    <string name="private_local_sharing">Private local sharing</string>
+    <string name="build_batch_subtitle">Build one batch from photos, videos, apps and documents</string>
+    <string name="tap_select_multiple">Tap to select multiple items</string>
+    <string name="selected_size">%1$d selected • %2$s</string>
+    <string name="items_size">%1$d items • %2$s</string>
+    <string name="folder_items_selected">%1$d files selected with folder structure preserved.</string>
+    <string name="reconnecting_status">RECONNECTING…</string>
+    <string name="smart_route_same_wifi">SMART ROUTE • SAME WI-FI ✓</string>
+    <string name="smart_route_two_streams">SMART ROUTE • 2 STREAMS</string>
+    <string name="smart_route_reliable_stream">SMART ROUTE • RELIABLE STREAM</string>
+    <string name="received_folder_label">Downloads / OptiShare</string>
+    <string name="contact_support">Contact us / report a problem</string>
+    <string name="contact_support_summary">Email support with device and Android version; private file names are never included</string>
 </resources>

@@ -106,7 +106,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         titles.setOrientation(LinearLayout.VERTICAL);
         titles.setPaddingRelative(dp(12), 0, 0, 0);
         titles.addView(text("Received files", 25, Color.WHITE, true));
-        titles.addView(text("Download / OptiShare", 12, Color.rgb(135, 181, 214), false));
+        titles.addView(text(getString(R.string.received_folder_label), 12, Color.rgb(135, 181, 214), false));
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(header);
 
@@ -216,8 +216,8 @@ public final class ReceivedFilesActivity extends ComponentActivity {
             holder.name.setText(item.name);
             String when = item.modifiedMs <= 0 ? getString(R.string.unknown_time) : DateFormat.getDateTimeInstance(
                     DateFormat.SHORT, DateFormat.SHORT).format(new Date(item.modifiedMs));
-            holder.meta.setText(UiText.get(ReceivedFilesActivity.this,
-                    categoryFor(item.mime) + " • " + human(item.size) + " • " + when));
+            holder.meta.setText(UiText.get(ReceivedFilesActivity.this, categoryFor(item.mime))
+                    + " • " + human(item.size) + " • " + when);
             holder.icon.setImageResource(iconFor(item.mime));
             holder.icon.setColorFilter(Color.WHITE);
             holder.check.setOnCheckedChangeListener(null);

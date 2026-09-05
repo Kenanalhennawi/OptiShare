@@ -97,6 +97,10 @@ public final class UiText {
             case "Transfer paused": return R.string.transfer_paused;
             case "Connection interrupted": return R.string.connection_interrupted;
             case "Reconnecting automatically": return R.string.reconnecting_automatically;
+            case "RECONNECTING…": return R.string.reconnecting_status;
+            case "SMART ROUTE • SAME WI-FI ✓": return R.string.smart_route_same_wifi;
+            case "SMART ROUTE • 2 STREAMS": return R.string.smart_route_two_streams;
+            case "SMART ROUTE • RELIABLE STREAM": return R.string.smart_route_reliable_stream;
             case "Secure connection established": return R.string.secure_connection;
             case "Trusted device verified ✓": return R.string.trusted_verified;
             case "Incoming batch": return R.string.incoming_batch;
@@ -121,6 +125,10 @@ public final class UiText {
             case "Open received files": return R.string.open_received_files;
             case "About OptiShare": return R.string.about_optishare;
             case "Designed & developed by Kenan Alhennawi": return R.string.developed_by;
+            case "Private local sharing": return R.string.private_local_sharing;
+            case "Build one batch from photos, videos, apps and documents": return R.string.build_batch_subtitle;
+            case "Tap to select multiple items": return R.string.tap_select_multiple;
+            case "Download / OptiShare": return R.string.received_folder_label;
             case "Installed apps": return R.string.installed_apps;
             case "Add selected apps to queue": return R.string.add_apps_queue;
             case "Standard apps are sent as APK. Apps installed as split packages are bundled as APKS so every required component is preserved.": return R.string.apps_help;

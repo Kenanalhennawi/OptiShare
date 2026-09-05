@@ -203,8 +203,7 @@ public final class SettingsActivity extends Activity {
     private void addHelpSection(LinearLayout page) {
         LinearLayout card = section(page, R.string.help_and_contact);
         row(card, getString(R.string.how_to_use), getString(R.string.how_to_use_summary), this::showHelp);
-        row(card, getString(R.string.report_problem), getString(R.string.report_problem_summary), this::sendSupportEmail);
-        row(card, getString(R.string.contact_us), "optishare20@gmail.com", this::sendSupportEmail);
+        row(card, getString(R.string.contact_support), getString(R.string.contact_support_summary), this::sendSupportEmail);
     }
 
     private void addAboutSection(LinearLayout page) {
