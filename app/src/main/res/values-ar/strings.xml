@@ -49,4 +49,37 @@
     <string name="remove_from_received_list_summary">ستبقى الملفات داخل Download/OptiShare ومتاحة في مدير الملفات.</string>
     <string name="confirm_multi_delete">هل تريد حذف %1$d ملف محدد نهائياً من هذا الجهاز؟</string>
     <string name="removed_from_list">تمت الإزالة من قائمة OptiShare وبقيت الملفات على الجهاز.</string>
+
+    <!-- توطين ما قبل الإصدار والسجل -->
+    <string name="transfer_history">سجل عمليات النقل</string>
+    <string name="transfer_history_summary">عرض عمليات النقل المكتملة والفاشلة</string>
+    <string name="history_empty">لا يوجد سجل نقل بعد</string>
+    <string name="history_empty_summary">ستظهر هنا عمليات النقل المكتملة والفاشلة.</string>
+    <string name="clear_history">مسح السجل</string>
+    <string name="clear_history_confirm">هل تريد إزالة سجل النقل بالكامل؟ لن يؤدي ذلك إلى حذف الملفات المستلمة.</string>
+    <string name="history_sent">تم الإرسال</string>
+    <string name="history_received">تم الاستلام</string>
+    <string name="history_success">مكتمل</string>
+    <string name="history_failed">فشل</string>
+    <string name="history_files_size">%1$d ملف • %2$s</string>
+    <string name="history_peer_time">%1$s • %2$s</string>
+    <string name="history_performance">%1$s • %2$s • المتوسط %3$s/ث</string>
+    <string name="history_reconnects">إعادة اتصال: %1$d</string>
+    <string name="route_same_wifi">نفس شبكة Wi‑Fi</string>
+    <string name="route_wifi_direct">Wi‑Fi Direct</string>
+    <string name="route_unknown">اتصال محلي</string>
+    <string name="select_apps">حدد التطبيقات</string>
+    <string name="add_apps_count">إضافة %1$d تطبيق إلى قائمة الانتظار</string>
+    <string name="user_installed_apps_only">تطبيقات المستخدم فقط</string>
+    <string name="app_size_includes">يشمل الحجم ملف APK الأساسي وجميع ملفات APK المجزأة المطلوبة.</string>
+    <string name="received_files_summary">%1$d ملف • %2$s</string>
+    <string name="delete_failed_count">تعذر حذف %1$d ملف.</string>
+    <string name="unknown_time">وقت غير معروف</string>
+    <string name="category_photo">صورة</string>
+    <string name="category_video">فيديو</string>
+    <string name="category_music">موسيقى</string>
+    <string name="category_app">تطبيق</string>
+    <string name="category_archive">أرشيف</string>
+    <string name="category_document">مستند</string>
+    <string name="category_file">ملف</string>
 </resources>

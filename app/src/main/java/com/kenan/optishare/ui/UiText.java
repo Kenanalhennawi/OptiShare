@@ -144,6 +144,16 @@ public final class UiText {
             case "Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.": return R.string.trusted_legacy;
             case "Text received ✓": return R.string.text_received_only;
             case "The received text was saved without changing your clipboard.": return R.string.text_saved_no_clipboard;
+            case "User-installed apps only": return R.string.user_installed_apps_only;
+            case "Select apps": return R.string.select_apps;
+            case "App size includes the base APK and all required split APK files.": return R.string.app_size_includes;
+            case "Unknown time": return R.string.unknown_time;
+            case "Photo": return R.string.category_photo;
+            case "Video": return R.string.category_video;
+            case "App": return R.string.category_app;
+            case "Archive": return R.string.category_archive;
+            case "Document": return R.string.category_document;
+            case "File": return R.string.category_file;
             default: return 0;
         }
     }

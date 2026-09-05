@@ -53,13 +53,13 @@ public final class AppPickerActivity extends ComponentActivity {
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         Button back=button("‹ Back");back.setOnClickListener(v->finish());header.addView(back,new LinearLayout.LayoutParams(dp(88),dp(44)));
         LinearLayout titleBox=new LinearLayout(this);titleBox.setOrientation(LinearLayout.VERTICAL);titleBox.setPadding(dp(12),0,0,0);
-        titleBox.addView(text("Installed apps",25,Color.WHITE,true));titleBox.addView(text("User-installed apps only",12,Color.rgb(143,183,212),false));
+        titleBox.addView(text(getString(R.string.installed_apps),25,Color.WHITE,true));titleBox.addView(text(getString(R.string.user_installed_apps_only),12,Color.rgb(143,183,212),false));
         header.addView(titleBox,new LinearLayout.LayoutParams(0,-2,1));page.addView(header);
 
-        addButton=primary("Select apps");
+        addButton=primary(getString(R.string.select_apps));
         addButton.setEnabled(false);addButton.setAlpha(.5f);addButton.setOnClickListener(v->finishSelection());
         LinearLayout.LayoutParams addLp=new LinearLayout.LayoutParams(-1,dp(54));addLp.setMargins(0,dp(14),0,dp(10));page.addView(addButton,addLp);
-        TextView hint=text("App size includes the base APK and all required split APK files.",11,Color.rgb(142,179,207),false);hint.setPadding(dp(4),0,dp(4),dp(8));page.addView(hint);
+        TextView hint=text(getString(R.string.app_size_includes),11,Color.rgb(142,179,207),false);hint.setPadding(dp(4),0,dp(4),dp(8));page.addView(hint);
 
         RecyclerView list=new RecyclerView(this);list.setLayoutManager(new LinearLayoutManager(this));list.setClipToPadding(false);list.setPadding(0,0,0,dp(16));list.setAdapter(new AppsAdapter(loadUserApps()));
         page.addView(list,new LinearLayout.LayoutParams(-1,0,1));setContentView(page);
@@ -100,16 +100,16 @@ public final class AppPickerActivity extends ComponentActivity {
         final class Holder extends RecyclerView.ViewHolder{final LinearLayout root;final ImageView icon;final TextView label,meta;final CheckBox check;Holder(LinearLayout root,ImageView icon,TextView label,TextView meta,CheckBox check){super(root);this.root=root;this.icon=icon;this.label=label;this.meta=meta;this.check=check;}}
     }
 
-    private void updateAction(){int count=selected.size();addButton.setText(count==0?UiText.get(this,"Select apps"):UiText.get(this,"Add "+count+" app"+(count==1?"":"s")+" to queue"));addButton.setEnabled(count>0);addButton.setAlpha(count>0?1f:.5f);}
+    private void updateAction(){int count=selected.size();addButton.setText(count==0?getString(R.string.select_apps):getString(R.string.add_apps_count,count));addButton.setEnabled(count>0);addButton.setAlpha(count>0?1f:.5f);}
     private void finishSelection(){setResult(RESULT_OK,new Intent().putStringArrayListExtra(EXTRA_PACKAGES,new ArrayList<>(selected)));finish();}
     private long appBytes(ApplicationInfo info){long total=fileBytes(info.sourceDir);if(info.splitSourceDirs!=null)for(String path:info.splitSourceDirs){long size=fileBytes(path);if(Long.MAX_VALUE-total<size)return Long.MAX_VALUE;total+=size;}return total;}
     private long fileBytes(String path){if(path==null)return 0L;try{return Math.max(0L,new File(path).length());}catch(Exception ignored){return 0L;}}
     private String humanBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024d*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.1f MB",b/(1024d*1024));if(b>=1024)return String.format(Locale.US,"%.0f KB",b/1024d);return b+" B";}
-    private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(12);b.setAllCaps(false);b.setBackground(vivid(new int[]{Color.rgb(47,101,142),Color.rgb(27,65,101),Color.rgb(55,38,108)},16));if(android.os.Build.VERSION.SDK_INT>=21){b.setElevation(dp(11));b.setTranslationZ(dp(4));}press(b);return b;}
-    private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(vivid(new int[]{Color.rgb(176,242,255),Color.rgb(48,204,255),Color.rgb(38,120,241),Color.rgb(75,38,174)},20));if(android.os.Build.VERSION.SDK_INT>=21){b.setElevation(dp(14));b.setTranslationZ(dp(5));}return b;}
+    private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(12);b.setAllCaps(false);b.setBackground(vivid(new int[]{Color.rgb(47,101,142),Color.rgb(27,65,101),Color.rgb(55,38,108)},16));if(android.os.Build.VERSION.SDK_INT>=21)b.setElevation(dp(6));press(b);return b;}
+    private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(vivid(new int[]{Color.rgb(48,204,255),Color.rgb(38,120,241),Color.rgb(105,57,224)},20));if(android.os.Build.VERSION.SDK_INT>=21)b.setElevation(dp(9));return b;}
     private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextColor(color);t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private GradientDrawable vivid(int[] colors,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,colors);g.setCornerRadius(dp(radius));g.setStroke(dp(1),Color.argb(90,255,255,255));return g;}
-    private void press(View view){view.setOnTouchListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.975f).scaleY(.975f).translationY(dp(4)).setDuration(75).start();else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(170).start();return false;});}
+    private void press(View view){view.setOnTouchListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.96f).scaleY(.96f).translationY(dp(3)).setDuration(75).start();else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(170).start();return false;});}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }

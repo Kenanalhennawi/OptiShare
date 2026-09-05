@@ -143,7 +143,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
     private void updateHeader() {
         long total = 0L;
         for (Item item : items) total += item.size;
-        summary.setText(items.size() + " file" + (items.size() == 1 ? "" : "s") + " • " + human(total));
+        summary.setText(getString(R.string.received_files_summary, items.size(), human(total)));
         int count = selected.size();
         manageButton.setText(count == 0 ? getString(R.string.select_received_files)
                 : getString(R.string.delete_selected_files, count));
@@ -214,7 +214,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         @Override public void onBindViewHolder(@NonNull ReceivedHolder holder, int position) {
             Item item = items.get(position);
             holder.name.setText(item.name);
-            String when = item.modifiedMs <= 0 ? "Unknown time" : DateFormat.getDateTimeInstance(
+            String when = item.modifiedMs <= 0 ? getString(R.string.unknown_time) : DateFormat.getDateTimeInstance(
                     DateFormat.SHORT, DateFormat.SHORT).format(new Date(item.modifiedMs));
             holder.meta.setText(UiText.get(ReceivedFilesActivity.this,
                     categoryFor(item.mime) + " • " + human(item.size) + " • " + when));
@@ -312,7 +312,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         for (Item item : targets) if (!deleteOne(item)) failed++;
         selected.clear();
         reload();
-        if (failed > 0) showSimple(failed + " file(s) could not be deleted.");
+        if (failed > 0) showSimple(getString(R.string.delete_failed_count, failed));
     }
 
     private boolean deleteOne(Item item) {
@@ -442,7 +442,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         value.setTextColor(Color.WHITE);
         value.setTextSize(12);
         value.setAllCaps(false);
-        value.setBackground(vivid(new int[]{Color.rgb(45,112,164),Color.rgb(28,75,122),Color.rgb(58,39,111)},16));if (Build.VERSION.SDK_INT >= 21) { value.setElevation(dp(11)); value.setTranslationZ(dp(4)); }
+        value.setBackground(vivid(new int[]{Color.rgb(45,112,164),Color.rgb(28,75,122),Color.rgb(58,39,111)},16));if (Build.VERSION.SDK_INT >= 21) value.setElevation(dp(5));
         press(value);
         return value;
     }
@@ -465,7 +465,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         return value;
     }
 
-    private void press(View view) { view.setOnTouchListener((v,e) -> { if(e.getAction()==android.view.MotionEvent.ACTION_DOWN) v.animate().scaleX(.975f).scaleY(.975f).translationY(dp(4)).setDuration(75).start(); else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL) v.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(170).start(); return false; }); }
+    private void press(View view) { view.setOnTouchListener((v,e) -> { if(e.getAction()==android.view.MotionEvent.ACTION_DOWN) v.animate().scaleX(.96f).scaleY(.96f).translationY(dp(3)).setDuration(75).start(); else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL) v.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(170).start(); return false; }); }
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
