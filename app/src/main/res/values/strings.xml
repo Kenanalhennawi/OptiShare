@@ -81,4 +81,30 @@
     <string name="category_archive">Archive</string>
     <string name="category_document">Document</string>
     <string name="category_file">File</string>
+
+    <string name="files_plural">Files</string>
+    <string name="android_label">Android</string>
+    <string name="select_content_first">Select content first</string>
+    <string name="send_selected">Send selected</string>
+    <string name="receive_screen_subtitle">Keep this screen open until the direct session is ready</string>
+    <string name="starting_receiver">Starting receiver</string>
+    <string name="secure_session_status">Secure session</string>
+    <string name="searching_status">Searching</string>
+    <string name="connected_check">Connected ✓</string>
+    <string name="connected_status">Connected</string>
+    <string name="connecting_status">Connecting…</string>
+    <string name="ready_status">Ready</string>
+    <string name="unavailable_status">Unavailable</string>
+    <string name="busy_status">Busy</string>
+    <string name="nearby_device">Nearby device</string>
+    <string name="wifi_direct_candidate">Wi‑Fi Direct candidate</string>
+    <string name="connected_receiver_active">Connected ✓\nSecure receiver channel is active.</string>
+    <string name="ready_receive_waiting">Ready to receive ✓\nWaiting for sender…</string>
+    <string name="visible_to_senders">Visible to senders</string>
+    <string name="receiving_status">Receiving</string>
+    <string name="receiving_progress">Receiving…</string>
+    <string name="sending_status">Sending</string>
+    <string name="sending_progress">Sending…</string>
+    <string name="resuming_status">Resuming</string>
+    <string name="android_speed_test">Android speed test</string>
 </resources>

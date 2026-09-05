@@ -17,6 +17,37 @@ public final class UiText {
     private static int resource(String value) {
         switch (value) {
             case "‹ Back": return R.string.back;
+            case "← Back": return R.string.back;
+            case "Back": return R.string.back_plain;
+            case "Send": return R.string.send;
+            case "Receive": return R.string.receive;
+            case "Files": return R.string.files_plural;
+            case "Android": return R.string.android_label;
+            case "Select content first": return R.string.select_content_first;
+            case "Send selected": return R.string.send_selected;
+            case "Type or paste text to send": return R.string.text_hint;
+            case "Keep this screen open until the direct session is ready": return R.string.receive_screen_subtitle;
+            case "STARTING RECEIVER": return R.string.starting_receiver;
+            case "SECURE SESSION": return R.string.secure_session_status;
+            case "SEARCHING": return R.string.searching_status;
+            case "CONNECTED ✓": return R.string.connected_check;
+            case "Connected": return R.string.connected_status;
+            case "Connecting…": return R.string.connecting_status;
+            case "Ready": return R.string.ready_status;
+            case "Unavailable": return R.string.unavailable_status;
+            case "Busy": return R.string.busy_status;
+            case "Nearby device": return R.string.nearby_device;
+            case "Wi-Fi Direct candidate": return R.string.wifi_direct_candidate;
+            case "CONNECTED ✓\nSecure receiver channel is active.": return R.string.connected_receiver_active;
+            case "READY TO RECEIVE ✓\nWaiting for sender…": return R.string.ready_receive_waiting;
+            case "VISIBLE TO SENDERS": return R.string.visible_to_senders;
+            case "Receiving": return R.string.receiving_status;
+            case "Receiving…": return R.string.receiving_progress;
+            case "Sending": return R.string.sending_status;
+            case "Sending…": return R.string.sending_progress;
+            case "Resuming": return R.string.resuming_status;
+            case "Android speed test": return R.string.android_speed_test;
+
             case "SEND": return R.string.send;
             case "RECEIVE": return R.string.receive;
             case "Choose content": return R.string.choose_content;

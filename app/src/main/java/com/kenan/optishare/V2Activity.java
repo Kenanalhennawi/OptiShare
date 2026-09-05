@@ -1122,7 +1122,7 @@ public class V2Activity extends ComponentActivity implements
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
                 LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPaddingRelative(dp(12),0,0,0);
                 names.addView(text(deviceName(device),15,Color.WHITE,true));
-                names.addView(text(deviceStatus(device.status)+" • Wi-Fi Direct candidate",12,Color.rgb(151,182,205),false));
+                names.addView(text(UiText.get(this,deviceStatus(device.status))+" • "+UiText.get(this,"Wi-Fi Direct candidate"),12,Color.rgb(151,182,205),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
                 TextView note=text("Not verified as OptiShare • use the verified OptiShare card above or scan the receiver QR",11,Color.rgb(142,166,187),false);
                 note.setPadding(0,dp(10),0,0);row.addView(note);
@@ -1259,7 +1259,7 @@ public class V2Activity extends ComponentActivity implements
     private void showTextComposer(String initial){
         final android.widget.EditText input=new android.widget.EditText(this);
         input.setMinLines(5);input.setMaxLines(12);input.setGravity(Gravity.TOP|Gravity.START);
-        input.setText(initial==null?"":initial);input.setHint("Type or paste text to send securely");
+        input.setText(initial==null?"":initial);input.setHint(UiText.get(this,"Type or paste text to send securely"));
         new AlertDialog.Builder(this).setTitle(R.string.send_text).setView(input)
                 .setPositiveButton(R.string.add_to_queue,(d,w)->{
                     try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,input.getText());
