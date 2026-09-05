@@ -25,13 +25,37 @@ jobs:
           - api_level: 23
             arch: x86
             target: default
+          - api_level: 24
+            arch: x86
+            target: default
+          - api_level: 25
+            arch: x86
+            target: google_apis
           - api_level: 26
+            arch: x86
+            target: google_apis
+          - api_level: 27
+            arch: x86
+            target: google_apis
+          - api_level: 28
             arch: x86
             target: google_apis
           - api_level: 29
             arch: x86_64
             target: google_apis
+          - api_level: 30
+            arch: x86_64
+            target: google_apis
+          - api_level: 31
+            arch: x86_64
+            target: google_apis
+          - api_level: 32
+            arch: x86_64
+            target: google_apis
           - api_level: 33
+            arch: x86_64
+            target: google_apis
+          - api_level: 34
             arch: x86_64
             target: google_apis
 
