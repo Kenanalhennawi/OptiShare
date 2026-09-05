@@ -476,7 +476,7 @@ public final class SettingsActivity extends Activity {
     private Button button(String value, boolean compact) {
         Button button = new Button(this);
         button.setText(value); button.setTextColor(primaryText); button.setTextSize(compact ? 22 : 14);
-        button.setAllCaps(false); button.setBackground(dark?vivid(new int[]{Color.rgb(46,99,140),Color.rgb(26,63,99),Color.rgb(55,38,107)},16):vivid(new int[]{Color.WHITE,Color.rgb(225,239,251),Color.rgb(219,230,245)},16));if(Build.VERSION.SDK_INT>=21)button.setElevation(dp(6));press(button);
+        button.setAllCaps(false); button.setBackground(dark?vivid(new int[]{Color.rgb(46,99,140),Color.rgb(26,63,99),Color.rgb(55,38,107)},16):vivid(new int[]{Color.WHITE,Color.rgb(225,239,251),Color.rgb(219,230,245)},16));if(Build.VERSION.SDK_INT>=21){button.setElevation(dp(12));button.setTranslationZ(dp(4));}press(button);
         return button;
     }
     private TextView label(String value, int size, int color, boolean bold) {
@@ -485,7 +485,7 @@ public final class SettingsActivity extends Activity {
         view.setTextDirection(View.TEXT_DIRECTION_LOCALE); return view;
     }
     private GradientDrawable vivid(int[] colors,int radius){GradientDrawable drawable=new GradientDrawable(GradientDrawable.Orientation.TL_BR,colors);drawable.setCornerRadius(dp(radius));drawable.setStroke(dp(1),dark?Color.rgb(66,106,140):Color.rgb(204,220,235));return drawable;}
-    private void press(View view){view.setOnTouchListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.975f).scaleY(.975f).translationY(dp(3)).alpha(.9f).setDuration(75).start();else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).alpha(1f).setDuration(175).start();return false;});}
+    private void press(View view){view.setOnTouchListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.985f).scaleY(.985f).translationY(dp(4)).alpha(.94f).setDuration(75).start();else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).alpha(1f).setDuration(175).start();return false;});}
     private GradientDrawable round(int color, int radius) {
         GradientDrawable drawable = new GradientDrawable(); drawable.setColor(color); drawable.setCornerRadius(dp(radius)); return drawable;
     }

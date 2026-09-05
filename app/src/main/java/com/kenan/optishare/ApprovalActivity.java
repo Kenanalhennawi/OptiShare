@@ -132,7 +132,7 @@ public final class ApprovalActivity extends Activity {
         button.setTextSize(16);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setBackground(gradient(top, bottom, 18));
-        if(android.os.Build.VERSION.SDK_INT>=21)button.setElevation(dp(9));press(button);
+        if(android.os.Build.VERSION.SDK_INT>=21){button.setElevation(dp(15));button.setTranslationZ(dp(5));}press(button);
         return button;
     }
 
@@ -154,12 +154,14 @@ public final class ApprovalActivity extends Activity {
 
     private GradientDrawable gradient(int top, int bottom, int radius) {
         GradientDrawable drawable = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR, new int[]{top, bottom});
+                GradientDrawable.Orientation.TL_BR, new int[]{lighten(top), top, bottom});
         drawable.setCornerRadius(dp(radius));
         return drawable;
     }
 
-    private void press(android.view.View view){view.setOnTouchListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.96f).scaleY(.96f).translationY(dp(3)).setDuration(75).start();else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(175).start();return false;});}
+    private void press(android.view.View view){view.setOnTouchListener((v,e)->{if(e.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.975f).scaleY(.975f).translationY(dp(4)).setDuration(75).start();else if(e.getAction()==android.view.MotionEvent.ACTION_UP||e.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(175).start();return false;});}
+
+    private int lighten(int color){return Color.rgb(Math.min(255,Color.red(color)+70),Math.min(255,Color.green(color)+70),Math.min(255,Color.blue(color)+70));}
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
