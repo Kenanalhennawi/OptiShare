@@ -48,7 +48,7 @@ public final class AppPickerActivity extends ComponentActivity {
     @Override protected void onCreate(Bundle state){super.onCreate(state);render();}
 
     private void render(){
-        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(18),dp(16),dp(18),dp(12));page.setBackgroundColor(Color.rgb(5,20,38));
+        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(18),dp(16),dp(18),dp(12));page.setBackground(vivid(new int[]{Color.rgb(3,14,34),Color.rgb(8,46,78),Color.rgb(38,22,78)},0));
 
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         Button back=button("‹ Back");back.setOnClickListener(v->finish());header.addView(back,new LinearLayout.LayoutParams(dp(88),dp(44)));
@@ -83,8 +83,8 @@ public final class AppPickerActivity extends ComponentActivity {
         AppsAdapter(List<AppEntry> apps){this.apps=apps;setHasStableIds(true);}
         @Override public long getItemId(int position){return apps.get(position).packageName.hashCode();}
         @NonNull @Override public Holder onCreateViewHolder(@NonNull ViewGroup parent,int type){
-            LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(10),dp(12),dp(10));row.setBackground(round(Color.rgb(12,42,69),18));
-            ImageView icon=new ImageView(parent.getContext());row.addView(icon,new LinearLayout.LayoutParams(dp(52),dp(52)));
+            LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(10),dp(12),dp(10));row.setBackground(vivid(new int[]{Color.rgb(24,65,96),Color.rgb(12,39,68),Color.rgb(35,25,76)},22));if(android.os.Build.VERSION.SDK_INT>=21)row.setElevation(dp(8));
+            ImageView icon=new ImageView(parent.getContext());icon.setPadding(dp(7),dp(7),dp(7),dp(7));GradientDrawable iconHalo=round(Color.argb(48,255,255,255),28);iconHalo.setShape(GradientDrawable.OVAL);iconHalo.setStroke(dp(1),Color.argb(115,255,255,255));icon.setBackground(iconHalo);row.addView(icon,new LinearLayout.LayoutParams(dp(58),dp(58)));
             LinearLayout copy=new LinearLayout(parent.getContext());copy.setOrientation(LinearLayout.VERTICAL);copy.setPadding(dp(13),0,dp(6),0);
             TextView label=text("",15,Color.WHITE,true);TextView meta=text("",11,Color.rgb(140,178,207),false);copy.addView(label);copy.addView(meta);row.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
             CheckBox check=new CheckBox(parent.getContext());check.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(70,194,255)));row.addView(check,new LinearLayout.LayoutParams(dp(48),dp(48)));
@@ -94,7 +94,7 @@ public final class AppPickerActivity extends ComponentActivity {
             AppEntry app=apps.get(position);h.icon.setImageDrawable(app.icon);h.label.setText(app.label);h.meta.setText(humanBytes(app.bytes)+"  •  "+app.packageName);
             h.check.setOnCheckedChangeListener(null);h.check.setChecked(selected.contains(app.packageName));
             View.OnClickListener toggle=v->{if(!selected.add(app.packageName))selected.remove(app.packageName);h.check.setChecked(selected.contains(app.packageName));updateAction();};
-            h.root.setOnClickListener(toggle);h.check.setOnClickListener(toggle);
+            h.root.setOnClickListener(v->{h.root.animate().scaleX(.97f).scaleY(.97f).setDuration(90).withEndAction(()->h.root.animate().scaleX(1f).scaleY(1f).setDuration(150).start()).start();toggle.onClick(v);});h.check.setOnClickListener(toggle);
         }
         @Override public int getItemCount(){return apps.size();}
         final class Holder extends RecyclerView.ViewHolder{final LinearLayout root;final ImageView icon;final TextView label,meta;final CheckBox check;Holder(LinearLayout root,ImageView icon,TextView label,TextView meta,CheckBox check){super(root);this.root=root;this.icon=icon;this.label=label;this.meta=meta;this.check=check;}}
@@ -106,8 +106,9 @@ public final class AppPickerActivity extends ComponentActivity {
     private long fileBytes(String path){if(path==null)return 0L;try{return Math.max(0L,new File(path).length());}catch(Exception ignored){return 0L;}}
     private String humanBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024d*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.1f MB",b/(1024d*1024));if(b>=1024)return String.format(Locale.US,"%.0f KB",b/1024d);return b+" B";}
     private Button button(String label){Button b=new Button(this);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(12);b.setAllCaps(false);b.setBackground(round(Color.rgb(22,73,111),14));return b;}
-    private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(round(Color.rgb(34,122,231),18));return b;}
+    private Button primary(String label){Button b=button(label);b.setTextSize(14);b.setTypeface(b.getTypeface(),android.graphics.Typeface.BOLD);b.setBackground(vivid(new int[]{Color.rgb(48,204,255),Color.rgb(38,120,241),Color.rgb(105,57,224)},20));if(android.os.Build.VERSION.SDK_INT>=21)b.setElevation(dp(9));return b;}
     private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextColor(color);t.setTextSize(size);if(bold)t.setTypeface(t.getTypeface(),android.graphics.Typeface.BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
+    private GradientDrawable vivid(int[] colors,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,colors);g.setCornerRadius(dp(radius));g.setStroke(dp(1),Color.argb(90,255,255,255));return g;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
 }

@@ -95,7 +95,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(16));
-        root.setBackgroundColor(Appearance.background(this));
+        root.setBackground(vivid(new int[]{Color.rgb(3,14,34),Color.rgb(8,45,76),Color.rgb(36,22,76)},0));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -177,13 +177,13 @@ public final class ReceivedFilesActivity extends ComponentActivity {
             outerLp.setMargins(0, 0, 0, dp(10));
             outer.setLayoutParams(outerLp);
             outer.setPadding(dp(15), dp(14), dp(15), dp(14));
-            outer.setBackground(round(Appearance.surface(ReceivedFilesActivity.this), 18));
+            outer.setBackground(vivid(new int[]{Color.rgb(24,64,95),Color.rgb(12,38,67),Color.rgb(34,24,74)},22));if (Build.VERSION.SDK_INT >= 21) outer.setElevation(dp(8));
 
             LinearLayout top = new LinearLayout(ReceivedFilesActivity.this);
             top.setGravity(Gravity.CENTER_VERTICAL);
             ImageView icon = new ImageView(ReceivedFilesActivity.this);
             icon.setPadding(dp(14), dp(14), dp(14), dp(14));
-            icon.setBackground(round(Color.rgb(28, 103, 157), 16));
+            GradientDrawable iconHalo=vivid(new int[]{Color.rgb(82,211,255),Color.rgb(43,120,230),Color.rgb(115,56,218)},30);iconHalo.setShape(GradientDrawable.OVAL);icon.setBackground(iconHalo);
             top.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
 
             LinearLayout info = new LinearLayout(ReceivedFilesActivity.this);
@@ -223,7 +223,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
             holder.check.setOnCheckedChangeListener(null);
             holder.check.setChecked(selected.contains(item.key()));
             holder.check.setOnCheckedChangeListener((button, checked) -> toggle(item));
-            holder.itemView.setOnClickListener(v -> toggle(item));
+            holder.itemView.setOnClickListener(v -> { holder.itemView.animate().scaleX(.975f).scaleY(.975f).setDuration(90).withEndAction(() -> holder.itemView.animate().scaleX(1f).scaleY(1f).setDuration(150).start()).start(); toggle(item); });
             holder.check.setOnClickListener(v -> { });
             boolean actionable = itemUri(item) != null;
             holder.open.setEnabled(actionable);
@@ -442,7 +442,7 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         value.setTextColor(Color.WHITE);
         value.setTextSize(12);
         value.setAllCaps(false);
-        value.setBackground(round(Appearance.secondarySurface(this), 14));
+        value.setBackground(vivid(new int[]{Color.rgb(45,112,164),Color.rgb(28,75,122),Color.rgb(58,39,111)},16));if (Build.VERSION.SDK_INT >= 21) value.setElevation(dp(5));
         return value;
     }
 
@@ -454,6 +454,8 @@ public final class ReceivedFilesActivity extends ComponentActivity {
         if (bold) view.setTypeface(view.getTypeface(), android.graphics.Typeface.BOLD);
         return view;
     }
+
+    private GradientDrawable vivid(int[] colors, int radiusDp) { GradientDrawable value=new GradientDrawable(GradientDrawable.Orientation.TL_BR,colors); value.setCornerRadius(dp(radiusDp)); value.setStroke(dp(1),Color.argb(90,255,255,255)); return value; }
 
     private GradientDrawable round(int color, int radiusDp) {
         GradientDrawable value = new GradientDrawable();

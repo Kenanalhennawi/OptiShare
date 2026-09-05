@@ -12,7 +12,9 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.location.LocationManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -638,7 +640,7 @@ public class V2Activity extends ComponentActivity implements
 
         TextView footer = text("Received files → Download/OptiShare/{Photos, Videos, Music, Apps, Documents, Archives, Other}\nDesigned & developed by Kenan Alhennawi",11,Color.rgb(116,165,199),false);
         footer.setGravity(Gravity.CENTER); footer.setPadding(0,dp(18),0,0); root.addView(footer);
-        setContentView(scroll);
+        setAnimatedContent(scroll);
     }
 
     private void addHistory(LinearLayout root) {
@@ -707,7 +709,7 @@ public class V2Activity extends ComponentActivity implements
             LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,dp(46));cl.setMargins(0,dp(10),0,0);selection.addView(clear,cl);
         }
         root.addView(selection);
-        setContentView(scroll);
+        setAnimatedContent(scroll);
     }
 
     private View queueSelectionRow(int index){
@@ -835,7 +837,7 @@ public class V2Activity extends ComponentActivity implements
             selected.addAll(adapter.selection());
             showSendSelection();
         });
-        setContentView(root);
+        setAnimatedContent(root);
     }
 
     private void showDiscovery() {
@@ -852,7 +854,7 @@ public class V2Activity extends ComponentActivity implements
         Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(8),0,0,0);qrRow.addView(retry,rr);
         LinearLayout.LayoutParams qrlp=new LinearLayout.LayoutParams(-1,-2);qrlp.setMargins(0,dp(12),0,0);root.addView(qrRow,qrlp);
         peerList=new LinearLayout(this);peerList.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,-2);pl.setMargins(0,dp(12),0,0);root.addView(peerList,pl);
-        setContentView(scroll);startDiscovery();
+        setAnimatedContent(scroll);startDiscovery();
     }
 
     private void showReceive() {
@@ -868,7 +870,7 @@ public class V2Activity extends ComponentActivity implements
         if(ENABLE_PC_COMPANION){Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);}
         root.addView(text("Keep this screen open while the sender connects. Android-to-Android transfers use authenticated ECDH and AES-GCM encryption.",11,Color.rgb(150,179,202),false));
         Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
-        setContentView(scroll);startReceiverService();startReceiverMode();
+        setAnimatedContent(scroll);startReceiverService();startReceiverMode();
     }
 
     private void showTransferScreen(String title) {
@@ -902,7 +904,7 @@ public class V2Activity extends ComponentActivity implements
         }else{
             transferCancelButton=secondaryButton("Cancel transfer");transferCancelButton.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(R.string.cancel_transfer_title).setMessage(R.string.cancel_transfer_message).setPositiveButton(R.string.cancel_transfer,(d,w)->{stopTransferService();showHome();}).setNegativeButton(R.string.keep_transferring,null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(transferCancelButton,cp);
         }
-        setContentView(scroll);
+        setAnimatedContent(scroll);
     }
 
     private void startDiscovery() {
@@ -1304,7 +1306,7 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout content=card();content.addView(text("Received content",16,Color.WHITE,true));content.addView(text("Files are sorted in Download/OptiShare. Text and clipboard items arrive as readable .txt files in the Text folder.",12,Color.rgb(151,190,218),false));
         Button received=secondaryButton("Open received files");received.setOnClickListener(v->startActivity(new Intent(this,ReceivedFilesActivity.class)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(48));cp.setMargins(0,dp(10),0,0);content.addView(received,cp);LinearLayout.LayoutParams contentLp=new LinearLayout.LayoutParams(-1,-2);contentLp.setMargins(0,dp(12),0,0);root.addView(content,contentLp);
         LinearLayout about=card();about.addView(text("About OptiShare",16,Color.WHITE,true));about.addView(text("Version "+appVersion()+"\nPrivate Android-to-Android sharing. No account, advertising or analytics.",12,Color.rgb(151,190,218),false));about.addView(text("Designed & developed by Kenan Alhennawi",11,Color.rgb(91,189,255),true));LinearLayout.LayoutParams aboutLp=new LinearLayout.LayoutParams(-1,-2);aboutLp.setMargins(0,dp(12),0,0);root.addView(about,aboutLp);
-        setContentView(scroll);
+        setAnimatedContent(scroll);
     }
 
     private String appVersion(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){return "2.2";}}
@@ -1348,17 +1350,19 @@ public class V2Activity extends ComponentActivity implements
     private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->navigateBack());root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
 
     private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
-    private Button category(int icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setCompoundDrawablesWithIntrinsicBounds(0,icon,0,0);b.setCompoundDrawablePadding(dp(12));b.setPadding(dp(8),dp(15),dp(8),dp(13));b.setLetterSpacing(.015f);b.setBackground(vividGradient(new int[]{lighten(color),color,darken(color)},24,Color.argb(115,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(10));b.setTranslationZ(dp(1));}applyPressMotion(b);b.setOnClickListener(listener);return b;}
+    private Button category(int icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setCompoundDrawables(null,circularIcon(icon,color,50),null,null);b.setCompoundDrawablePadding(dp(11));b.setPadding(dp(8),dp(13),dp(8),dp(12));b.setLetterSpacing(.015f);b.setBackground(vividGradient(new int[]{lighten(color),color,darken(color)},28,Color.argb(130,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(13));b.setTranslationZ(dp(2));}applyPressMotion(b);b.setOnClickListener(listener);return b;}
     private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(118),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(118),1);p2.setMargins(dp(10),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(118),1);p3.setMargins(dp(10),0,0,0);row.addView(c,p3);return row;}
-    private Button bigAction(int icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(16);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setLetterSpacing(.02f);b.setCompoundDrawablesWithIntrinsicBounds(0,icon,0,0);b.setCompoundDrawablePadding(dp(14));b.setPadding(dp(12),dp(19),dp(12),dp(15));b.setBackground(vividGradient(new int[]{lighten(top),top,bottom},28,Color.argb(135,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(13));b.setTranslationZ(dp(2));}applyPressMotion(b);return b;}
+    private Button bigAction(int icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(16);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setLetterSpacing(.02f);b.setCompoundDrawables(null,circularIcon(icon,top,60),null,null);b.setCompoundDrawablePadding(dp(12));b.setPadding(dp(12),dp(16),dp(12),dp(14));b.setBackground(vividGradient(new int[]{lighten(top),top,bottom},32,Color.argb(145,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(16));b.setTranslationZ(dp(3));}applyPressMotion(b);return b;}
     private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setLetterSpacing(.015f);b.setBackground(vividGradient(new int[]{Color.rgb(52,205,255),Color.rgb(38,122,244),Color.rgb(104,62,226)},18,Color.argb(105,255,255,255)));if(Build.VERSION.SDK_INT>=21)b.setElevation(dp(7));applyPressMotion(b);return b;}
     private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(lightMode()?Color.rgb(15,42,66):Color.WHITE);b.setTextSize(13);b.setBackground(round(lightMode()?Color.rgb(224,235,244):Color.rgb(24,52,78),14));return b;}
     private Button smallButton(String label){Button b=secondaryButton(label);b.setTextSize(12);return b;}
-    private LinearLayout card(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(16),dp(16),dp(16),dp(16));GradientDrawable g=round(lightMode()?Color.WHITE:Color.rgb(13,33,56),18);g.setStroke(dp(1),lightMode()?Color.rgb(210,222,232):Color.rgb(37,68,96));l.setBackground(g);return l;}
+    private LinearLayout card(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(17),dp(17),dp(17),dp(17));GradientDrawable g=lightMode()?vividGradient(new int[]{Color.WHITE,Color.rgb(244,249,255),Color.rgb(238,243,255)},22,Color.rgb(205,222,238)):vividGradient(new int[]{Color.rgb(22,52,82),Color.rgb(12,34,62),Color.rgb(28,23,68)},22,Color.rgb(54,93,128));l.setBackground(g);if(Build.VERSION.SDK_INT>=21)l.setElevation(dp(7));return l;}
     private TextView text(String value,int sp,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextSize(sp);t.setTextColor(uiTextColor(color));if(bold)t.setTypeface(Typeface.DEFAULT_BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private GradientDrawable gradient(int top,int bottom,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{top,bottom});g.setCornerRadius(dp(radius));return g;}
     private GradientDrawable vividGradient(int[] colors,int radius,int stroke){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,colors);g.setCornerRadius(dp(radius));if(Color.alpha(stroke)>0)g.setStroke(dp(1),stroke);return g;}
+    private Drawable circularIcon(int icon,int color,int sizeDp){Drawable glyph=ContextCompat.getDrawable(this,icon);if(glyph!=null)glyph=glyph.mutate();GradientDrawable halo=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{Color.argb(105,255,255,255),Color.argb(30,255,255,255),Color.argb(55,Color.red(color),Color.green(color),Color.blue(color))});halo.setShape(GradientDrawable.OVAL);halo.setStroke(dp(1),Color.argb(150,255,255,255));if(glyph==null){halo.setBounds(0,0,dp(sizeDp),dp(sizeDp));return halo;}glyph.setTint(Color.WHITE);LayerDrawable layers=new LayerDrawable(new Drawable[]{halo,glyph});int inset=dp(12);layers.setLayerInset(1,inset,inset,inset,inset);layers.setBounds(0,0,dp(sizeDp),dp(sizeDp));return layers;}
+    private void setAnimatedContent(View view){setContentView(view);view.setAlpha(0f);view.setTranslationY(dp(22));view.setScaleX(.985f);view.setScaleY(.985f);view.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(280).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();}
     private int darken(int color){return Color.rgb((int)(Color.red(color)*.66),(int)(Color.green(color)*.66),(int)(Color.blue(color)*.66));}
     private int lighten(int color){return Color.rgb(Math.min(255,Color.red(color)+24),Math.min(255,Color.green(color)+24),Math.min(255,Color.blue(color)+24));}
     private void applyPressMotion(View view){view.setOnTouchListener((v,event)->{if(event.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.955f).scaleY(.955f).alpha(.92f).setDuration(85).start();else if(event.getAction()==android.view.MotionEvent.ACTION_UP||event.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(175).start();return false;});}
