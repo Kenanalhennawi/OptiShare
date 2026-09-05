@@ -1,6 +1,7 @@
 package com.kenan.optishare;
 
 import android.Manifest;
+import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -23,13 +24,22 @@ import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class AndroidOnlyUiTest {
-    private final GrantPermissionRule permissions = GrantPermissionRule.grant(
-            Manifest.permission.NEARBY_WIFI_DEVICES,
-            Manifest.permission.POST_NOTIFICATIONS);
+    private final GrantPermissionRule permissions =
+            GrantPermissionRule.grant(requiredRuntimePermissions());
     private final ActivityScenarioRule<V2Activity> activity =
             new ActivityScenarioRule<>(V2Activity.class);
 
     @Rule public final RuleChain rules = RuleChain.outerRule(permissions).around(activity);
+
+    private static String[] requiredRuntimePermissions() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            return new String[]{
+                    Manifest.permission.NEARBY_WIFI_DEVICES,
+                    Manifest.permission.POST_NOTIFICATIONS
+            };
+        }
+        return new String[]{Manifest.permission.ACCESS_FINE_LOCATION};
+    }
 
     @Test public void homeAndReceiveExposeOnlyAndroidExperience() {
         activity.getScenario().onActivity(screen -> {

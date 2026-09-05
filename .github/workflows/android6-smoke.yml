@@ -1,4 +1,4 @@
-name: Android 6 Compatibility Smoke
+name: Android 6+ Compatibility Matrix
 
 on:
   push:
@@ -14,10 +14,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  android-6-smoke:
-    name: Android 6 / API 23 smoke
+  android-compatibility-smoke:
+    name: Android API ${{ matrix.api_level }} compatibility smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api_level: 23
+            arch: x86
+            target: default
+          - api_level: 26
+            arch: x86
+            target: google_apis
+          - api_level: 29
+            arch: x86_64
+            target: google_apis
+          - api_level: 33
+            arch: x86_64
+            target: google_apis
 
     steps:
       - name: Checkout
@@ -34,7 +50,7 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Verify Android 6 support declaration
+      - name: Verify minimum Android support declaration
         shell: bash
         run: |
           set -euo pipefail
@@ -56,9 +72,9 @@ jobs:
       - name: Build, install and run tests on Android 6
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 23
-          arch: x86
-          target: default
+          api-level: ${{ matrix.api_level }}
+          arch: ${{ matrix.arch }}
+          target: ${{ matrix.target }}
           profile: Nexus 5
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
@@ -68,18 +84,18 @@ jobs:
             adb shell am force-stop com.kenan.optishare.debug || true
             adb shell monkey -p com.kenan.optishare.debug -c android.intent.category.LAUNCHER 1
             sleep 5
-            adb shell pidof com.kenan.optishare.debug >/dev/null || {
-              echo '::error::OptiShare did not stay running on Android 6 / API 23'
+            if ! adb shell pidof com.kenan.optishare.debug | grep -q '[0-9]'; then
+              echo "::error::OptiShare did not stay running on Android API ${{ matrix.api_level }}"
               adb logcat -d -t 300
               exit 1
-            }
+            fi
             gradle --no-daemon --stacktrace connectedDebugAndroidTest
 
       - name: Upload Android 6 test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OptiShare-Android6-API23-reports
+          name: OptiShare-Android-API-${{ matrix.api_level }}-reports
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
