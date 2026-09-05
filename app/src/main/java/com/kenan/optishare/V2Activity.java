@@ -103,6 +103,7 @@ public class V2Activity extends ComponentActivity implements
     private static final int SCREEN_RECEIVE = 4;
     private static final int SCREEN_TRANSFER = 5;
     private static final int SCREEN_SETTINGS = 6;
+    private static final long FIVE_MINUTE_VISIBILITY_MS = 5L * 60L * 1000L;
     private static final String STATE_SCREEN = "v2.screen";
     private static final String STATE_SELECTED = "v2.selected";
     private static final String STATE_RECEIVER = "v2.receiver";
@@ -161,6 +162,12 @@ public class V2Activity extends ComponentActivity implements
     private String pendingLanName;
     private long activeTransferStartedAt;
     private final Handler discoveryHandler = new Handler(Looper.getMainLooper());
+    private final Runnable visibilityTimeout = () -> {
+        if (currentScreen == SCREEN_RECEIVE || transferStarted) return;
+        stopTransferService();
+        stopBrowserReceive();
+        safeRemoveGroup();
+    };
     private WifiP2pDevice pendingP2pDevice;
     private final Runnable p2pConnectTimeout=()->{
         if(currentScreen!=SCREEN_DISCOVERY||transferStarted||pendingP2pDevice==null)return;
@@ -858,6 +865,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void showReceive() {
+        discoveryHandler.removeCallbacks(visibilityTimeout);
         currentScreen=SCREEN_RECEIVE;receiverMode=true;selected.clear();FolderTransferQueue.clear();
         if(!ensureLegacyWritePermission()){return;}
         ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,"Receive","Keep this screen open until the direct session is ready");
@@ -869,7 +877,7 @@ public class V2Activity extends ComponentActivity implements
         root.addView(receiveCard);
         if(ENABLE_PC_COMPANION){Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);}
         root.addView(text("Keep this screen open while the sender connects. Android-to-Android transfers use authenticated ECDH and AES-GCM encryption.",11,Color.rgb(150,179,202),false));
-        Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
+        Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{discoveryHandler.removeCallbacks(visibilityTimeout);stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
         setAnimatedContent(scroll);startReceiverService();startReceiverMode();
     }
 
@@ -1349,7 +1357,18 @@ public class V2Activity extends ComponentActivity implements
     private LinearLayout shell(ScrollView scroll){LinearLayout outer=new LinearLayout(this);outer.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);outer.setBackground(lightMode()?vividGradient(new int[]{Color.rgb(248,251,255),Color.rgb(235,245,255),Color.rgb(247,241,255)},0,Color.TRANSPARENT):vividGradient(new int[]{Color.rgb(3,12,31),Color.rgb(8,43,75),Color.rgb(34,20,77)},0,Color.TRANSPARENT));LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(32));int width=Math.min(getResources().getDisplayMetrics().widthPixels,dp(920));outer.addView(root,new LinearLayout.LayoutParams(width,-2));scroll.addView(outer,new ScrollView.LayoutParams(-1,-2));return root;}
     private void addBackHeader(LinearLayout root,String title,String subtitle){int accent=currentScreen==SCREEN_RECEIVE?Color.rgb(24,196,137):currentScreen==SCREEN_SEND?Color.rgb(255,151,40):currentScreen==SCREEN_DISCOVERY?Color.rgb(36,183,255):currentScreen==SCREEN_GALLERY?Color.rgb(185,63,255):currentScreen==SCREEN_TRANSFER?Color.rgb(48,128,255):Color.rgb(111,79,230);LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(14),dp(14),dp(14),dp(15));panel.setBackground(vividGradient(new int[]{lighten(accent),accent,darken(accent)},26,Color.argb(135,255,255,255)));if(Build.VERSION.SDK_INT>=21)panel.setElevation(dp(12));Button back=smallButton("← Back");back.setBackground(vividGradient(new int[]{Color.argb(90,255,255,255),Color.argb(35,255,255,255)},16,Color.argb(130,255,255,255)));back.setOnClickListener(v->navigateBack());panel.addView(back,new LinearLayout.LayoutParams(dp(96),dp(42)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(dp(3),dp(14),dp(3),dp(3));panel.addView(t);TextView s=text(subtitle,13,Color.rgb(225,240,252),false);s.setPadding(dp(3),0,dp(3),0);panel.addView(s);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(16));root.addView(panel,lp);}
 
-    private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
+    private void leaveReceiveScreen() {
+        discoveryHandler.removeCallbacks(visibilityTimeout);
+        if (AppSettings.VISIBILITY_FIVE_MINUTES.equals(new AppSettings(this).visibility())) {
+            discoveryHandler.postDelayed(visibilityTimeout, FIVE_MINUTE_VISIBILITY_MS);
+        } else {
+            stopTransferService();
+            stopBrowserReceive();
+            safeRemoveGroup();
+        }
+    }
+
+    private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else if(currentScreen==SCREEN_RECEIVE){leaveReceiveScreen();showHome();}else showHome();}
     private Button category(int icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(13);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);b.setTextDirection(View.TEXT_DIRECTION_LOCALE);b.setIncludeFontPadding(false);b.setMinHeight(0);b.setMinWidth(0);b.setCompoundDrawables(null,circularIcon(icon,color,26),null,null);b.setCompoundDrawablePadding(dp(4));b.setPadding(dp(7),dp(6),dp(7),dp(7));b.setLetterSpacing(.01f);b.setBackground(vividGradient(new int[]{shine(color),lighten(color),color,darken(color)},34,Color.argb(130,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(18));b.setTranslationZ(dp(5));}applyPressMotion(b);b.setOnClickListener(listener);return b;}
     private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);LinearLayout.LayoutParams p1=new LinearLayout.LayoutParams(0,dp(73),1);p1.setMargins(dp(6),0,dp(6),0);row.addView(a,p1);LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(73),1);p2.setMargins(dp(6),0,dp(6),0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(73),1);p3.setMargins(dp(6),0,dp(6),0);row.addView(c,p3);return row;}
     private Button bigAction(int icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);b.setTextDirection(View.TEXT_DIRECTION_LOCALE);b.setIncludeFontPadding(false);b.setMinHeight(0);b.setMinWidth(0);b.setLineSpacing(dp(2),1f);b.setLetterSpacing(.01f);b.setCompoundDrawables(null,circularIcon(icon,top,30),null,null);b.setCompoundDrawablePadding(dp(4));b.setPadding(dp(8),dp(7),dp(8),dp(8));b.setBackground(vividGradient(new int[]{shine(top),lighten(top),top,bottom},38,Color.argb(145,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(21));b.setTranslationZ(dp(6));}applyPressMotion(b);return b;}

@@ -134,7 +134,7 @@ public final class SettingsActivity extends Activity {
         profile.setClickable(true);profile.setFocusable(true);profile.setOnClickListener(v->renameDevice());card.addView(profile,new LinearLayout.LayoutParams(-1,-2));
         row(card, getString(R.string.choose_avatar), getString(R.string.customize_avatar_summary), this::chooseAvatar);
         row(card, getString(R.string.trusted_devices), getString(R.string.trusted_count, new TrustedDeviceStore(this).list().size()), this::openTrustedDevices);
-        row(card, getString(R.string.visibility), getString(R.string.receive_screen_only), null);
+        choice(card, R.string.visibility, visibilityLabel(), this::chooseVisibility);
     }
 
     private void addAppearanceSection(LinearLayout page) {
