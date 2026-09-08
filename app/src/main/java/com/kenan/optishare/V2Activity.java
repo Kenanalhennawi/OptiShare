@@ -7,14 +7,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.LayerDrawable;
 import android.location.LocationManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -56,24 +53,18 @@ import com.kenan.optishare.device.DeviceIdentity;
 import com.kenan.optishare.device.DeviceIdentityKey;
 import com.kenan.optishare.device.TrustedDeviceStore;
 import com.kenan.optishare.history.TransferHistoryStore;
-import com.kenan.optishare.settings.AppSettings;
-import com.kenan.optishare.settings.LocaleSupport;
 import com.kenan.optishare.storage.MediaRepository;
 import com.kenan.optishare.storage.FolderSelection;
 import com.kenan.optishare.storage.FolderTransferQueue;
 import com.kenan.optishare.storage.TextTransferStore;
-import com.kenan.optishare.storage.InstalledAppExporter;
 import com.kenan.optishare.transfer.LanDiscovery;
 import com.kenan.optishare.transfer.PcDiscovery;
 import com.kenan.optishare.transfer.PcTransferService;
 import com.kenan.optishare.transfer.BrowserReceiveService;
-import com.kenan.optishare.transfer.AdaptiveRouteOrchestrator;
 import com.kenan.optishare.transfer.RoutePerformanceStore;
 import com.kenan.optishare.transfer.SenderSessionStore;
 import com.kenan.optishare.transfer.TransferService;
 import com.kenan.optishare.ui.GalleryAdapter;
-import com.kenan.optishare.ui.AvatarView;
-import com.kenan.optishare.ui.UiText;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -89,10 +80,6 @@ public class V2Activity extends ComponentActivity implements
         WifiP2pManager.PeerListListener,
         WifiP2pManager.ConnectionInfoListener {
 
-    public static final String EXTRA_OPEN_TRUSTED_DEVICES = "com.kenan.optishare.extra.OPEN_TRUSTED_DEVICES";
-
-    /** Public Android 1.0.0 release identity. */
-    private static final boolean ENABLE_PC_COMPANION = false;
     private static final int REQ_MEDIA = 2101;
     private static final int REQ_NEARBY = 2102;
     private static final int REQ_LEGACY_WRITE = 2103;
@@ -102,20 +89,11 @@ public class V2Activity extends ComponentActivity implements
     private static final int SCREEN_DISCOVERY = 3;
     private static final int SCREEN_RECEIVE = 4;
     private static final int SCREEN_TRANSFER = 5;
-    private static final int SCREEN_SETTINGS = 6;
-    private static final long FIVE_MINUTE_VISIBILITY_MS = 5L * 60L * 1000L;
-    private static final String STATE_SCREEN = "v2.screen";
-    private static final String STATE_SELECTED = "v2.selected";
-    private static final String STATE_RECEIVER = "v2.receiver";
-    private static final String STATE_TRANSFER_STARTED = "v2.transfer_started";
-    private static final String STATE_GALLERY_TYPE = "v2.gallery_type";
-    private static final String STATE_PEER_NAME = "v2.peer_name";
 
     private final List<Uri> selected = new ArrayList<>();
     private final List<WifiP2pDevice> peers = new ArrayList<>();
     private final List<PcDiscovery.Peer> pcPeers = new ArrayList<>();
     private int currentScreen = SCREEN_HOME;
-    private int galleryReturnScreen = SCREEN_HOME;
     private String pendingGalleryType;
     private String pendingQrAddress;
     private String pendingQrName;
@@ -125,7 +103,6 @@ public class V2Activity extends ComponentActivity implements
     private boolean browserMode;
     private boolean pcTransferMode;
     private boolean benchmarkMode;
-    private String appearanceStamp;
 
     private WifiP2pManager manager;
     private WifiP2pManager.Channel channel;
@@ -149,6 +126,8 @@ public class V2Activity extends ComponentActivity implements
     private Button transferPauseButton;
     private Button transferCancelButton;
     private boolean transferPaused;
+    private boolean serviceReconnecting;
+    private long transferResumedUiUntil;
 
     private DeviceIdentity identity;
     private TransferHistoryStore historyStore;
@@ -162,12 +141,6 @@ public class V2Activity extends ComponentActivity implements
     private String pendingLanName;
     private long activeTransferStartedAt;
     private final Handler discoveryHandler = new Handler(Looper.getMainLooper());
-    private final Runnable visibilityTimeout = () -> {
-        if (currentScreen == SCREEN_RECEIVE || transferStarted) return;
-        stopTransferService();
-        stopBrowserReceive();
-        safeRemoveGroup();
-    };
     private WifiP2pDevice pendingP2pDevice;
     private final Runnable p2pConnectTimeout=()->{
         if(currentScreen!=SCREEN_DISCOVERY||transferStarted||pendingP2pDevice==null)return;
@@ -242,27 +215,10 @@ public class V2Activity extends ComponentActivity implements
                     }
                     FolderTransferQueue.addAll(files);
                     showSendSelection();
-                    showMessage("Folder ready",
-                            getString(R.string.folder_items_selected, files.size()));
+                    showMessage("Folder ready", files.size()
+                            + " files selected with folder structure preserved.");
                 } catch (Exception error) {
                     showMessage("Folder could not be opened", error.getMessage());
-                }
-            });
-
-    private final ActivityResultLauncher<Intent> appPicker =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
-                ArrayList<String> packages = result.getData().getStringArrayListExtra(AppPickerActivity.EXTRA_PACKAGES);
-                if (packages == null || packages.isEmpty()) return;
-                try {
-                    List<com.kenan.optishare.model.TransferItem> apps = InstalledAppExporter.export(this, packages);
-                    for (com.kenan.optishare.model.TransferItem item : apps) {
-                        if (!selected.contains(item.getUri())) selected.add(item.getUri());
-                    }
-                    FolderTransferQueue.addAll(apps);
-                    showSendSelection();
-                } catch (Exception error) {
-                    showMessage("Could not prepare apps", error.getMessage());
                 }
             });
 
@@ -293,9 +249,13 @@ public class V2Activity extends ComponentActivity implements
                     setConnectionUi("CONNECTED ✓", Color.rgb(65, 225, 151));
                     try { manager.requestConnectionInfo(channel, V2Activity.this); }
                     catch (SecurityException ignored) { showNearbyPermissionHelp(); }
-                } else if (currentScreen == SCREEN_DISCOVERY || currentScreen == SCREEN_RECEIVE || currentScreen == SCREEN_TRANSFER) {
+                } else if (currentScreen == SCREEN_TRANSFER && transferStarted) {
+                    // The P2P broadcast can report a disconnected group after the transfer has
+                    // already fallen back to LAN (or while bytes are still flowing). During an
+                    // active transfer, TransferService is the authoritative connection state.
+                    return;
+                } else if (currentScreen == SCREEN_DISCOVERY || currentScreen == SCREEN_RECEIVE) {
                     setConnectionUi("RECONNECTING…", Color.rgb(255, 188, 70));
-                    if (transferStarted) setTransferUi("Connection interrupted", "OptiShare will continue from the last confirmed chunk when the direct link returns.", -1);
                 }
                 return;
             }
@@ -347,6 +307,16 @@ public class V2Activity extends ComponentActivity implements
             } else if ("progress".equals(event)) {
                 transferPaused=false;
                 updatePauseButton(false);
+                if (serviceReconnecting) {
+                    serviceReconnecting = false;
+                    transferResumedUiUntil = System.currentTimeMillis() + 1800L;
+                }
+                if (System.currentTimeMillis() < transferResumedUiUntil) {
+                    setConnectionUi("CONNECTED • TRANSFER RESUMED", Color.rgb(65, 225, 151));
+                } else {
+                    setConnectionUi(receiverMode ? "RECEIVING • CONNECTED" : "SENDING • CONNECTED",
+                            Color.rgb(65, 225, 151));
+                }
                 setTransferUi(receiverMode ? "Receiving…" : "Sending…", message, progress);
                 setTransferMetrics(progress, done, total, speed, etaSeconds);
                 updateLiveQueue(activeFileIndex, activeFileName, activeFileDone, activeFileTotal, false);
@@ -359,35 +329,30 @@ public class V2Activity extends ComponentActivity implements
             } else if ("pause_unavailable".equals(event)) {
                 setTransferUi("Finishing secure setup", message, -1);
             } else if ("reconnecting".equals(event)) {
+                serviceReconnecting = true;
+                transferResumedUiUntil = 0L;
                 setConnectionUi("RECONNECTING…", Color.rgb(255, 188, 70));
                 setTransferUi("Reconnecting automatically", message, -1);
-            } else if ("route_switched".equals(event)) {
-                activeRoute=RoutePerformanceStore.ROUTE_LAN;
-                setConnectionUi("SMART ROUTE • SAME WI-FI ✓", Color.rgb(65,225,151));
-                setTransferUi("Route changed safely", message, -1);
-            } else if ("parallel_started".equals(event)) {
-                setConnectionUi("SMART ROUTE • 2 STREAMS", Color.rgb(89,205,255));
-                setTransferUi("Accelerated encrypted transfer", message, -1);
-            } else if ("parallel_fallback".equals(event)) {
-                setConnectionUi("SMART ROUTE • RELIABLE STREAM", Color.rgb(255,188,70));
-                setTransferUi("Acceleration fallback", message, -1);
             } else if ("benchmark_started".equals(event)) {
                 setConnectionUi("ENCRYPTED SPEED TEST", Color.rgb(89,205,255));
                 setTransferUi("Measuring Android route", message, 0);
             } else if ("benchmark_completed".equals(event)) {
+                serviceReconnecting = false;
+                transferResumedUiUntil = 0L;
                 setConnectionUi("SPEED TEST ✓", Color.rgb(65,225,151));
                 setTransferUi("Speed test complete ✓", message, 100);
                 setTransferMetrics(100, completedTotalBytes, completedTotalBytes, speed, 0);
                 transferStarted = false;
             } else if ("benchmark_error".equals(event)) {
+                serviceReconnecting = false;
+                transferResumedUiUntil = 0L;
                 setConnectionUi("SPEED TEST FAILED", Color.rgb(255,92,102));
                 setTransferUi("Speed test could not finish", message, -1);
                 transferStarted = false;
             } else if ("text_received".equals(event)) {
-                boolean copy=new AppSettings(V2Activity.this).autoCopyText();
-                if(copy){android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-                    if(clipboard!=null&&message!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OptiShare text",message));}
-                setTransferUi(copy?"Text received & copied ✓":"Text received ✓",copy?"The received text is now in your clipboard.":"The received text was saved without changing your clipboard.",-1);
+                android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                if(clipboard!=null&&message!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OptiShare text",message));
+                setTransferUi("Text received & copied ✓","The received text is now in your clipboard.",-1);
             } else if ("file_done".equals(event)) {
                 setTransferUi("File verified ✓", message, -1);
                 updateLiveQueue(activeFileIndex, activeFileName, activeFileTotal, activeFileTotal, true);
@@ -401,14 +366,16 @@ public class V2Activity extends ComponentActivity implements
                         (activeFileName==null?"File "+(activeFileIndex+1):activeFileName)+" • "+message, -1);
                 renderLiveQueue(activeFileIndex,activeFileName,0L,activeFileTotal);
             } else if ("completed".equals(event)) {
+                serviceReconnecting = false;
+                transferResumedUiUntil = 0L;
                 boolean partial=!failedQueueIndexes.isEmpty();
                 setConnectionUi(partial?"COMPLETED WITH FAILED FILES":"COMPLETED ✓",
                         partial?Color.rgb(255,188,70):Color.rgb(65, 225, 151));
                 TextView screenTitle=findViewByTag("transfer_screen_title");
-                if(screenTitle!=null)screenTitle.setText(UiText.get(V2Activity.this,partial?"Queue finished":"Transfer complete"));
+                if(screenTitle!=null)screenTitle.setText(partial?"Queue finished":"Transfer complete");
                 setTransferUi(partial?"Other files completed":"Transfer complete ✓",
                         partial?failedQueueIndexes.size()+" file(s) need retry • "+message:message,100);
-                if(new AppSettings(V2Activity.this).keepHistory())historyStore.add(new TransferHistoryStore.Entry(
+                historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
                         connectedPeerName, Math.max(0,(completedFileCount > 0 ? completedFileCount : selected.size())-failedQueueIndexes.size()),
                         completedTotalBytes > 0 ? completedTotalBytes : selectedTotalBytes(), !partial,
@@ -418,21 +385,18 @@ public class V2Activity extends ComponentActivity implements
                 transferPaused=false;
                 if(transferPauseButton!=null)transferPauseButton.setVisibility(View.GONE);
                 if(transferCancelButton!=null){
-                    transferCancelButton.setText(UiText.get(V2Activity.this,partial&&!receiverMode?"Retry failed files →":"Done"));
+                    transferCancelButton.setText(partial&&!receiverMode?"Retry failed files →":"Done");
                     transferCancelButton.setOnClickListener(v->{if(partial&&!receiverMode)retryFailedFiles();else showHome();});
                 }
                 updatePauseButton(false);
-                if(receiverMode&&!partial&&new AppSettings(V2Activity.this).openReceivedAfterTransfer()){
-                    startActivity(new Intent(V2Activity.this,ReceivedFilesActivity.class));
-                }
             } else if ("error".equals(event)) {
                 setConnectionUi("TRANSFER ERROR", Color.rgb(255, 92, 102));
                 setTransferUi("Transfer could not continue", message, -1);
                 if (!receiverMode && senderSessionStore.exists() && transferCancelButton != null) {
-                    transferCancelButton.setText(UiText.get(V2Activity.this,"Retry / resume →"));
+                    transferCancelButton.setText("Retry / resume →");
                     transferCancelButton.setOnClickListener(v -> resumePendingTransfer());
                 }
-                if(new AppSettings(V2Activity.this).keepHistory())historyStore.add(new TransferHistoryStore.Entry(
+                historyStore.add(new TransferHistoryStore.Entry(
                         System.currentTimeMillis(), receiverMode ? "received" : "sent",
                         connectedPeerName, selected.size(), selectedTotalBytes(), false));
             }
@@ -471,14 +435,8 @@ public class V2Activity extends ComponentActivity implements
         }
     };
 
-    @Override protected void attachBaseContext(Context base) {
-        super.attachBaseContext(LocaleSupport.wrap(base));
-    }
-
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        appearanceStamp = appearanceStamp();
-        applySystemBars();
         identity = new DeviceIdentity(this);
         historyStore = new TransferHistoryStore(this);
         trustedStore = new TrustedDeviceStore(this);
@@ -491,41 +449,7 @@ public class V2Activity extends ComponentActivity implements
             channel = manager.initialize(this, getMainLooper(), () -> setDiscoveryText("Nearby service restarted. Try again."));
         }
         requestNotificationPermissionIfUseful();
-        if (state != null) {
-            restoreScreen(state);
-        } else if (getIntent().getBooleanExtra(EXTRA_OPEN_TRUSTED_DEVICES, false)) {
-            showHome();
-            showTrustedDevices();
-        } else if(!handleInboundShare(getIntent())) showHome();
-    }
-
-    private void restoreScreen(Bundle state) {
-        selected.clear();
-        ArrayList<String> saved = state.getStringArrayList(STATE_SELECTED);
-        if (saved != null) for (String value : saved) if (value != null) selected.add(Uri.parse(value));
-        receiverMode = state.getBoolean(STATE_RECEIVER, false);
-        transferStarted = state.getBoolean(STATE_TRANSFER_STARTED, false);
-        pendingGalleryType = state.getString(STATE_GALLERY_TYPE);
-        connectedPeerName = state.getString(STATE_PEER_NAME, "Nearby device");
-        int screen = state.getInt(STATE_SCREEN, SCREEN_HOME);
-        if (screen == SCREEN_SEND) showSendSelection();
-        else if (screen == SCREEN_DISCOVERY) showDiscovery();
-        else if (screen == SCREEN_RECEIVE) showReceive();
-        else if (screen == SCREEN_TRANSFER) showTransferScreen(receiverMode ? "Receiving" : "Sending");
-        else if (screen == SCREEN_GALLERY && pendingGalleryType != null) showMediaGallery(pendingGalleryType);
-        else showHome();
-    }
-
-    @Override protected void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.putInt(STATE_SCREEN, currentScreen);
-        ArrayList<String> saved = new ArrayList<>();
-        for (Uri uri : selected) saved.add(uri.toString());
-        outState.putStringArrayList(STATE_SELECTED, saved);
-        outState.putBoolean(STATE_RECEIVER, receiverMode);
-        outState.putBoolean(STATE_TRANSFER_STARTED, transferStarted);
-        outState.putString(STATE_GALLERY_TYPE, pendingGalleryType);
-        outState.putString(STATE_PEER_NAME, connectedPeerName);
+        if(!handleInboundShare(getIntent())) showHome();
     }
 
     @Override protected void onNewIntent(Intent intent){
@@ -572,18 +496,19 @@ public class V2Activity extends ComponentActivity implements
 
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        AvatarView logo = new AvatarView(this);
-        logo.setContentDescription(getString(R.string.device_avatar));
+        TextView logo = text("O", 24, Color.WHITE, true);
+        logo.setGravity(Gravity.CENTER);
+        logo.setBackground(gradient(Color.rgb(28,165,255), Color.rgb(91,73,245), 24));
         top.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        titleBox.setPaddingRelative(dp(12),0,0,0);
+        titleBox.setPadding(dp(12),0,0,0);
         titleBox.addView(text("OptiShare 2", 29, Color.WHITE, true));
-        titleBox.addView(text(identity.name() + " • " + getString(R.string.private_local_sharing), 12, Color.rgb(157,198,228), false));
+        titleBox.addView(text(identity.name() + " • Private local sharing", 12, Color.rgb(157,198,228), false));
         top.addView(titleBox, new LinearLayout.LayoutParams(0,-2,1));
-        Button settings = smallButton(getString(R.string.settings));
-        settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        top.addView(settings, new LinearLayout.LayoutParams(dp(98), dp(42)));
+        Button settings = smallButton("Device");
+        settings.setOnClickListener(v -> showDeviceSettings());
+        top.addView(settings, new LinearLayout.LayoutParams(dp(86), dp(42)));
         root.addView(top);
 
         TextView hero = text("Fast. Private. Resumable.", 28, Color.WHITE, true);
@@ -593,16 +518,13 @@ public class V2Activity extends ComponentActivity implements
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button send = bigAction(R.drawable.ic_os_send, "SEND", "Choose content", Color.rgb(35,146,255), Color.rgb(53,82,222));
+        Button send = bigAction("↑", "SEND", "Choose content", Color.rgb(35,146,255), Color.rgb(53,82,222));
         send.setOnClickListener(v -> showSendSelection());
-        Button receive = bigAction(R.drawable.ic_os_receive, "RECEIVE", "Become visible", Color.rgb(49,205,145), Color.rgb(17,122,91));
-        receive.setTag("home_receive");
+        Button receive = bigAction("↓", "RECEIVE", "Become visible", Color.rgb(49,205,145), Color.rgb(17,122,91));
         receive.setOnClickListener(v -> showReceive());
-        LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(0,dp(97),1);
-        sendLp.setMargins(dp(6),0,dp(6),0);
-        actions.addView(send,sendLp);
-        LinearLayout.LayoutParams receiveLp = new LinearLayout.LayoutParams(0,dp(97),1);
-        receiveLp.setMargins(dp(6),0,dp(6),0);
+        actions.addView(send,new LinearLayout.LayoutParams(0,dp(158),1));
+        LinearLayout.LayoutParams receiveLp = new LinearLayout.LayoutParams(0,dp(158),1);
+        receiveLp.setMargins(dp(10),0,0,0);
         actions.addView(receive,receiveLp);
         LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1,-2);
         actionsLp.setMargins(0,dp(22),0,0);
@@ -621,19 +543,21 @@ public class V2Activity extends ComponentActivity implements
         browse.setPadding(0,dp(24),0,dp(10));
         root.addView(browse);
         root.addView(categoryRow(
-                category(R.drawable.ic_os_photo,"Photos",Color.rgb(190,60,255),v -> openInternalGallery("image")),
-                category(R.drawable.ic_os_video,"Videos",Color.rgb(255,61,105),v -> openInternalGallery("video")),
-                category(R.drawable.ic_os_music,"Music",Color.rgb(255,157,32),v -> openInternalGallery("audio"))));
+                category("▣","Photos",Color.rgb(190,83,255),v -> openInternalGallery("image")),
+                category("▶","Videos",Color.rgb(255,78,110),v -> openInternalGallery("video")),
+                category("♫","Music",Color.rgb(255,169,50),v -> openExternal("audio/*"))));
         LinearLayout row2 = categoryRow(
-                category(R.drawable.ic_os_apps,"Apps",Color.rgb(24,198,157),v -> openInstalledApps()),
-                category(R.drawable.ic_os_document,"Documents",Color.rgb(38,132,255),v -> openDocuments()),
-                category(R.drawable.ic_os_folder,"Folder",Color.rgb(102,116,170),v -> openFolder()));
-        LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(12),0,0); root.addView(row2,r2);
+                category("A","Apps",Color.rgb(53,203,165),v -> openExternal("application/vnd.android.package-archive")),
+                category("≡","Documents",Color.rgb(55,143,255),v -> openExternal("application/*")),
+                category("▤","Folder",Color.rgb(122,140,166),v -> openFolder()));
+        LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(-1,-2); r2.setMargins(0,dp(10),0,0); root.addView(row2,r2);
         LinearLayout row3 = categoryRow(
-                category(R.drawable.ic_os_text,"Text",Color.rgb(32,180,255),v -> showTextComposer(null)),
-                category(R.drawable.ic_os_clipboard,"Clipboard",Color.rgb(31,202,133),v -> addClipboardToQueue()),
-                category(R.drawable.ic_os_more,"Other",Color.rgb(102,116,170),v -> openExternal("*/*")));
-        LinearLayout.LayoutParams r3 = new LinearLayout.LayoutParams(-1,-2); r3.setMargins(0,dp(12),0,0); root.addView(row3,r3);
+                category("T","Text",Color.rgb(89,190,255),v -> showTextComposer(null)),
+                category("▣","Clipboard",Color.rgb(81,210,157),v -> addClipboardToQueue()),
+                category("…","Other",Color.rgb(122,140,166),v -> openExternal("*/*")));
+        LinearLayout.LayoutParams r3 = new LinearLayout.LayoutParams(-1,-2); r3.setMargins(0,dp(10),0,0); root.addView(row3,r3);
+
+        addHistory(root);
 
         Button receivedFiles = primary("Received files center →");
         receivedFiles.setOnClickListener(v -> startActivity(new Intent(this, ReceivedFilesActivity.class)));
@@ -648,7 +572,7 @@ public class V2Activity extends ComponentActivity implements
 
         TextView footer = text("Received files → Download/OptiShare/{Photos, Videos, Music, Apps, Documents, Archives, Other}\nDesigned & developed by Kenan Alhennawi",11,Color.rgb(116,165,199),false);
         footer.setGravity(Gravity.CENTER); footer.setPadding(0,dp(18),0,0); root.addView(footer);
-        setAnimatedContent(scroll);
+        setContentView(scroll);
     }
 
     private void addHistory(LinearLayout root) {
@@ -682,29 +606,25 @@ public class V2Activity extends ComponentActivity implements
         receiverMode = false;
         ScrollView scroll = new ScrollView(this);
         LinearLayout root = shell(scroll);
-        addBackHeader(root,"Send",getString(R.string.build_batch_subtitle));
+        addBackHeader(root,"Send","Build one batch from photos, videos, apps and documents");
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         Button photos=smallButton("Photos"); photos.setOnClickListener(v->openInternalGallery("image"));
         Button videos=smallButton("Videos"); videos.setOnClickListener(v->openInternalGallery("video"));
         Button files=smallButton("Files"); files.setOnClickListener(v->openExternal("*/*"));
-        LinearLayout.LayoutParams photosLp=new LinearLayout.LayoutParams(0,dp(46),1);photosLp.setMargins(dp(4),0,dp(4),0);tabs.addView(photos,photosLp);
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);p.setMargins(dp(4),0,dp(4),0);tabs.addView(videos,p);
-        LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(46),1);p2.setMargins(dp(4),0,dp(4),0);tabs.addView(files,p2);root.addView(tabs);
+        tabs.addView(photos,new LinearLayout.LayoutParams(0,dp(46),1));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);p.setMargins(dp(8),0,0,0);tabs.addView(videos,p);
+        LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(46),1);p2.setMargins(dp(8),0,0,0);tabs.addView(files,p2);root.addView(tabs);
         LinearLayout addRow=new LinearLayout(this);addRow.setOrientation(LinearLayout.HORIZONTAL);
         Button folder=smallButton("Folder");folder.setOnClickListener(v->openFolder());
         Button textBtn=smallButton("Text");textBtn.setOnClickListener(v->showTextComposer(null));
         Button clipBtn=smallButton("Clipboard");clipBtn.setOnClickListener(v->addClipboardToQueue());
-        LinearLayout.LayoutParams folderLp=new LinearLayout.LayoutParams(0,dp(46),1);folderLp.setMargins(dp(4),0,dp(4),0);addRow.addView(folder,folderLp);
-        LinearLayout.LayoutParams ar1=new LinearLayout.LayoutParams(0,dp(46),1);ar1.setMargins(dp(4),0,dp(4),0);addRow.addView(textBtn,ar1);
-        LinearLayout.LayoutParams ar2=new LinearLayout.LayoutParams(0,dp(46),1);ar2.setMargins(dp(4),0,dp(4),0);addRow.addView(clipBtn,ar2);
+        addRow.addView(folder,new LinearLayout.LayoutParams(0,dp(46),1));
+        LinearLayout.LayoutParams ar1=new LinearLayout.LayoutParams(0,dp(46),1);ar1.setMargins(dp(8),0,0,0);addRow.addView(textBtn,ar1);
+        LinearLayout.LayoutParams ar2=new LinearLayout.LayoutParams(0,dp(46),1);ar2.setMargins(dp(8),0,0,0);addRow.addView(clipBtn,ar2);
         LinearLayout.LayoutParams arp=new LinearLayout.LayoutParams(-1,-2);arp.setMargins(0,dp(8),0,0);root.addView(addRow,arp);
 
-        Button find=primary(selected.isEmpty()?"Select content first":"Send selected • Find device →");
-        find.setEnabled(!selected.isEmpty());find.setAlpha(selected.isEmpty()?.45f:1f);find.setOnClickListener(v->showDiscovery());
-        LinearLayout.LayoutParams topSend=new LinearLayout.LayoutParams(-1,dp(58));topSend.setMargins(0,dp(12),0,0);root.addView(find,topSend);
-
-        TextView count=text(getString(R.string.selected_size, selected.size(), formatBytes(selectedTotalBytes())),18,Color.WHITE,true);
+        TextView count=text(selected.size()+" item"+(selected.size()==1?"":"s")+" selected • "+formatBytes(selectedTotalBytes()),18,Color.WHITE,true);
         count.setPadding(0,dp(18),0,dp(8));root.addView(count);
         LinearLayout selection=card();
         if(selected.isEmpty()) selection.addView(text("Nothing selected yet. Photos and Videos open inside OptiShare; Files opens Android's document picker.",13,Color.rgb(156,181,202),false));
@@ -717,17 +637,18 @@ public class V2Activity extends ComponentActivity implements
             LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,dp(46));cl.setMargins(0,dp(10),0,0);selection.addView(clear,cl);
         }
         root.addView(selection);
-        setAnimatedContent(scroll);
+        Button find=primary(selected.isEmpty()?"Select files first":"Find receiving device →");
+        find.setEnabled(!selected.isEmpty());find.setAlpha(selected.isEmpty()?.45f:1f);find.setOnClickListener(v->showDiscovery());
+        LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(-1,dp(58));fl.setMargins(0,dp(14),0,0);root.addView(find,fl);
+        setContentView(scroll);
     }
 
     private View queueSelectionRow(int index){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(5),0,dp(5));
-        Uri queued=selected.get(index);
-        long queuedBytes=querySize(queued);
-        TextView label=text((index+1)+". "+displayName(queued)+"\n"+formatBytes(queuedBytes),12,Color.WHITE,false);label.setMaxLines(3);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        Button up=smallButton("↑");up.setEnabled(index>0);up.setAlpha(index>0?1f:.35f);up.setOnClickListener(v->moveQueueItem(index,index-1));LinearLayout.LayoutParams ul=new LinearLayout.LayoutParams(dp(42),dp(40));ul.setMargins(dp(3),0,dp(3),0);row.addView(up,ul);
-        Button down=smallButton("↓");down.setEnabled(index<selected.size()-1);down.setAlpha(index<selected.size()-1?1f:.35f);down.setOnClickListener(v->moveQueueItem(index,index+1));LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(dp(42),dp(40));dl.setMargins(dp(3),0,dp(3),0);row.addView(down,dl);
-        Button remove=smallButton("×");remove.setOnClickListener(v->removeQueueItem(index));LinearLayout.LayoutParams rl=new LinearLayout.LayoutParams(dp(42),dp(40));rl.setMargins(dp(3),0,dp(3),0);row.addView(remove,rl);
+        TextView label=text((index+1)+". "+displayName(selected.get(index)),12,Color.WHITE,false);label.setMaxLines(2);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        Button up=smallButton("↑");up.setEnabled(index>0);up.setAlpha(index>0?1f:.35f);up.setOnClickListener(v->moveQueueItem(index,index-1));row.addView(up,new LinearLayout.LayoutParams(dp(42),dp(40)));
+        Button down=smallButton("↓");down.setEnabled(index<selected.size()-1);down.setAlpha(index<selected.size()-1?1f:.35f);down.setOnClickListener(v->moveQueueItem(index,index+1));LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(dp(42),dp(40));dl.setMargins(dp(5),0,0,0);row.addView(down,dl);
+        Button remove=smallButton("×");remove.setOnClickListener(v->removeQueueItem(index));LinearLayout.LayoutParams rl=new LinearLayout.LayoutParams(dp(42),dp(40));rl.setMargins(dp(5),0,0,0);row.addView(remove,rl);
         return row;
     }
 
@@ -770,9 +691,9 @@ public class V2Activity extends ComponentActivity implements
         TextView label=text((index+1)+". "+name+"   "+state,11,color,true);
         row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         Button retry=smallButton("Retry");retry.setOnClickListener(v->retryQueueFile(index));
-        LinearLayout.LayoutParams retryLp=new LinearLayout.LayoutParams(dp(72),dp(40));retryLp.setMargins(dp(3),0,dp(3),0);row.addView(retry,retryLp);
+        row.addView(retry,new LinearLayout.LayoutParams(dp(72),dp(40)));
         Button remove=smallButton("×");remove.setOnClickListener(v->{removedQueueIndexes.add(index);renderLiveQueue(liveQueueIndex,liveQueueName,liveQueueDone,liveQueueTotal);});
-        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(42),dp(40));rp.setMargins(dp(3),0,dp(3),0);row.addView(remove,rp);
+        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(42),dp(40));rp.setMargins(dp(5),0,0,0);row.addView(remove,rp);
         return row;
     }
 
@@ -793,80 +714,51 @@ public class V2Activity extends ComponentActivity implements
 
     private void openInternalGallery(String type) {
         pendingGalleryType=type;
-        galleryReturnScreen=currentScreen==SCREEN_SEND?SCREEN_SEND:SCREEN_HOME;
         if(!hasMediaPermission(type)){requestMediaPermission(type);return;}
         showMediaGallery(type);
     }
 
     private void showMediaGallery(String type) {
         currentScreen=SCREEN_GALLERY;
-        LinearLayout root=new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18),dp(14),dp(18),dp(12));
-        root.setBackgroundColor(Color.rgb(5,22,41));
-        String galleryTitle="image".equals(type)?"Photos":"video".equals(type)?"Videos":"Music";
-        addBackHeader(root,galleryTitle,getString(R.string.tap_select_multiple));
-
-        LinearLayout actionBar=new LinearLayout(this);
-        actionBar.setOrientation(LinearLayout.HORIZONTAL);
-        actionBar.setGravity(Gravity.CENTER_VERTICAL);
-        actionBar.setPaddingRelative(dp(12),dp(7),dp(7),dp(7));
-        actionBar.setBackground(gradient(Color.rgb(13,43,70),Color.rgb(9,31,54),16));
-        TextView selectedCount=text(getString(R.string.selected_size, selected.size(), formatBytes(selectedTotalBytes())),14,Color.rgb(92,202,255),true);
-        actionBar.addView(selectedCount,new LinearLayout.LayoutParams(0,dp(48),1));
-        Button done=primary("Send selected");
-        done.setEnabled(false);
-        done.setAlpha(.55f);
-        actionBar.addView(done,new LinearLayout.LayoutParams(dp(154),dp(48)));
-        LinearLayout.LayoutParams actionParams=new LinearLayout.LayoutParams(-1,-2);
-        actionParams.setMargins(0,dp(8),0,dp(10));
-        root.addView(actionBar,actionParams);
+        ScrollView outer=new ScrollView(this);
+        LinearLayout root=shell(outer);
+        addBackHeader(root,"image".equals(type)?"Photos":"Videos","Tap to select multiple items");
+        TextView selectedCount=text(selected.size()+" selected",14,Color.rgb(92,202,255),true);selectedCount.setGravity(Gravity.CENTER);root.addView(selectedCount);
 
         RecyclerView recycler=new RecyclerView(this);
-        recycler.setNestedScrollingEnabled(true);
-        recycler.setClipToPadding(false);
-        recycler.setPadding(0,0,0,dp(16));
-        recycler.setLayoutManager(new GridLayoutManager(this,"audio".equals(type)?2:3));
+        recycler.setNestedScrollingEnabled(false);
+        recycler.setLayoutManager(new GridLayoutManager(this,3));
         Set<Uri> initial=new HashSet<>(selected);
-        GalleryAdapter adapter=new GalleryAdapter(type,initial,(set,bytes)->{
-            selected.clear();
-            selected.addAll(set);
-            int count=set.size();
-            selectedCount.setText(getString(R.string.selected_size, count, formatBytes(selectedTotalBytes())));
-            done.setEnabled(count>0);
-            done.setAlpha(count>0?1f:.55f);
+        GalleryAdapter adapter=new GalleryAdapter(initial,set->{
+            selectedCount.setText((selected.size()+Math.max(0,set.size()-initial.size()))+" queued");
         });
-        adapter.replace(new MediaRepository(this).load(type,2000,0));
+        adapter.replace(new MediaRepository(this).load(type,180,0));
         recycler.setAdapter(adapter);
-        root.addView(recycler,new LinearLayout.LayoutParams(-1,0,1));
+        root.addView(recycler,new LinearLayout.LayoutParams(-1,dp(760)));
 
-        done.setOnClickListener(v->{
-            selected.clear();
-            selected.addAll(adapter.selection());
-            showSendSelection();
-        });
-        setAnimatedContent(root);
+        Button done=primary("Add selected to queue");done.setOnClickListener(v->{for(Uri uri:adapter.selection())if(!selected.contains(uri))selected.add(uri);showSendSelection();});
+        LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(-1,dp(56));dl.setMargins(0,dp(12),0,0);root.addView(done,dl);
+        setContentView(outer);
     }
 
     private void showDiscovery() {
         currentScreen=SCREEN_DISCOVERY;
         receiverMode=false;
         pendingQrAddress=null;pendingQrName=null;
-        ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,"Nearby devices",getString(R.string.items_size, selected.size(), formatBytes(selectedTotalBytes())));
+        ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,"Nearby devices",selected.size()+" items • "+formatBytes(selectedTotalBytes()));
         connectionPill=connectionBadge("SEARCHING",Color.rgb(255,194,73));root.addView(connectionPill);
         LinearLayout radar=card();TextView icon=text("◎",76,Color.rgb(80,198,255),true);icon.setGravity(Gravity.CENTER);radar.addView(icon);
         discoveryState=text("Searching for receiving phones…",16,Color.WHITE,true);discoveryState.setGravity(Gravity.CENTER);radar.addView(discoveryState);
-        TextView hint=text("Verified OptiShare phones appear here automatically. You can also scan the QR shown on the receiving phone.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
+        TextView hint=text("SmartRoute finds Android receivers and OptiShare Windows Companion on the local network. "+routeStore.summary()+" • QR remains a fallback.",12,Color.rgb(150,179,202),false);hint.setGravity(Gravity.CENTER);hint.setPadding(0,dp(6),0,0);radar.addView(hint);root.addView(radar);
         LinearLayout qrRow=new LinearLayout(this);qrRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());LinearLayout.LayoutParams scanLp=new LinearLayout.LayoutParams(0,dp(50),1);scanLp.setMargins(dp(4),0,dp(4),0);qrRow.addView(scan,scanLp);
-        Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(4),0,dp(4),0);qrRow.addView(retry,rr);
+        Button scan=secondaryButton("Scan receiver QR");scan.setOnClickListener(v->startQrScanner());qrRow.addView(scan,new LinearLayout.LayoutParams(0,dp(50),1));
+        Button retry=secondaryButton("Search again");retry.setOnClickListener(v->startDiscovery());LinearLayout.LayoutParams rr=new LinearLayout.LayoutParams(0,dp(50),1);rr.setMargins(dp(8),0,0,0);qrRow.addView(retry,rr);
         LinearLayout.LayoutParams qrlp=new LinearLayout.LayoutParams(-1,-2);qrlp.setMargins(0,dp(12),0,0);root.addView(qrRow,qrlp);
         peerList=new LinearLayout(this);peerList.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams pl=new LinearLayout.LayoutParams(-1,-2);pl.setMargins(0,dp(12),0,0);root.addView(peerList,pl);
-        setAnimatedContent(scroll);startDiscovery();
+        setContentView(scroll);startDiscovery();
     }
 
     private void showReceive() {
-        discoveryHandler.removeCallbacks(visibilityTimeout);
         currentScreen=SCREEN_RECEIVE;receiverMode=true;selected.clear();FolderTransferQueue.clear();
         if(!ensureLegacyWritePermission()){return;}
         ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);addBackHeader(root,"Receive","Keep this screen open until the direct session is ready");
@@ -876,10 +768,10 @@ public class V2Activity extends ComponentActivity implements
         TextView identityLabel=text(identity.name(),14,Color.rgb(88,202,255),true);identityLabel.setGravity(Gravity.CENTER);identityLabel.setTag("receiver_identity");receiveCard.addView(identityLabel);
         ImageView qr=new ImageView(this);qr.setTag("receiver_qr");qr.setAdjustViewBounds(true);receiveCard.addView(qr,new LinearLayout.LayoutParams(-1,dp(260)));
         root.addView(receiveCard);
-        if(ENABLE_PC_COMPANION){Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);}
-        root.addView(text("Keep this screen open while the sender connects. Android-to-Android transfers use authenticated ECDH and AES-GCM encryption.",11,Color.rgb(150,179,202),false));
-        Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{discoveryHandler.removeCallbacks(visibilityTimeout);stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
-        setAnimatedContent(scroll);startReceiverService();startReceiverMode();
+        Button browser=secondaryButton("Receive from browser / PC");browser.setOnClickListener(v->startBrowserReceive());LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(-1,dp(50));bl.setMargins(0,dp(12),0,0);root.addView(browser,bl);
+        root.addView(text("Browser mode works on the same local network with a temporary link and phone approval. App-to-app transfers remain the encrypted ECDH/AES-GCM mode.",11,Color.rgb(150,179,202),false));
+        Button stop=secondaryButton("Stop receiving");stop.setOnClickListener(v->{stopTransferService();stopBrowserReceive();safeRemoveGroup();showHome();});LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(50));sl.setMargins(0,dp(12),0,0);root.addView(stop,sl);
+        setContentView(scroll);startReceiverService();startReceiverMode();
     }
 
     private void showTransferScreen(String title) {
@@ -892,7 +784,7 @@ public class V2Activity extends ComponentActivity implements
         LinearLayout metrics=new LinearLayout(this);metrics.setOrientation(LinearLayout.HORIZONTAL);metrics.setPadding(0,dp(14),0,0);
         TextView bytes=text("0 B / —",13,Color.rgb(187,215,235),true);bytes.setTag("transfer_bytes");metrics.addView(bytes,new LinearLayout.LayoutParams(0,-2,1));
         TextView speedView=text("— MB/s",13,Color.rgb(89,205,255),true);speedView.setTag("transfer_speed");speedView.setGravity(Gravity.CENTER);metrics.addView(speedView,new LinearLayout.LayoutParams(0,-2,1));
-        TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.END);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
+        TextView eta=text("ETA —",13,Color.rgb(187,215,235),true);eta.setTag("transfer_eta");eta.setGravity(Gravity.RIGHT);metrics.addView(eta,new LinearLayout.LayoutParams(0,-2,1));
         card.addView(metrics);root.addView(card);
         if(!benchmarkMode){
             LinearLayout queueCard=card();
@@ -911,9 +803,9 @@ public class V2Activity extends ComponentActivity implements
             transferCancelButton=null;
             Button back=secondaryButton("Back to nearby devices");back.setOnClickListener(v->{stopTransferService();benchmarkMode=false;pcTransferMode=false;transferStarted=false;showDiscovery();});LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(back,cp);
         }else{
-            transferCancelButton=secondaryButton("Cancel transfer");transferCancelButton.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(R.string.cancel_transfer_title).setMessage(R.string.cancel_transfer_message).setPositiveButton(R.string.cancel_transfer,(d,w)->{stopTransferService();showHome();}).setNegativeButton(R.string.keep_transferring,null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(transferCancelButton,cp);
+            transferCancelButton=secondaryButton("Cancel transfer");transferCancelButton.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Cancel transfer?").setMessage("Confirmed data will remain resumable until the session is cleared.").setPositiveButton("Cancel transfer",(d,w)->{stopTransferService();showHome();}).setNegativeButton("Keep transferring",null).show());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(12),0,0);root.addView(transferCancelButton,cp);
         }
-        setAnimatedContent(scroll);
+        setContentView(scroll);
     }
 
     private void startDiscovery() {
@@ -956,7 +848,6 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void startPcDiscovery(){
-        if(!ENABLE_PC_COMPANION)return;
         if(pcDiscovery==null||!pcDiscovery.available())return;
         pcPeers.clear();
         pcDiscovery.discover(new PcDiscovery.Listener(){
@@ -985,14 +876,11 @@ public class V2Activity extends ComponentActivity implements
         discoveryHandler.removeCallbacks(discoveryRetry);stopLanDiscovery();stopPcDiscovery();
         showTransferScreen("Sending to Windows");
         setConnectionUi("PC LOCAL ROUTE ✓",Color.rgb(89,205,255));
-        setTransferUi("Connecting to "+peer.name,peer.protocolVersion>=2
-                ?"Secure PC route • ECDH + AES-256-GCM + SHA-256"
-                :"Legacy local PC route • session token + SHA-256 verification",0);
+        setTransferUi("Connecting to "+peer.name,"Local PC route • session token + SHA-256 verification",0);
         ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());
         Intent i=new Intent(this,PcTransferService.class).setAction(PcTransferService.ACTION_SEND_PC);
         i.putExtra(PcTransferService.EXTRA_HOST,peer.host);i.putExtra(PcTransferService.EXTRA_PORT,peer.port);
-        i.putExtra(PcTransferService.EXTRA_TOKEN,peer.token);i.putExtra(PcTransferService.EXTRA_PROTOCOL,peer.protocolVersion);
-        i.putStringArrayListExtra(PcTransferService.EXTRA_URIS,uris);
+        i.putExtra(PcTransferService.EXTRA_TOKEN,peer.token);i.putStringArrayListExtra(PcTransferService.EXTRA_URIS,uris);
         ContextCompat.startForegroundService(this,i);
     }
 
@@ -1033,11 +921,7 @@ public class V2Activity extends ComponentActivity implements
                     scheduleDiscoveryRetry();
                 }
                 @Override public void onFailure(int reason){
-                    if(reason==WifiP2pManager.BUSY){
-                        if(pendingLanHost==null)setDiscoveryText("Wi-Fi Direct is busy • still searching for verified OptiShare devices on the same Wi-Fi…");
-                    }else if(pendingLanHost==null){
-                        setDiscoveryText(p2pError("Search pass "+discoveryAttempt+" failed",reason));
-                    }
+                    setDiscoveryText(p2pError("Search pass "+discoveryAttempt+" failed",reason));
                     scheduleDiscoveryRetry();
                 }
             });
@@ -1049,29 +933,17 @@ public class V2Activity extends ComponentActivity implements
         if(currentScreen==SCREEN_DISCOVERY&&!transferStarted&&peers.isEmpty()&&discoveryAttempt<MAX_DISCOVERY_ATTEMPTS){
             discoveryHandler.postDelayed(discoveryRetry,DISCOVERY_RETRY_MS);
         }else if(currentScreen==SCREEN_DISCOVERY&&peers.isEmpty()&&discoveryAttempt>=MAX_DISCOVERY_ATTEMPTS){
-            if(pendingLanHost==null)setDiscoveryText("Same-Wi-Fi search is still active. Keep RECEIVE open on the other phone, or scan its QR code.");
+            setDiscoveryText("No receiver found yet. Keep RECEIVE open, then tap Search again.");
         }
     }
 
     private void startReceiverMode() {
         if(!ensureNearbyReady())return;
-        final int[] busyAttempts={0};
         final Runnable[] createHolder=new Runnable[1];
         createHolder[0]=()->{
             try{manager.createGroup(channel,new WifiP2pManager.ActionListener(){
                 @Override public void onSuccess(){setDiscoveryText("READY TO RECEIVE ✓\nWaiting for sender…");setConnectionUi("VISIBLE TO SENDERS",Color.rgb(65,222,151));try{if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.Q){manager.requestDeviceInfo(channel,device->{thisDevice=device;refreshReceiverIdentity();});}else{refreshReceiverIdentity();}manager.requestConnectionInfo(channel,V2Activity.this);}catch(SecurityException ignored){showNearbyPermissionHelp();}}
-                @Override public void onFailure(int reason){
-                    if(reason==WifiP2pManager.BUSY&&currentScreen==SCREEN_RECEIVE&&receiverMode){
-                        busyAttempts[0]++;
-                        long delay=busyAttempts[0]<3?900L:Math.min(5000L,1200L*busyAttempts[0]);
-                        setDiscoveryText("Same-Wi-Fi receiver stays active • Android Wi-Fi Direct is busy and will retry in the background");
-                        setConnectionUi("SAME WI-FI READY",Color.rgb(65,222,151));
-                        discoveryHandler.postDelayed(createHolder[0],delay);
-                    }else{
-                        setDiscoveryText(p2pError("Wi-Fi Direct receiver could not start",reason)+" Same-Wi-Fi receiving remains available.");
-                        setConnectionUi("SAME WI-FI READY",Color.rgb(65,222,151));
-                    }
-                }
+                @Override public void onFailure(int reason){if(reason==WifiP2pManager.BUSY&&currentScreen==SCREEN_RECEIVE&&receiverMode){discoveryHandler.postDelayed(createHolder[0],700);}else{setDiscoveryText(p2pError("Receiver could not start",reason));setConnectionUi("RECEIVER ERROR",Color.rgb(255,91,101));}}
             });}catch(SecurityException e){showNearbyPermissionHelp();}
         };
         try{manager.removeGroup(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){discoveryHandler.postDelayed(createHolder[0],250);}@Override public void onFailure(int reason){discoveryHandler.postDelayed(createHolder[0],250);}});}catch(Exception ignored){discoveryHandler.postDelayed(createHolder[0],250);}
@@ -1089,32 +961,30 @@ public class V2Activity extends ComponentActivity implements
             peerList.removeAllViews();
             if(peers.isEmpty()&&pcPeers.isEmpty()){
                 LinearLayout empty=card();empty.addView(text("Searching…",14,Color.WHITE,true));
-                empty.addView(text("Looking for verified OptiShare Android receivers on this network.",12,Color.rgb(147,173,196),false));
+                empty.addView(text("Looking for Android receivers and OptiShare Windows Companion on this network.",12,Color.rgb(147,173,196),false));
                 peerList.addView(empty);return;
             }
             if(pendingLanHost!=null&&!pendingLanHost.trim().isEmpty()){
                 LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView avatar=text("OS",13,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(43,196,126),Color.rgb(31,137,213),18));
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
-                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPaddingRelative(dp(12),0,0,0);
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
                 String lanName=(pendingLanName==null||pendingLanName.trim().isEmpty())?"OptiShare device":pendingLanName;
                 names.addView(text(lanName,15,Color.WHITE,true));
                 names.addView(text("Verified OptiShare • encrypted same-Wi-Fi route",12,Color.rgb(151,205,184),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
                 LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
+                Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkViaLan(lanName,pendingLanHost));
                 Button send=secondaryButton("Send here");send.setOnClickListener(v->connectViaLan(lanName,pendingLanHost));
-                if(new AppSettings(V2Activity.this).speedTestLargeFiles()){
-                    Button test=secondaryButton("Speed test");test.setOnClickListener(v->benchmarkViaLan(lanName,pendingLanHost));
-                    LinearLayout.LayoutParams testLp=new LinearLayout.LayoutParams(0,dp(46),1);testLp.setMargins(dp(4),0,dp(4),0);actions.addView(test,testLp);
-                    LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(4),0,dp(4),0);actions.addView(send,sendLp);
-                }else actions.addView(send,new LinearLayout.LayoutParams(-1,dp(46)));
+                actions.addView(test,new LinearLayout.LayoutParams(0,dp(46),1));
+                LinearLayout.LayoutParams sendLp=new LinearLayout.LayoutParams(0,dp(46),1);sendLp.setMargins(dp(8),0,0,0);actions.addView(send,sendLp);
                 row.addView(actions);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
             }
             for(PcDiscovery.Peer pc:pcPeers){
                 LinearLayout row=card();LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView avatar=text("PC",14,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(39,178,255),Color.rgb(84,82,222),18));
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
-                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPaddingRelative(dp(12),0,0,0);
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
                 names.addView(text(pc.name,15,Color.WHITE,true));names.addView(text("Windows Companion • same network",12,Color.rgb(151,182,205),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));Button connect=secondaryButton("Send here");connect.setOnClickListener(v->connectToPc(pc));
                 line.addView(connect,new LinearLayout.LayoutParams(dp(112),dp(46)));row.addView(line);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(8));peerList.addView(row,lp);
@@ -1129,9 +999,9 @@ public class V2Activity extends ComponentActivity implements
                 LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
                 TextView avatar=text(firstLetter(deviceName(device)),18,Color.WHITE,true);avatar.setGravity(Gravity.CENTER);avatar.setBackground(gradient(Color.rgb(38,151,232),Color.rgb(62,91,220),18));
                 line.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
-                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPaddingRelative(dp(12),0,0,0);
+                LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);names.setPadding(dp(12),0,0,0);
                 names.addView(text(deviceName(device),15,Color.WHITE,true));
-                names.addView(text(UiText.get(this,deviceStatus(device.status))+" • "+UiText.get(this,"Wi-Fi Direct candidate"),12,Color.rgb(151,182,205),false));
+                names.addView(text(deviceStatus(device.status)+" • Wi-Fi Direct candidate",12,Color.rgb(151,182,205),false));
                 line.addView(names,new LinearLayout.LayoutParams(0,-2,1));row.addView(line);
                 TextView note=text("Not verified as OptiShare • use the verified OptiShare card above or scan the receiver QR",11,Color.rgb(142,166,187),false);
                 note.setPadding(0,dp(10),0,0);row.addView(note);
@@ -1197,7 +1067,7 @@ public class V2Activity extends ComponentActivity implements
     }
 
     private void startSenderService(String host) {
-        ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);String fallback=AdaptiveRouteOrchestrator.verifiedLanFallback(activeRoute,pendingLanHost);if(fallback!=null)i.putExtra(TransferService.EXTRA_FALLBACK_HOST,fallback);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);
+        ArrayList<String> uris=new ArrayList<>();for(Uri uri:selected)uris.add(uri.toString());Intent i=new Intent(this,TransferService.class).setAction(TransferService.ACTION_SEND);i.putExtra(TransferService.EXTRA_HOST,host);i.putExtra(TransferService.EXTRA_ROUTE,activeRoute);i.putStringArrayListExtra(TransferService.EXTRA_URIS,uris);ContextCompat.startForegroundService(this,i);
     }
 
     private void pauseOrResumeTransfer(){
@@ -1215,11 +1085,11 @@ public class V2Activity extends ComponentActivity implements
         ContextCompat.startForegroundService(this,i);
     }
 
-    private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null||transferPauseButton.getVisibility()!=View.VISIBLE)return;transferPauseButton.setText(UiText.get(this,paused?"Resume transfer":"Pause transfer"));transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
+    private void updatePauseButton(boolean paused){runOnUiThread(()->{if(transferPauseButton==null||transferPauseButton.getVisibility()!=View.VISIBLE)return;transferPauseButton.setText(paused?"Resume transfer":"Pause transfer");transferPauseButton.setOnClickListener(v->pauseOrResumeTransfer());});}
 
     private void stopTransferService(){startService(new Intent(this,TransferService.class).setAction(TransferService.ACTION_STOP));try{startService(new Intent(this,PcTransferService.class).setAction(PcTransferService.ACTION_STOP_PC));}catch(Exception ignored){}}
 
-    private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(UiText.get(this,title));if(transferDetail!=null)transferDetail.setText(UiText.get(this,detail));if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);if(progress>=0){TextView percent=findViewByTag("transfer_percent");if(percent!=null)percent.setText(progress+"%");}});}
+    private void setTransferUi(String title,String detail,int progress){runOnUiThread(()->{if(transferState!=null)transferState.setText(title);if(transferDetail!=null)transferDetail.setText(detail);if(transferProgress!=null&&progress>=0)transferProgress.setProgress(progress);if(progress>=0){TextView percent=findViewByTag("transfer_percent");if(percent!=null)percent.setText(progress+"%");}});}
 
     private void setTransferMetrics(int progress,long done,long total,double speed,long etaSeconds){runOnUiThread(()->{TextView percent=findViewByTag("transfer_percent");TextView bytes=findViewByTag("transfer_bytes");TextView speedView=findViewByTag("transfer_speed");TextView eta=findViewByTag("transfer_eta");if(percent!=null)percent.setText(Math.max(0,Math.min(100,progress))+"%");if(bytes!=null)bytes.setText(formatBytes(Math.max(0L,done))+" / "+(total>0?formatBytes(total):"—"));if(speedView!=null)speedView.setText(formatTransferSpeed(speed));if(eta!=null)eta.setText(formatEta(etaSeconds));});}
 
@@ -1230,8 +1100,8 @@ public class V2Activity extends ComponentActivity implements
         return (seconds/60)+"m "+(seconds%60)+"s";
     }
     private String historyRouteLabel(String route){
-        if(RoutePerformanceStore.ROUTE_DIRECT.equals(route))return getString(R.string.route_wifi_direct);
-        if(RoutePerformanceStore.ROUTE_LAN.equals(route))return getString(R.string.route_same_wifi);
+        if(RoutePerformanceStore.ROUTE_DIRECT.equals(route))return "Wi-Fi Direct";
+        if(RoutePerformanceStore.ROUTE_LAN.equals(route))return "same Wi-Fi";
         if("pc-local".equals(route))return "Windows PC";
         if("incoming".equals(route))return "received";
         return route;
@@ -1246,19 +1116,18 @@ public class V2Activity extends ComponentActivity implements
 
     @SuppressWarnings("unchecked") private <T extends View>T findViewByTag(String tag){View v=getWindow().getDecorView().findViewWithTag(tag);return(T)v;}
 
-    private void startQrScanner(){ScanOptions options=new ScanOptions();options.setPrompt("Scan the receiver's OptiShare QR");options.setBeepEnabled(false);options.setOrientationLocked(true);options.setCaptureActivity(PortraitQrCaptureActivity.class);options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);qrScanner.launch(options);}
+    private void startQrScanner(){ScanOptions options=new ScanOptions();options.setPrompt("Scan the receiver's OptiShare QR");options.setBeepEnabled(false);options.setOrientationLocked(false);options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);qrScanner.launch(options);}
 
     private void handlePairingQr(String raw){if(raw==null||!raw.startsWith("OPTISHARE2|")){showMessage("Invalid QR","This is not an OptiShare 2 pairing code.");return;}String[] parts=raw.split("\\|",3);if(parts.length<3){showMessage("Invalid QR","Pairing information is incomplete.");return;}pendingQrAddress=parts[1];pendingQrName=parts[2];setDiscoveryText("Receiver identified: "+pendingQrName+". Searching for its direct link…");startDiscovery();}
 
     private Bitmap makeQr(String value,int size)throws Exception{BitMatrix matrix=new MultiFormatWriter().encode(value,BarcodeFormat.QR_CODE,size,size);Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.RGB_565);for(int y=0;y<size;y++)for(int x=0;x<size;x++)bitmap.setPixel(x,y,matrix.get(x,y)?Color.BLACK:Color.WHITE);return bitmap;}
 
-    private boolean ensureNearbyReady(){if(manager==null||channel==null){showMessage("Wi‑Fi Direct unavailable","This device does not expose Android Wi‑Fi Direct to OptiShare.");return false;}if(!hasNearbyPermission()){requestNearbyPermission();return false;}if(Build.VERSION.SDK_INT<=32&&!isLocationEnabled()){new AlertDialog.Builder(this).setTitle(R.string.turn_on_location).setMessage(R.string.location_required_message).setPositiveButton(R.string.open_settings,(d,w)->startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))).setNegativeButton(R.string.cancel,null).show();return false;}return true;}
+    private boolean ensureNearbyReady(){if(manager==null||channel==null){showMessage("Wi‑Fi Direct unavailable","This device does not expose Android Wi‑Fi Direct to OptiShare.");return false;}if(!hasNearbyPermission()){requestNearbyPermission();return false;}if(Build.VERSION.SDK_INT<=32&&!isLocationEnabled()){new AlertDialog.Builder(this).setTitle("Turn on Location").setMessage("Android requires Location services for Wi‑Fi Direct discovery on this Android version. OptiShare does not upload your location.").setPositiveButton("Open settings",(d,w)->startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))).setNegativeButton("Cancel",null).show();return false;}return true;}
 
     private boolean hasNearbyPermission(){if(Build.VERSION.SDK_INT>=33)return checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)==PackageManager.PERMISSION_GRANTED;if(Build.VERSION.SDK_INT>=23)return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;return true;}
     private void requestNearbyPermission(){if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES},REQ_NEARBY);else if(Build.VERSION.SDK_INT>=23)requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION},REQ_NEARBY);}
-    private String mediaPermission(String type){return "image".equals(type)?Manifest.permission.READ_MEDIA_IMAGES:"audio".equals(type)?Manifest.permission.READ_MEDIA_AUDIO:Manifest.permission.READ_MEDIA_VIDEO;}
-    private boolean hasMediaPermission(String type){if(Build.VERSION.SDK_INT>=33)return checkSelfPermission(mediaPermission(type))==PackageManager.PERMISSION_GRANTED;if(Build.VERSION.SDK_INT>=23)return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;return true;}
-    private void requestMediaPermission(String type){if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{mediaPermission(type)},REQ_MEDIA);else if(Build.VERSION.SDK_INT>=23)requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},REQ_MEDIA);else showMediaGallery(type);}
+    private boolean hasMediaPermission(String type){if(Build.VERSION.SDK_INT>=33){String permission="image".equals(type)?Manifest.permission.READ_MEDIA_IMAGES:Manifest.permission.READ_MEDIA_VIDEO;return checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED;}if(Build.VERSION.SDK_INT>=23)return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;return true;}
+    private void requestMediaPermission(String type){if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{"image".equals(type)?Manifest.permission.READ_MEDIA_IMAGES:Manifest.permission.READ_MEDIA_VIDEO},REQ_MEDIA);else if(Build.VERSION.SDK_INT>=23)requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},REQ_MEDIA);else showMediaGallery(type);}
     private boolean ensureLegacyWritePermission(){if(Build.VERSION.SDK_INT>=23&&Build.VERSION.SDK_INT<=28&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},REQ_LEGACY_WRITE);return false;}return true;}
 
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);boolean granted=grantResults.length>0&&grantResults[grantResults.length-1]==PackageManager.PERMISSION_GRANTED;if(requestCode==REQ_MEDIA&&granted&&pendingGalleryType!=null)showMediaGallery(pendingGalleryType);if(requestCode==REQ_NEARBY&&granted){if(currentScreen==SCREEN_DISCOVERY)startDiscovery();else if(currentScreen==SCREEN_RECEIVE)startReceiverMode();}if(requestCode==REQ_LEGACY_WRITE&&granted)showReceive();}
@@ -1268,14 +1137,14 @@ public class V2Activity extends ComponentActivity implements
     private void showTextComposer(String initial){
         final android.widget.EditText input=new android.widget.EditText(this);
         input.setMinLines(5);input.setMaxLines(12);input.setGravity(Gravity.TOP|Gravity.START);
-        input.setText(initial==null?"":initial);input.setHint(UiText.get(this,"Type or paste text to send securely"));
-        new AlertDialog.Builder(this).setTitle(R.string.send_text).setView(input)
-                .setPositiveButton(R.string.add_to_queue,(d,w)->{
+        input.setText(initial==null?"":initial);input.setHint("Type or paste text to send securely");
+        new AlertDialog.Builder(this).setTitle("Send text").setView(input)
+                .setPositiveButton("Add to queue",(d,w)->{
                     try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,input.getText());
                         if(!selected.contains(item.getUri()))selected.add(item.getUri());
                         FolderTransferQueue.add(item);showSendSelection();}
                     catch(Exception e){showMessage("Text not added",e.getMessage());}
-                }).setNegativeButton(R.string.cancel,null).show();
+                }).setNegativeButton("Cancel",null).show();
     }
 
     private void addClipboardToQueue(){
@@ -1283,7 +1152,7 @@ public class V2Activity extends ComponentActivity implements
         if(clipboard==null||!clipboard.hasPrimaryClip()||clipboard.getPrimaryClip()==null||clipboard.getPrimaryClip().getItemCount()==0){showMessage("Clipboard is empty","Copy some text first, then try again.");return;}
         CharSequence value=clipboard.getPrimaryClip().getItemAt(0).coerceToText(this);
         if(value==null||value.length()==0){showMessage("Clipboard has no text","The current clipboard item cannot be sent as text.");return;}
-        try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,value,"Clipboard");if(!selected.contains(item.getUri()))selected.add(item.getUri());FolderTransferQueue.add(item);showSendSelection();}
+        try{com.kenan.optishare.model.TransferItem item=TextTransferStore.create(this,value);if(!selected.contains(item.getUri()))selected.add(item.getUri());FolderTransferQueue.add(item);showSendSelection();}
         catch(Exception e){showMessage("Clipboard not added",e.getMessage());}
     }
 
@@ -1295,10 +1164,7 @@ public class V2Activity extends ComponentActivity implements
         folderPicker.launch(intent);
     }
 
-    private void openInstalledApps(){appPicker.launch(new Intent(this,AppPickerActivity.class));}
-
     private void openExternal(String mime){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType(mime);intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);externalPicker.launch(intent);}
-    private void openDocuments(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/pdf","text/plain","text/csv","application/rtf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","application/vnd.oasis.opendocument.text","application/vnd.oasis.opendocument.spreadsheet"});intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);externalPicker.launch(intent);}
     private void persistReadPermission(Uri uri,int flags){try{getContentResolver().takePersistableUriPermission(uri,flags&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}
 
     private long selectedTotalBytes(){long total=0;for(Uri uri:selected){long size=querySize(uri);if(size>0&&Long.MAX_VALUE-total>size)total+=size;}return total;}
@@ -1306,34 +1172,26 @@ public class V2Activity extends ComponentActivity implements
     private String displayName(Uri uri){Cursor c=null;try{c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(c!=null&&c.moveToFirst()){int i=c.getColumnIndex(OpenableColumns.DISPLAY_NAME);if(i>=0&&!c.isNull(i))return c.getString(i);}}catch(Exception ignored){}finally{if(c!=null)c.close();}String last=uri.getLastPathSegment();return last==null?"item":last;}
 
     private void showDeviceSettings(){
-        currentScreen=SCREEN_SETTINGS;
-        ScrollView scroll=new ScrollView(this);LinearLayout root=shell(scroll);
-        addBackHeader(root,"Settings","Device, received content and app information");
-        LinearLayout device=card();device.addView(text("This device",16,Color.WHITE,true));device.addView(text(identity.name(),13,Color.rgb(151,190,218),false));
-        Button rename=secondaryButton("Rename device");rename.setOnClickListener(v->editDeviceName());LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(48));rp.setMargins(0,dp(10),0,0);device.addView(rename,rp);
-        Button trusted=secondaryButton("Trusted devices • "+trustedStore.list().size());trusted.setOnClickListener(v->showTrustedDevices());LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,dp(48));tp.setMargins(0,dp(8),0,0);device.addView(trusted,tp);root.addView(device);
-        LinearLayout content=card();content.addView(text("Received content",16,Color.WHITE,true));content.addView(text("Files are sorted in Download/OptiShare. Text and clipboard items arrive as readable .txt files in the Text folder.",12,Color.rgb(151,190,218),false));
-        Button received=secondaryButton("Open received files");received.setOnClickListener(v->startActivity(new Intent(this,ReceivedFilesActivity.class)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(48));cp.setMargins(0,dp(10),0,0);content.addView(received,cp);LinearLayout.LayoutParams contentLp=new LinearLayout.LayoutParams(-1,-2);contentLp.setMargins(0,dp(12),0,0);root.addView(content,contentLp);
-        LinearLayout about=card();about.addView(text("About OptiShare",16,Color.WHITE,true));about.addView(text("Version "+appVersion()+"\nPrivate Android-to-Android sharing. No account, advertising or analytics.",12,Color.rgb(151,190,218),false));about.addView(text("Designed & developed by Kenan Alhennawi",11,Color.rgb(91,189,255),true));LinearLayout.LayoutParams aboutLp=new LinearLayout.LayoutParams(-1,-2);aboutLp.setMargins(0,dp(12),0,0);root.addView(about,aboutLp);
-        setAnimatedContent(scroll);
+        String[] options={"Rename this device","Trusted devices ("+trustedStore.list().size()+")","My security identity","SmartRoute status"};
+        new AlertDialog.Builder(this).setTitle("Device & security").setItems(options,(d,which)->{
+            if(which==0)editDeviceName(); else if(which==1)showTrustedDevices(); else if(which==2)showMySecurityIdentity(); else showMessage("SmartRoute",routeStore.summary()+"\nLearns from real transfer speed and route reliability.");
+        }).setNegativeButton("Close",null).show();
     }
-
-    private String appVersion(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){return "1.0.0";}}
 
     private void showTrustedDevices(){
         if(!DeviceIdentityKey.supported()){showMessage("Trusted devices","Android 5 keeps manual six-digit verification. Persistent trust is available on Android 6 and newer.");return;}
         List<TrustedDeviceStore.Entry> entries=trustedStore.list();
         if(entries.isEmpty()){showMessage("Trusted devices","No trusted devices yet. On the first secure connection choose ‘Trust this device & confirm’.");return;}
         String[] labels=new String[entries.size()];
-        for(int i=0;i<entries.size();i++){TrustedDeviceStore.Entry e=entries.get(i);labels[i]=e.name+"\n"+DeviceIdentityKey.shortFingerprint(e.fingerprint)+" • "+getString(e.autoAccept?R.string.auto_accept_on:R.string.confirm_files);}
-        new AlertDialog.Builder(this).setTitle(R.string.trusted_devices).setItems(labels,(d,which)->showTrustedDeviceActions(entries.get(which))).setNegativeButton(R.string.close,null).show();
+        for(int i=0;i<entries.size();i++){TrustedDeviceStore.Entry e=entries.get(i);labels[i]=e.name+"\n"+DeviceIdentityKey.shortFingerprint(e.fingerprint)+(e.autoAccept?" • Auto-accept ON":" • Confirm files");}
+        new AlertDialog.Builder(this).setTitle("Trusted devices").setItems(labels,(d,which)->showTrustedDeviceActions(entries.get(which))).setNegativeButton("Close",null).show();
     }
 
     private void showTrustedDeviceActions(TrustedDeviceStore.Entry entry){
-        String auto=getString(entry.autoAccept?R.string.auto_accept_turn_off:R.string.auto_accept_turn_on);
-        new AlertDialog.Builder(this).setTitle(entry.name).setMessage(getString(R.string.fingerprint_details,DeviceIdentityKey.shortFingerprint(entry.fingerprint))).setItems(new String[]{auto,getString(R.string.forget_device)},(d,which)->{
-            if(which==0){trustedStore.setAutoAccept(entry.fingerprint,!entry.autoAccept);showTrustedDevices();} else new AlertDialog.Builder(this).setTitle(R.string.forget_device_title).setMessage(R.string.forget_device_message).setPositiveButton(R.string.forget,(x,w)->{trustedStore.forget(entry.fingerprint);showTrustedDevices();}).setNegativeButton(R.string.cancel,null).show();
-        }).setNegativeButton(R.string.back_plain,(d,w)->showTrustedDevices()).show();
+        String auto=entry.autoAccept?"Turn auto-accept OFF":"Turn auto-accept ON";
+        new AlertDialog.Builder(this).setTitle(entry.name).setMessage("Fingerprint: "+DeviceIdentityKey.shortFingerprint(entry.fingerprint)+"\nAuto-accept works only after the stored device key signs the new secure session.").setItems(new String[]{auto,"Forget this device"},(d,which)->{
+            if(which==0){trustedStore.setAutoAccept(entry.fingerprint,!entry.autoAccept);showTrustedDevices();} else new AlertDialog.Builder(this).setTitle("Forget trusted device?").setMessage("The six-digit code will be required again next time.").setPositiveButton("Forget",(x,w)->{trustedStore.forget(entry.fingerprint);showTrustedDevices();}).setNegativeButton("Cancel",null).show();
+        }).setNegativeButton("Back",(d,w)->showTrustedDevices()).show();
     }
 
     private void showMySecurityIdentity(){
@@ -1341,11 +1199,11 @@ public class V2Activity extends ComponentActivity implements
         try{String fp=new DeviceIdentityKey().fingerprint();showMessage("My security identity","Protected by Android Keystore\nFingerprint: "+DeviceIdentityKey.shortFingerprint(fp));}catch(Exception e){showMessage("Security identity","Could not access identity: "+e.getMessage());}
     }
 
-    private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle(R.string.device_name).setMessage(R.string.device_name_help).setView(input).setPositiveButton(R.string.save,(d,w)->{try{identity.setName(input.getText().toString());showDeviceSettings();}catch(Exception e){showMessage(getString(R.string.invalid_name),e.getMessage());}}).setNegativeButton(R.string.cancel,null).show();}
+    private void editDeviceName(){final android.widget.EditText input=new android.widget.EditText(this);input.setText(identity.name());input.setSingleLine(true);new AlertDialog.Builder(this).setTitle("Device name").setMessage("This name is used inside OptiShare.").setView(input).setPositiveButton("Save",(d,w)->{try{identity.setName(input.getText().toString());showHome();}catch(Exception e){showMessage("Invalid name",e.getMessage());}}).setNegativeButton("Cancel",null).show();}
 
     private TextView connectionBadge(String label,int color){TextView v=text(label,13,color,true);v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(10),dp(12),dp(10));v.setBackground(round(Color.argb(70,Color.red(color),Color.green(color),Color.blue(color)),14));return v;}
-    private void setDiscoveryText(String value){runOnUiThread(()->{if(discoveryState!=null)discoveryState.setText(UiText.get(this,value));});}
-    private void setConnectionUi(String label,int color){runOnUiThread(()->{if(connectionPill==null)return;connectionPill.setText(UiText.get(this,label));connectionPill.setTextColor(color);connectionPill.setBackground(round(Color.argb(80,Color.red(color),Color.green(color),Color.blue(color)),14));});}
+    private void setDiscoveryText(String value){runOnUiThread(()->{if(discoveryState!=null)discoveryState.setText(value);});}
+    private void setConnectionUi(String label,int color){runOnUiThread(()->{if(connectionPill==null)return;connectionPill.setText(label);connectionPill.setTextColor(color);connectionPill.setBackground(round(Color.argb(80,Color.red(color),Color.green(color),Color.blue(color)),14));});}
     private void showNearbyPermissionHelp(){showMessage("Nearby permission required","Allow Nearby Wi‑Fi devices. On Android 12 or older, Android also requires Location permission and Location services for Wi‑Fi Direct discovery.");}
     private boolean isLocationEnabled(){LocationManager lm=(LocationManager)getSystemService(LOCATION_SERVICE);if(lm==null)return false;if(Build.VERSION.SDK_INT>=28)return lm.isLocationEnabled();try{return lm.isProviderEnabled(LocationManager.GPS_PROVIDER)||lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER);}catch(Exception e){return false;}}
     private void safeRemoveGroup(){if(manager==null||channel==null||!hasNearbyPermission())return;try{manager.removeGroup(channel,new WifiP2pManager.ActionListener(){@Override public void onSuccess(){}@Override public void onFailure(int reason){}});}catch(Exception ignored){}}
@@ -1355,47 +1213,24 @@ public class V2Activity extends ComponentActivity implements
     private String firstLetter(String value){return value==null||value.isEmpty()?"?":value.substring(0,1).toUpperCase(Locale.US);}
     private String formatBytes(long b){if(b>=1024L*1024*1024)return String.format(Locale.US,"%.2f GB",b/(1024.0*1024*1024));if(b>=1024L*1024)return String.format(Locale.US,"%.2f MB",b/(1024.0*1024));if(b>=1024)return String.format(Locale.US,"%.1f KB",b/1024.0);return b+" B";}
 
-    private LinearLayout shell(ScrollView scroll){LinearLayout outer=new LinearLayout(this);outer.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);outer.setBackground(lightMode()?vividGradient(new int[]{Color.rgb(248,251,255),Color.rgb(235,245,255),Color.rgb(247,241,255)},0,Color.TRANSPARENT):vividGradient(new int[]{Color.rgb(3,12,31),Color.rgb(8,43,75),Color.rgb(34,20,77)},0,Color.TRANSPARENT));LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(32));int width=Math.min(getResources().getDisplayMetrics().widthPixels,dp(920));outer.addView(root,new LinearLayout.LayoutParams(width,-2));scroll.addView(outer,new ScrollView.LayoutParams(-1,-2));return root;}
-    private void addBackHeader(LinearLayout root,String title,String subtitle){int accent=currentScreen==SCREEN_RECEIVE?Color.rgb(24,196,137):currentScreen==SCREEN_SEND?Color.rgb(255,151,40):currentScreen==SCREEN_DISCOVERY?Color.rgb(36,183,255):currentScreen==SCREEN_GALLERY?Color.rgb(185,63,255):currentScreen==SCREEN_TRANSFER?Color.rgb(48,128,255):Color.rgb(111,79,230);LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(14),dp(14),dp(14),dp(15));panel.setBackground(vividGradient(new int[]{lighten(accent),accent,darken(accent)},26,Color.argb(135,255,255,255)));if(Build.VERSION.SDK_INT>=21)panel.setElevation(dp(12));Button back=smallButton("← Back");back.setBackground(vividGradient(new int[]{Color.argb(90,255,255,255),Color.argb(35,255,255,255)},16,Color.argb(130,255,255,255)));back.setOnClickListener(v->navigateBack());panel.addView(back,new LinearLayout.LayoutParams(dp(96),dp(42)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(dp(3),dp(14),dp(3),dp(3));panel.addView(t);TextView s=text(subtitle,13,Color.rgb(225,240,252),false);s.setPadding(dp(3),0,dp(3),0);panel.addView(s);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(16));root.addView(panel,lp);}
-
-    private void leaveReceiveScreen() {
-        discoveryHandler.removeCallbacks(visibilityTimeout);
-        if (AppSettings.VISIBILITY_FIVE_MINUTES.equals(new AppSettings(this).visibility())) {
-            discoveryHandler.postDelayed(visibilityTimeout, FIVE_MINUTE_VISIBILITY_MS);
-        } else {
-            stopTransferService();
-            stopBrowserReceive();
-            safeRemoveGroup();
-        }
-    }
-
-    private void navigateBack(){if(currentScreen==SCREEN_GALLERY){if(galleryReturnScreen==SCREEN_SEND)showSendSelection();else showHome();}else if(currentScreen==SCREEN_DISCOVERY)showSendSelection();else if(currentScreen==SCREEN_RECEIVE){leaveReceiveScreen();showHome();}else showHome();}
-    private Button category(int icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(13);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);b.setTextDirection(View.TEXT_DIRECTION_LOCALE);b.setIncludeFontPadding(false);b.setMinHeight(0);b.setMinWidth(0);b.setCompoundDrawables(null,circularIcon(icon,color,26),null,null);b.setCompoundDrawablePadding(dp(4));b.setPadding(dp(7),dp(6),dp(7),dp(7));b.setLetterSpacing(.01f);b.setBackground(vividGradient(new int[]{shine(color),lighten(color),color,darken(color)},34,Color.argb(130,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(18));b.setTranslationZ(dp(5));}applyPressMotion(b);b.setOnClickListener(listener);return b;}
-    private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);LinearLayout.LayoutParams p1=new LinearLayout.LayoutParams(0,dp(73),1);p1.setMargins(dp(6),0,dp(6),0);row.addView(a,p1);LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(73),1);p2.setMargins(dp(6),0,dp(6),0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(73),1);p3.setMargins(dp(6),0,dp(6),0);row.addView(c,p3);return row;}
-    private Button bigAction(int icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,title)+"\n"+UiText.get(this,sub));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setGravity(Gravity.CENTER);b.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);b.setTextDirection(View.TEXT_DIRECTION_LOCALE);b.setIncludeFontPadding(false);b.setMinHeight(0);b.setMinWidth(0);b.setLineSpacing(dp(2),1f);b.setLetterSpacing(.01f);b.setCompoundDrawables(null,circularIcon(icon,top,30),null,null);b.setCompoundDrawablePadding(dp(4));b.setPadding(dp(8),dp(7),dp(8),dp(8));b.setBackground(vividGradient(new int[]{shine(top),lighten(top),top,bottom},38,Color.argb(145,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(21));b.setTranslationZ(dp(6));}applyPressMotion(b);return b;}
-    private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setLetterSpacing(.015f);b.setBackground(vividGradient(new int[]{Color.rgb(52,205,255),Color.rgb(38,122,244),Color.rgb(104,62,226)},18,Color.argb(105,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(13));b.setTranslationZ(dp(4));}applyPressMotion(b);return b;}
-    private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(UiText.get(this,label));b.setTextColor(lightMode()?Color.rgb(15,42,66):Color.WHITE);b.setTextSize(13);b.setTypeface(Typeface.DEFAULT_BOLD);b.setTextColor(Color.WHITE);b.setBackground(vividGradient(new int[]{Color.rgb(61,218,255),Color.rgb(42,135,246),Color.rgb(133,67,238)},18,Color.argb(150,255,255,255)));if(Build.VERSION.SDK_INT>=21){b.setElevation(dp(11));b.setTranslationZ(dp(3));}applyPressMotion(b);return b;}
+    private LinearLayout shell(ScrollView scroll){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(22),dp(20),dp(28));root.setBackground(gradient(Color.rgb(5,17,38),Color.rgb(16,48,84),0));scroll.addView(root);return root;}
+    private void addBackHeader(LinearLayout root,String title,String subtitle){Button back=smallButton("← Back");back.setOnClickListener(v->{if(currentScreen==SCREEN_GALLERY||currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();});root.addView(back,new LinearLayout.LayoutParams(dp(96),dp(44)));TextView t=text(title,27,Color.WHITE,true);if(currentScreen==SCREEN_TRANSFER)t.setTag("transfer_screen_title");t.setPadding(0,dp(18),0,dp(3));root.addView(t);TextView s=text(subtitle,13,Color.rgb(162,194,219),false);s.setPadding(0,0,0,dp(14));root.addView(s);}
+    private Button category(String icon,String label,int color,View.OnClickListener listener){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+label);b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(color,darken(color),18));b.setOnClickListener(listener);return b;}
+    private LinearLayout categoryRow(Button a,Button b,Button c){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(a,new LinearLayout.LayoutParams(0,dp(106),1));LinearLayout.LayoutParams p2=new LinearLayout.LayoutParams(0,dp(106),1);p2.setMargins(dp(8),0,0,0);row.addView(b,p2);LinearLayout.LayoutParams p3=new LinearLayout.LayoutParams(0,dp(106),1);p3.setMargins(dp(8),0,0,0);row.addView(c,p3);return row;}
+    private Button bigAction(String icon,String title,String sub,int top,int bottom){Button b=new Button(this);b.setAllCaps(false);b.setText(icon+"\n"+title+"\n"+sub);b.setTextColor(Color.WHITE);b.setTextSize(15);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(top,bottom,22));return b;}
+    private Button primary(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT_BOLD);b.setBackground(gradient(Color.rgb(31,151,255),Color.rgb(52,88,226),16));return b;}
+    private Button secondaryButton(String label){Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(13);b.setBackground(round(Color.rgb(24,52,78),14));return b;}
     private Button smallButton(String label){Button b=secondaryButton(label);b.setTextSize(12);return b;}
-    private LinearLayout card(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(17),dp(17),dp(17),dp(17));GradientDrawable g=lightMode()?vividGradient(new int[]{Color.WHITE,Color.rgb(244,249,255),Color.rgb(238,243,255)},22,Color.rgb(205,222,238)):vividGradient(new int[]{Color.rgb(22,52,82),Color.rgb(12,34,62),Color.rgb(28,23,68)},22,Color.rgb(54,93,128));l.setBackground(g);if(Build.VERSION.SDK_INT>=21)l.setElevation(dp(7));return l;}
-    private TextView text(String value,int sp,int color,boolean bold){TextView t=new TextView(this);t.setText(UiText.get(this,value));t.setTextSize(sp);t.setTextColor(uiTextColor(color));if(bold)t.setTypeface(Typeface.DEFAULT_BOLD);return t;}
+    private LinearLayout card(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);l.setPadding(dp(16),dp(16),dp(16),dp(16));GradientDrawable g=round(Color.rgb(13,33,56),18);g.setStroke(dp(1),Color.rgb(37,68,96));l.setBackground(g);return l;}
+    private TextView text(String value,int sp,int color,boolean bold){TextView t=new TextView(this);t.setText(value);t.setTextSize(sp);t.setTextColor(color);if(bold)t.setTypeface(Typeface.DEFAULT_BOLD);return t;}
     private GradientDrawable round(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private GradientDrawable gradient(int top,int bottom,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{top,bottom});g.setCornerRadius(dp(radius));return g;}
-    private GradientDrawable vividGradient(int[] colors,int radius,int stroke){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,colors);g.setCornerRadius(dp(radius));if(Color.alpha(stroke)>0)g.setStroke(dp(1),stroke);return g;}
-    private Drawable circularIcon(int icon,int color,int sizeDp){Drawable glyph=ContextCompat.getDrawable(this,icon);if(glyph!=null)glyph=glyph.mutate();GradientDrawable halo=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{Color.argb(105,255,255,255),Color.argb(30,255,255,255),Color.argb(55,Color.red(color),Color.green(color),Color.blue(color))});halo.setShape(GradientDrawable.OVAL);halo.setStroke(dp(1),Color.argb(150,255,255,255));if(glyph==null){halo.setBounds(0,0,dp(sizeDp),dp(sizeDp));return halo;}glyph.setTint(Color.WHITE);LayerDrawable layers=new LayerDrawable(new Drawable[]{halo,glyph});int inset=dp(sizeDp>=50?12:sizeDp>=36?7:5);layers.setLayerInset(1,inset,inset,inset,inset);layers.setBounds(0,0,dp(sizeDp),dp(sizeDp));return layers;}
-    private void setAnimatedContent(View view){setContentView(view);view.setAlpha(0f);view.setTranslationY(dp(22));view.setScaleX(.985f);view.setScaleY(.985f);view.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(280).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();}
-    private int shine(int color){return Color.rgb(Math.min(255,Color.red(color)+72),Math.min(255,Color.green(color)+72),Math.min(255,Color.blue(color)+72));}
     private int darken(int color){return Color.rgb((int)(Color.red(color)*.66),(int)(Color.green(color)*.66),(int)(Color.blue(color)*.66));}
-    private int lighten(int color){return Color.rgb(Math.min(255,Color.red(color)+24),Math.min(255,Color.green(color)+24),Math.min(255,Color.blue(color)+24));}
-    private void applyPressMotion(View view){view.setClickable(true);view.setOnTouchListener((v,event)->{if(event.getAction()==android.view.MotionEvent.ACTION_DOWN)v.animate().scaleX(.97f).scaleY(.97f).translationY(dp(4)).alpha(.94f).setDuration(75).start();else if(event.getAction()==android.view.MotionEvent.ACTION_UP||event.getAction()==android.view.MotionEvent.ACTION_CANCEL)v.animate().scaleX(1f).scaleY(1f).translationY(0f).alpha(1f).setDuration(180).setInterpolator(new android.view.animation.OvershootInterpolator(.7f)).start();return false;});}
-    private boolean lightMode(){AppSettings s=new AppSettings(this);if(AppSettings.THEME_LIGHT.equals(s.theme()))return true;if(AppSettings.THEME_DARK.equals(s.theme()))return false;return(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)!=Configuration.UI_MODE_NIGHT_YES;}
-    private int uiTextColor(int color){if(!lightMode())return color;if(color==Color.WHITE)return Color.rgb(12,30,48);int luminance=(Color.red(color)*299+Color.green(color)*587+Color.blue(color)*114)/1000;return luminance>115?Color.rgb(67,88,107):color;}
-    private String appearanceStamp(){AppSettings s=new AppSettings(this);return s.theme()+"|"+s.language()+"|"+s.highContrast()+"|"+s.avatarPhotoUri()+"|"+s.avatarSkin()+"|"+s.avatarHairStyle()+"|"+s.avatarHairColor()+"|"+s.avatarBackground()+"|"+s.avatarGlasses()+"|"+s.avatarBeard();}
-    private void applySystemBars(){int color=lightMode()?Color.rgb(244,248,252):Color.rgb(7,17,31);getWindow().setStatusBarColor(color);getWindow().setNavigationBarColor(color);if(Build.VERSION.SDK_INT>=23)getWindow().getDecorView().setSystemUiVisibility(lightMode()?View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR:0);}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
-    private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(UiText.get(this,title)).setMessage(UiText.get(this,message)).setPositiveButton(R.string.ok,null).show());}
+    private void showMessage(String title,String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK",null).show());}
 
-    @Override protected void onResume(){super.onResume();String latest=appearanceStamp();if(appearanceStamp!=null&&!appearanceStamp.equals(latest)){appearanceStamp=latest;recreate();return;}IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
+    @Override protected void onResume(){super.onResume();IntentFilter p2p=new IntentFilter();p2p.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);p2p.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);ContextCompat.registerReceiver(this,p2pReceiver,p2p,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter transfer=new IntentFilter(TransferService.ACTION_EVENT);ContextCompat.registerReceiver(this,transferReceiver,transfer,ContextCompat.RECEIVER_NOT_EXPORTED);IntentFilter browser=new IntentFilter(BrowserReceiveService.ACTION_EVENT);ContextCompat.registerReceiver(this,browserReceiver,browser,ContextCompat.RECEIVER_NOT_EXPORTED);}
     @Override protected void onPause(){super.onPause();discoveryHandler.removeCallbacks(discoveryRetry);discoveryHandler.removeCallbacks(p2pConnectTimeout);pendingP2pDevice=null;stopLanDiscovery();try{unregisterReceiver(p2pReceiver);}catch(Exception ignored){}try{unregisterReceiver(transferReceiver);}catch(Exception ignored){}try{unregisterReceiver(browserReceiver);}catch(Exception ignored){}}
     @Override protected void onDestroy(){if(lanDiscovery!=null)lanDiscovery.close();super.onDestroy();}
-    @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else navigateBack();}
+    @Override public void onBackPressed(){if(currentScreen==SCREEN_HOME)super.onBackPressed();else if(currentScreen==SCREEN_GALLERY||currentScreen==SCREEN_DISCOVERY)showSendSelection();else showHome();}
 }
