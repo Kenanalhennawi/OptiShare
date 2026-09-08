@@ -37,6 +37,12 @@ public final class SessionWire {
     public static final int TYPE_FILE_SKIPPED = 15;
     /** Receiver rejected one completed item (for example, SHA-256 mismatch). */
     public static final int TYPE_FILE_FAILED = 16;
+    /** Authenticated protocol capability offer. */
+    public static final int TYPE_CAPABILITIES = 17;
+    /** Authenticated capability selection transcript from the client. */
+    public static final int TYPE_CAPABILITIES_CONFIRM = 18;
+    /** Server acknowledgement of the selected authenticated capabilities. */
+    public static final int TYPE_CAPABILITIES_SELECTED = 19;
     public static final int MAX_FRAME = 2 * 1024 * 1024;
     public static final int BENCHMARK_BLOCK_BYTES = 512 * 1024;
     public static final long BENCHMARK_TOTAL_BYTES = 8L * 1024L * 1024L;
