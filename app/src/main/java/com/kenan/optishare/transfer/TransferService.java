@@ -55,7 +55,6 @@ public final class TransferService extends Service {
     public static final String ACTION_EVENT = "com.kenan.optishare.TRANSFER_EVENT";
     public static final String EXTRA_HOST = "host";
     public static final String EXTRA_ROUTE = "route";
-    public static final String EXTRA_FALLBACK_HOST = "fallback_host";
     public static final String EXTRA_URIS = "uris";
     public static final String EXTRA_EVENT = "event";
     public static final String EXTRA_MESSAGE = "message";
@@ -96,11 +95,9 @@ public final class TransferService extends Service {
     private volatile List<TransferItem> activeItems;
     private SenderSessionStore senderStore;
     private WifiDirectRecovery wifiRecovery;
-    private LanRecovery lanRecovery;
     private LanDiscovery lanDiscovery;
     private RoutePerformanceStore routeStore;
     private TrustedDeviceStore trustedStore;
-    private final HandshakeRateLimiter handshakeLimiter = new HandshakeRateLimiter();
     private volatile String currentRoute = RoutePerformanceStore.ROUTE_DIRECT;
     private volatile String activePeerFingerprint;
     private volatile long activeTransferStartedNanos;
@@ -115,7 +112,6 @@ public final class TransferService extends Service {
         super.onCreate();
         senderStore = new SenderSessionStore(this);
         wifiRecovery = new WifiDirectRecovery(this);
-        lanRecovery = new LanRecovery(this);
         lanDiscovery = new LanDiscovery(this);
         routeStore = new RoutePerformanceStore(this);
         trustedStore = new TrustedDeviceStore(this);
@@ -195,8 +191,14 @@ public final class TransferService extends Service {
         latestBatchDone = 0L;
         latestSpeed = 0d;
         activePeerFingerprint = null;
-        updateNotification("Starting receiver", "Opening the secure local transfer port", 0, false);
-        broadcast("receiver_starting", "Preparing the secure same-Wi-Fi receiver…", 0, 0, null);
+        lanDiscovery.advertise(new DeviceIdentity(this).name(), PORT, new LanDiscovery.Listener() {
+            @Override public void onPeer(String name, String host) { }
+            @Override public void onStatus(String message) {
+                broadcast("receiver_ready", message + " • Wi-Fi Direct also available when supported", 0, 0, null);
+            }
+        });
+        updateNotification("Ready to receive", "Waiting via Wi-Fi Direct or the same Wi-Fi network", 0, false);
+        broadcast("receiver_ready", "Waiting via Wi-Fi Direct or same Wi-Fi…", 0, 0, null);
         startParallelBenchmarkReceiver();
         startStripedReceiver();
         executor.execute(() -> {
@@ -204,20 +206,8 @@ public final class TransferService extends Service {
                 serverSocket = server;
                 server.setReuseAddress(true);
                 server.bind(new InetSocketAddress(PORT));
-                // Never publish an mDNS receiver until the advertised port is actually listening.
-                // This prevents a fast sender from resolving the service and hitting connection
-                // refused during receiver startup.
-                lanDiscovery.advertise(new DeviceIdentity(this).name(), PORT, new LanDiscovery.Listener() {
-                    @Override public void onPeer(String name, String host) { }
-                    @Override public void onStatus(String message) {
-                        broadcast("receiver_ready", message + " • Wi-Fi Direct also available when supported", 0, 0, null);
-                    }
-                });
-                updateNotification("Ready to receive", "Waiting via Wi-Fi Direct or the same Wi-Fi network", 0, false);
-                broadcast("receiver_ready", "Secure same-Wi-Fi receiver is ready", 0, 0, null);
                 while (running.get()) {
                     Socket socket = server.accept();
-                    if (!allowIncomingHandshake(socket)) continue;
                     activeSocket = socket;
                     try {
                         broadcast("connected", "Sender connected — verifying secure session", 0, 0, null);
@@ -257,7 +247,6 @@ public final class TransferService extends Service {
                 server.bind(new InetSocketAddress(STRIPED_TRANSFER_PORT));
                 while (running.get()) {
                     Socket socket = server.accept();
-                    if (!allowIncomingHandshake(socket)) continue;
                     executor.execute(() -> {
                         try {
                             new StripedTransferEngine(this).receive(socket, trustedStore, new StripedTransferEngine.Listener() {
@@ -306,7 +295,6 @@ public final class TransferService extends Service {
                 server.bind(new InetSocketAddress(PARALLEL_BENCHMARK_PORT));
                 while (running.get()) {
                     Socket socket = server.accept();
-                    if (!allowIncomingHandshake(socket)) continue;
                     executor.execute(() -> receiveTrustedBenchmark(socket));
                 }
             } catch (Exception ignored) {
@@ -335,16 +323,6 @@ public final class TransferService extends Service {
                 @Override public void onError(String sessionId, Throwable error, boolean resumable) { }
             });
         } catch (Exception ignored) { }
-    }
-
-    private boolean allowIncomingHandshake(Socket socket) {
-        String address = socket == null || socket.getInetAddress() == null
-                ? null : socket.getInetAddress().getHostAddress();
-        boolean allowed = handshakeLimiter.allow(address, System.nanoTime() / 1_000_000L);
-        if (!allowed && socket != null) {
-            try { socket.close(); } catch (Exception ignored) { }
-        }
-        return allowed;
     }
 
     private static final class BenchmarkSample {
@@ -504,8 +482,6 @@ public final class TransferService extends Service {
         final String initialHost = intent.getStringExtra(EXTRA_HOST);
         String requestedRoute = intent.getStringExtra(EXTRA_ROUTE);
         currentRoute = RoutePerformanceStore.ROUTE_LAN.equals(requestedRoute) ? RoutePerformanceStore.ROUTE_LAN : RoutePerformanceStore.ROUTE_DIRECT;
-        final String fallbackHost = AdaptiveRouteOrchestrator.verifiedLanFallback(
-                currentRoute, intent.getStringExtra(EXTRA_FALLBACK_HOST));
         final ArrayList<String> rawUris = intent.getStringArrayListExtra(EXTRA_URIS);
         if (initialHost == null || rawUris == null || rawUris.isEmpty()) {
             broadcast("error", "Missing receiver or files", 0, 0, null);
@@ -524,7 +500,7 @@ public final class TransferService extends Service {
                         ? wifiRecovery.capture(2500) : null;
                 String host = peer != null && peer.host != null ? peer.host : initialHost;
                 String peerAddress = peer == null ? null : peer.deviceAddress;
-                senderStore.save(host, peerAddress, currentRoute, fallbackHost, activeItems, activeManifest);
+                senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
                 if (shouldUseStripedTransfer()) {
                     try {
                         runStripedSender(host);
@@ -537,17 +513,12 @@ public final class TransferService extends Service {
                         stripedActive = false;
                         activeStripedEngine = null;
                         if (!running.get()) return;
-                        routeStore.recordParallelFailure(routeStore.parallelPeerFingerprint());
-                        accumulatedDataTransferMs = currentAccumulatedDataMs();
-                        dataTransferStartedNanos = 0L;
-                        resumedSession = accumulatedDataTransferMs > 0L;
-                        senderStore.updateElapsedDataMs(accumulatedDataTransferMs);
-                        latestBatchDone = 0L; latestSpeed = 0d;
-                        broadcast("parallel_fallback", "2-stream acceleration unavailable — using an isolated 1-stream session; a new benchmark is required before retrying acceleration", 0, 0, activeManifest.getSessionId());
+                        dataTransferStartedNanos = 0L; latestBatchDone = 0L; latestSpeed = 0d;
+                        broadcast("parallel_fallback", "2-stream acceleration unavailable — falling back safely to 1 stream", 0, 0, activeManifest.getSessionId());
                         updateNotification("Using reliable fallback", "Continuing with the normal encrypted resumable stream", 0, true);
                     }
                 }
-                runSenderLoop(host, peerAddress, fallbackHost, engine);
+                runSenderLoop(host, peerAddress, engine);
             } catch (Exception error) {
                 failSender(error);
             }
@@ -565,15 +536,12 @@ public final class TransferService extends Service {
 
     private void runStripedSender(String host) throws Exception {
         String expectedFingerprint = routeStore.parallelPeerFingerprint();
-        BatchManifest parallelManifest = new BatchManifest(
-                java.util.UUID.randomUUID().toString(), activeManifest.getCreatedAt(),
-                activeManifest.getEntries());
         StripedTransferEngine engine = new StripedTransferEngine(this);
         activeStripedEngine = engine; stripedActive = true;
         broadcast("parallel_started", "SmartRoute selected 2 encrypted streams • benchmark showed a meaningful gain", 0, 0, activeManifest.getSessionId());
         updateNotification("2-stream acceleration", "Sending large file over two authenticated encrypted streams", 0, true);
         try {
-            engine.send(host, STRIPED_TRANSFER_PORT, parallelManifest, activeItems.get(0), expectedFingerprint, new StripedTransferEngine.Listener() {
+            engine.send(host, STRIPED_TRANSFER_PORT, activeManifest, activeItems.get(0), expectedFingerprint, new StripedTransferEngine.Listener() {
                 @Override public void onIncoming(String sessionId, String name, long totalBytes, String fingerprint, StripedTransferEngine.Approval approval) { }
                 @Override public void onProgress(long done, long total, double speed) {
                     if (dataTransferStartedNanos == 0L && done > 0L) dataTransferStartedNanos = System.nanoTime();
@@ -588,7 +556,7 @@ public final class TransferService extends Service {
                     routeStore.recordSuccess(currentRoute, speed);
                     String summary = "Sent " + formatBytes(activeManifest.totalBytes()) + " in " + formatElapsed(durationMs / 1000.0) + " • avg " + formatSpeed(speed) + " • 2 encrypted streams • same Wi-Fi";
                     updateNotification("Transfer complete", summary, 100, false);
-                    broadcastCompleted(summary, activeManifest.getSessionId(), currentRoute);
+                    broadcastCompleted(summary, sessionId, currentRoute);
                 }
             });
         } finally { stripedActive = false; activeStripedEngine = null; }
@@ -679,19 +647,17 @@ public final class TransferService extends Service {
                 activeManifest = pending.manifest;
                 broadcast("reconnecting", "Restoring interrupted session…", 0, 0,
                         activeManifest.getSessionId());
-                runSenderLoop(pending.host, pending.peerAddress, pending.fallbackHost,
-                        new TransferEngine(this));
+                runSenderLoop(pending.host, pending.peerAddress, new TransferEngine(this));
             } catch (Exception error) {
                 failSender(error);
             }
         });
     }
 
-    private void runSenderLoop(String initialHost, String initialPeerAddress, String fallbackHost,
+    private void runSenderLoop(String initialHost, String peerAddress,
                                TransferEngine engine) throws Exception {
         int attempt = 0;
         String host = initialHost;
-        String peerAddress = initialPeerAddress;
         try {
             while (running.get() && attempt < MAX_SOCKET_RETRIES) {
                 attempt++;
@@ -719,42 +685,13 @@ public final class TransferService extends Service {
                                 activeManifest.getSessionId());
                         return;
                     }
-                    boolean directRecovered = false;
-                    if (RoutePerformanceStore.ROUTE_DIRECT.equals(currentRoute)
-                            && peerAddress != null && wifiRecovery.available()) {
+                    if (peerAddress != null && wifiRecovery.available()) {
                         String recoveredHost = wifiRecovery.recover(peerAddress, 12_000);
                         if (recoveredHost != null) {
-                            directRecovered = true;
                             host = recoveredHost;
-                            senderStore.updateConnection(host, peerAddress, currentRoute, fallbackHost);
+                            senderStore.save(host, peerAddress, currentRoute, activeItems, activeManifest);
                             broadcast("reconnecting",
                                     "Direct link restored — resuming encrypted session",
-                                    0, 0, activeManifest.getSessionId());
-                        }
-                    }
-                    if (AdaptiveRouteOrchestrator.shouldSwitchToLan(
-                            currentRoute, fallbackHost, directRecovered)) {
-                        routeStore.recordFailure(RoutePerformanceStore.ROUTE_DIRECT);
-                        host = fallbackHost.trim();
-                        peerAddress = null;
-                        fallbackHost = null;
-                        currentRoute = RoutePerformanceStore.ROUTE_LAN;
-                        senderStore.updateConnection(host, null, currentRoute, null);
-                        broadcast("route_switched",
-                                "Direct link unavailable — continuing from verified checkpoint over same Wi-Fi",
-                                0, 0, activeManifest.getSessionId());
-                        updateNotification("Switching to same Wi-Fi",
-                                "Keeping verified progress and reconnecting securely", 0, true);
-                    }
-                    if (AdaptiveRouteOrchestrator.shouldRediscoverLan(currentRoute, attempt)) {
-                        String recoveredLanHost = lanRecovery.recover(6_000L);
-                        String selectedHost = AdaptiveRouteOrchestrator.selectRecoveredLanHost(
-                                host, recoveredLanHost);
-                        if (!selectedHost.equals(host)) {
-                            host = selectedHost;
-                            senderStore.updateConnection(host, null, currentRoute, null);
-                            broadcast("reconnecting",
-                                    "Receiver found again after network change — verifying identity and resuming",
                                     0, 0, activeManifest.getSessionId());
                         }
                     }
