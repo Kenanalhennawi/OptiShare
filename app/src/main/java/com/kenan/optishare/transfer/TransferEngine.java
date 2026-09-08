@@ -7,12 +7,10 @@ import android.net.Uri;
 import com.kenan.optishare.device.DeviceIdentityKey;
 import com.kenan.optishare.model.TransferItem;
 import com.kenan.optishare.protocol.BatchManifest;
-import com.kenan.optishare.protocol.CapabilityNegotiation;
 import com.kenan.optishare.protocol.ResumeState;
 import com.kenan.optishare.protocol.ResumeStore;
 import com.kenan.optishare.protocol.ResumableProtocol;
 import com.kenan.optishare.protocol.SessionWire;
-import com.kenan.optishare.settings.AppSettings;
 import com.kenan.optishare.storage.DownloadStore;
 
 import java.io.BufferedInputStream;
@@ -81,7 +79,6 @@ public final class TransferEngine {
                      new BufferedOutputStream(socket.getOutputStream(), STREAM_BUFFER))) {
             SessionWire.Handshake handshake = SessionWire.clientHandshake(in, out);
             String peerFingerprint = exchangeClientIdentity(in, out, handshake);
-            CapabilityNegotiation.clientExchange(in, out, handshake.crypto);
             boolean trusted = peerFingerprint != null && listener.onPeerIdentity(peerFingerprint);
             if (!trusted) listener.onSecurityCode(handshake.securityCode);
             SessionWire.writeFrame(out, handshake.crypto, SessionWire.TYPE_MANIFEST,
@@ -164,9 +161,6 @@ public final class TransferEngine {
                         listener.onFileFailed(manifest.getSessionId(), entry.id, entry.name,
                                 new String(verifiedFrame.payload, java.nio.charset.StandardCharsets.UTF_8));
                         confirmedBefore = batchBase;
-                        if (!new AppSettings(context).continueAfterFileFailure()) {
-                            throw new IOException("File failed and queue continuation is disabled: " + entry.name);
-                        }
                         continue;
                     }
                     if (verifiedFrame.type != SessionWire.TYPE_ACK) {
@@ -188,7 +182,6 @@ public final class TransferEngine {
                     listener.onFileFailed(manifest.getSessionId(), entry.id, entry.name,
                             sourceError.getMessage());
                     confirmedBefore = batchBase;
-                    if (!new AppSettings(context).continueAfterFileFailure()) throw sourceError;
                 }
             }
 
@@ -219,7 +212,6 @@ public final class TransferEngine {
                      new BufferedOutputStream(socket.getOutputStream(), STREAM_BUFFER))) {
             SessionWire.Handshake handshake = SessionWire.clientHandshake(in, out);
             String peerFingerprint = exchangeClientIdentity(in, out, handshake);
-            CapabilityNegotiation.clientExchange(in, out, handshake.crypto);
             boolean trusted = peerFingerprint != null && listener.onPeerIdentity(peerFingerprint);
             if (!trusted) listener.onSecurityCode(handshake.securityCode);
 
@@ -280,7 +272,6 @@ public final class TransferEngine {
                      new BufferedOutputStream(socket.getOutputStream(), STREAM_BUFFER))) {
             SessionWire.Handshake handshake = SessionWire.serverHandshake(in, out);
             String peerFingerprint = exchangeServerIdentity(in, out, handshake);
-            CapabilityNegotiation.serverExchange(in, out, handshake.crypto);
             boolean trusted = peerFingerprint != null && listener.onPeerIdentity(peerFingerprint);
             if (!trusted) listener.onSecurityCode(handshake.securityCode);
             SessionWire.Frame manifestFrame = SessionWire.readFrame(in, handshake.crypto);
@@ -504,7 +495,7 @@ public final class TransferEngine {
         }
     }
 
-    static boolean isLocalSourceFailure(IOException error) {
+    private static boolean isLocalSourceFailure(IOException error) {
         String message = error.getMessage();
         return message != null && (message.startsWith("Cannot open source file:")
                 || message.startsWith("Unexpected end of source file:"));
